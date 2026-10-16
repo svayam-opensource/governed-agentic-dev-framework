@@ -68,7 +68,14 @@ drive "$(conv <<'C'
 < 1
 > Choose:
 < 1
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
+< 1
 > Install IBM Bob now
+< y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
 < y
 > Choose \[1-3\]
 < 2

@@ -12,7 +12,7 @@ describe("gov-work — CLI ↔ content version compat", () => {
     expect(r.message).to.match(/gov upgrade/);
   });
   it("CLI behind (same major) → warn, upgrade CLI (still ok)", () => {
-    const r = checkVersionCompat("1.1.0", "1.4.0");
+    const r = checkVersionCompat("1.1.0", "1.4.0", "linux");   // Windows says winget — its own case
     expect(r).to.include({ status: "cli-behind", ok: true });
     expect(r.message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
   });

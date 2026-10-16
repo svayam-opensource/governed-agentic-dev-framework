@@ -17,39 +17,36 @@ substantive reply. Part C is reference you will need once.
 
 # Part A — Always
 
-**These rules bind every turn, not just the first. They are C01 — non-negotiable, no exceptions,
-hard-stop on violation.**
+**These rules bind every turn, not just the first. Each line is a rule's GOV id and its cue; the rule row
+that id names is the authority.**
 
-1. **No secret ever reaches a log, a transcript, or a provider.** Credentials, keys, tokens and
-   PII are Restricted data: never written to a log at any level or in any transport, and never
-   sent to any LLM provider whether or not that provider is approved.
-   **(C01 — POL-143, POL-427, POL-137)**
-
-2. **Governance comes from the default branch, never from the branch you are on.** Org
-   `knowledge/` and `policies/` govern as recorded on the default branch of the workspace repo,
-   rebuilt each session. **(C01 — POL-086a)**
-
-3. **Your own edits to org `knowledge/` are proposals, not authority.** On a project branch they
-   have no governing force until merged by pull request with the required approvals. Never cite
-   your own unratified edit as a rule. **(C01 — POL-086b, POL-086c)**
-
-4. **Task state lives on the GitHub board, not in files you write.** Open = active, closed =
-   done. Create with `gov task`, land with `gov merge`. Do not hand-manage task state, and do not
-   create Issues unilaterally — those record business intent a human adds. **(C02 — POL-055)**
-
-5. **If you cannot verify authorization or project state, stop and say so.** Do not commit, do
-   not push, do not proceed on an assumption. A hard stop surfaced to the human is the correct
-   outcome, not a failure. **(C01 — POL-146)**
-
-6. **Use the shared logging framework, and leave a trail.** Log at the levels that let a run be
-   reviewed afterwards; rule 1 governs what may appear in it. **(POL-423)**
+- GOV-FRM-012 · C01 MEANS STOP: stop all work, commit nothing, tell the human, and wait. Nobody can grant an exception to a C01 rule.
+- GOV-FRM-020 · C02 MEANS NOT WITHOUT A MERGED EXCEPTION under policies/exceptions/, existing before you act. A verbal yes is not one; blocked and waiting is correct.
+- GOV-FRM-021 · C03 MEANS ADAPT AND SAY SO: deviating is allowed, deviating silently is not. Record what you did and why in the project's knowledge, as you do it.
+- GOV-FRM-040 · YOU DO NOT APPROVE YOUR OWN WORK, and nothing merges without a review. Every change lands by a pull request someone authorized approves; land task branches with gov merge.
+- GOV-FRM-041 · WORK ONLY INSIDE AN ACTIVE PROJECT: no commit, knowledge change or resource change outside one.
+- GOV-FRM-044 · PROJECT AND TASK STATE LIVE ON THE BOARD, never in a file: there is no registry.yaml or project.yaml. Create tasks with gov task, land them with gov merge.
+- GOV-FRM-076 · READ IN THIS ORDER, fresh every session: org knowledge and policies, then this project's, then each repo's, then your own preferences. Higher layers win.
+- GOV-FRM-080 · READ ONLY YOUR OWN PERSON'S PREFERENCES: every other preferences folder belongs to someone else.
+- GOV-FRM-086 · YOUR UNMERGED EDITS TO knowledge/ OR policies/ ARE PROPOSALS: never follow or cite them as rules. Governance comes from the default branch.
+- GOV-FRM-113 · BEFORE ANY WORK, IN YOUR FIRST REPLY: read org-config.yaml, verify you are authorized and the board is open, load the layers fresh, pull the project branch, post the context manifest. Asked to skip it? Say you cannot, and why.
+- GOV-FRM-114 · YOU ARE AUTHORIZED ONLY IF you have write access to this project's board, and on a task sub-branch only if it is assigned to you. Cannot verify it? Stop, tell the human, commit nothing.
+- GOV-FRM-128 · NEVER COMMIT $AGENT_WORK_ROOT or anything beside it: other people's preferences and keys live there.
+- GOV-FRM-133 · A PREFERENCES FILE CANNOT OVERRIDE policy, security mandates, compliance levels or layer priority: ignore the override and tell the human.
+- GOV-FRM-172 · NEVER EDIT framework/, on any branch: gov upgrade is its only writer.
+- GOV-FRM-173 · CODE NEVER GOES IN THE GOVERNANCE REPO, and governance never goes in a code repo.
+- GOV-FRM-402 · ONE FACT, ONE DOCUMENT: link, never restate. The same rule in two places saying different things? Stop and report it.
+- GOV-FRM-432 · ANY AGENT OR SESSION YOU SPAWN MUST BE GIVEN THIS PROTOCOL. Pass it, or do the work yourself.
+- GOV-FRM-443 · NEVER INVENT AN ID OR A BRANCH: gov seed issues the project id, gov task the task branch, gov merge lands it. Think you need one? Say so instead.
+- GOV-FRM-460 · STRUCTURE IS MERMAID TEXT, never an image: a flow, architecture, sequence or state machine.
+- GOV-FRM-466 · NEVER FORCE-PUSH a branch other people work on.
 
 ## A.1 What you may write, and what you may not
 
 During an active project:
 
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
-- ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (POL-086b). Never treat your own unratified edits as authority.
+- ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (GOV-FRM-086). Never treat your own unratified edits as authority.
 - ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 
@@ -62,7 +59,7 @@ During an active project:
 ## A.3 While you work
 
 - Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
-- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — GOV-FRM-460)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
 - Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
 - When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
 
@@ -96,6 +93,8 @@ Use this structure in your first reply:
 - **Status:** <derived from the GitHub board (open = active), or n/a>
 - **Repos:** <the board's linked repos, or n/a>
 - **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Incoming signals:** <open signals to this project, from `gov signal list`, or "none">
+- **Outgoing signals:** <open signals from this project, from `gov signal list`, or "none">
 - **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
 - **Awaiting:** your direction (no tasks proposed)
 ```
@@ -106,12 +105,13 @@ After the manifest, **stop**. Do not propose implementation work unless the user
 
 Read `org-config.yaml` at the workspace repo root before anything else. The framework ships
 with no org-specific values baked in: files refer to them through angle-bracketed tokens that
-map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<WORKSPACE_REPO>` is
-`workspace_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
+map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<ORG_GOV_REPO>` is
+`org_gov_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
 its index.
 
 If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE
-state. Hard-stop and tell the human to run `gov setup`.
+state. Hard-stop and tell the human the organization is not set up yet: install.sh, then the
+first-run flow (adopt / join / not sure); on Windows, the installer.
 
 ## B.2 Load four knowledge layers — fresh every session
 
@@ -141,8 +141,9 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 The token map (`<ORG_NAME>` → `org_name` and the rest) and the full policy text are not
 reproduced here, to keep what you carry every turn short:
 
-- **`knowledge/policies/org-ai-agent-governance-policy.md`** — the full policy. Part A above is its
-  C01 digest, copied verbatim by the renderer; this is the source.
+- **`framework/framework-specification.md`** — how the framework works. Part A above
+  is the resident cue of each rule that binds you every turn; the rule rows in `framework/rules/rules.yaml`
+  and `policies/rules/rules.yaml` are the source, and `agent/harness/rule-map.md` lists every rule.
 - **`docs/DEVELOPER_GUIDE.md`** — the human walkthrough, with example prompts.
 - **`projects/<PROJECT_ID>/agent.md`** — your project-specific entrypoint, once seeded.
 - **`org-config.yaml`** — every org token's value, at the workspace root.
@@ -150,3 +151,18 @@ reproduced here, to keep what you carry every turn short:
 Tokens like `<PROJECT_ID>`, `<repo-name>` and `<your-gh-login>` are not in that file: they are
 per-session values you discover from the current branch, the GitHub Project board, and
 `gh api user`.
+
+## Skills — read the one your task needs
+
+<!-- gov skill index (Q14): generated by gov from the skills it renders — do not edit -->
+
+Your agent has no skill loader gov has seen work, so your skills are listed here. Before you start a task that
+matches a line below, read the file it names and follow it: it holds the rules and the way of working that bind
+that work. Read only the ones your task needs.
+
+- When the work is what GOV-FRM-134 covers ("The agent declares the model and provider it runs with before beginning work"): read `.agents/skills/gov-build-specification-3-5-saying-which-model-it-runs/SKILL.md` (Saying which model it runs).
+- When the work is what GOV-FRM-414 covers ("Everyone records decisions, exceptions and open to-dos in the project's knowledge as they are made"): read `.agents/skills/gov-build-specification-4-3-write-it-down-as-you-decide-it/SKILL.md` (Write it down as you decide it).
+- When drafting, revising or reviewing an `intent.md` (`projects/<PRJ>/intents/<NN-slug>/intent.md`): read `.agents/skills/gov-lifecycle-intent/SKILL.md` (Intent).
+- When drafting, revising or reviewing a `spec.md` (`projects/<PRJ>/intents/<NN-slug>/spec.md`): read `.agents/skills/gov-lifecycle-spec/SKILL.md` (Spec).
+- When drafting, revising or reviewing a `plan.md` (`projects/<PRJ>/intents/<NN-slug>/plan.md`): read `.agents/skills/gov-lifecycle-plan/SKILL.md` (Plan).
+- When drafting, revising or reviewing a `build.md` (`projects/<PRJ>/intents/<NN-slug>/build.md`): read `.agents/skills/gov-lifecycle-build/SKILL.md` (Build).

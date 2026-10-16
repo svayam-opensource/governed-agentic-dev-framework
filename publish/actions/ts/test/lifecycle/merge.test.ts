@@ -4,6 +4,7 @@ import { expect } from "chai";
 import { merge, type MergeConfig, type MergeInput } from "../../src/lifecycle/merge.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import { pxDeep } from "../helpers/paths.js";
 
@@ -22,14 +23,17 @@ function fakeIssues() {
   const issues: Issues = {
     state: () => "OPEN",
     assign: () => {},
-    setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
     close: (u, c) => acted.push(`close ${u} :: ${c}`),
     resolveIssueUrl: () => null,
-    closeBoard: () => {},
   };
-  return { issues, acted };
+  // The board Status goes through the WorkTrackerPort now (gadf#225); same log, so the order stays visible.
+  const tracker: BoardWriter = {
+    setState: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
+    closeProject: () => ({ ok: true }),
+  };
+  return { issues, acted, tracker };
 }
-function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: boolean; hasRemoteTask?: boolean } = {}) {
+function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: boolean; dirtyPaths?: string[]; hasRemoteTask?: boolean } = {}) {
   const log: string[] = [];
   const vcs: Vcs = {
     localBranchExists: () => false,
@@ -43,7 +47,8 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     revParse: () => null,
     currentBranch: () => "BRNCH-43-governance-common-project",
     isAncestor: () => opts.alreadyMerged ?? false,
-    isClean: () => !(opts.dirty ?? false),
+    isClean: () => !(opts.dirty ?? false) && !(opts.dirtyPaths?.length),
+    dirtyPaths: () => opts.dirtyPaths ?? (opts.dirty ? ["src/main.ts"] : []),
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
@@ -56,6 +61,7 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     pushDelete: (r, _rm, b) => log.push(`pushDelete ${r} ${b}`),
     clone: () => {},
     fetch: () => {},
+    fetchDefault: () => "remote-sha",
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: () => {},
@@ -73,8 +79,8 @@ const input = (taskArg = ISSUE): MergeInput => ({ govClone: GOV, projectWorkRoot
 describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
   it("merges the sub-branch across repos, archives it, and closes the issue", () => {
     const { vcs, log } = fakeVcs();
-    const { issues, acted } = fakeIssues();
-    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, input());
+    const { issues, acted, tracker } = fakeIssues();
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues, tracker }, CONFIG, input());
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.taskId).to.equal(TASK_ID);
@@ -85,7 +91,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     expect(log).to.include(`tag ${GOV} archive/${TASK_ID}`);
     expect(log).to.include(`pushDelete ${GOV} ${TASK_ID}`);
     expect(acted[0]).to.match(/^close .*issues\/123 :: Task `BRNCH-43.*` merged/);
-    expect(acted).to.include(`status ${ISSUE} Done`);
+    expect(acted).to.include(`status ${ISSUE} done`);
   });
 
   it("is idempotent: an already-merged sub-branch is skipped, still archived", () => {
@@ -113,6 +119,30 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     if (!r.ok) expect(r.reason).to.equal("dirty");
   });
 
+  // PRJ-121 Item 6 (Q7): gov writes its own harness into every clone, untracked, and rewrites it whenever the
+  // rendered text changes. Those files are gov's regenerable output, not anybody's work, so they never block a merge.
+  it("Q7: a clone holding only gov's own harness files (untracked or modified) does not block the merge", () => {
+    const only = ["AGENTS.md", "CLAUDE.md", ".cursor/rules/agent.mdc", ".github/copilot-instructions.md"];
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: only }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+  });
+
+  it("Q7: one file of the developer's beside gov's harness refuses, naming that file and not gov's", () => {
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: [".cursor/rules/agent.mdc", "src/main.ts"] }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("dirty");
+    expect(r.message).to.equal(`Uncommitted changes in ${GOV}: src/main.ts — commit or stash first.`);
+  });
+
+  it("Q7: seven user files → five named, then '+2 more'", () => {
+    const seven = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts"];
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: ["CLAUDE.md", ...seven] }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.message).to.equal(`Uncommitted changes in ${GOV}: a.ts, b.ts, c.ts, d.ts, e.ts, +2 more — commit or stash first.`);
+  });
+
   it("refuses when the sub-branch isn't on the remote", () => {
     const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs({ hasRemoteTask: false }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(false);
@@ -125,5 +155,91 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs().vcs, fs: fsPresent(true), issues: resolved }, CONFIG, input(`${TASK_ID}`));
     expect(r.ok).to.equal(true);
     if (r.ok) expect(r.issueUrls).to.deep.equal(["https://x/issues/123"]);
+  });
+});
+
+/**
+ * WHAT GOVERNED THIS CHANGE (design §10.10).
+ *
+ * Every test here is about a way the stamp could make things worse: failing a merge that has already landed,
+ * looking for a pull request after the branch it is found by has been deleted, or reporting success when it
+ * recorded nothing.
+ */
+describe("merge — the governance stamp", () => {
+  const STAMP = ["<!-- gov:governed-by -->", "`gov-rules-hash: aaaabbbbccccdddd`", "<!-- /gov:governed-by -->"];
+
+  it("stamps the pull request in every repo the merge touched", () => {
+    const seen: { repoDir: string; head: string }[] = [];
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: (repoDir, head) => { seen.push({ repoDir, head }); return "stamped"; },
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(pxDeep(seen.map((s) => s.repoDir))).to.deep.equal([GOV, CODE_DIR]);
+    expect(seen.every((s) => s.head === TASK_ID)).to.equal(true);
+    expect(r.stamp!.placed.map((p) => p.outcome)).to.deep.equal(["stamped", "stamped"]);
+  });
+
+  it("stamps BEFORE archiving — a pull request is found by its head branch, and archiving deletes it", () => {
+    const order: string[] = [];
+    const { vcs } = fakeVcs();
+    const watched = { ...vcs, tag: (r: string, t: string) => order.push(`tag ${r} ${t}`) };
+    merge({
+      board: fakeBoard(), authorize: () => true, vcs: watched, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => { order.push("stamp"); return "stamped"; },
+    }, CONFIG, input());
+    expect(order[0], "stamping after the archive would find no branch and report 'no pull request'").to.equal("stamp");
+  });
+
+  it("a task with no pull request is not a failure — the facts are carried by the result instead", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => "no-pr",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.stamp!.lines).to.deep.equal(STAMP);
+    expect(r.stamp!.placed.every((p) => p.outcome === "no-pr")).to.equal(true);
+  });
+
+  it("an uncomputable stamp does NOT fail the merge — the work has already landed", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ error: "this workspace has never run `gov rules build`" }),
+      stampPr: () => "stamped",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.stamp!.error).to.contain("never run");
+    expect(r.stamp!.placed).to.deep.equal([]);
+  });
+
+  it("a pull request that could not be edited is reported, and the merge still succeeds", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => "failed",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.stamp!.placed.every((p) => p.outcome === "failed")).to.equal(true);
+  });
+
+  it("with no stamp port wired, merge behaves exactly as it did before §10.10", () => {
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.stamp).to.equal(undefined);
+  });
+
+  it("nothing is stamped when the merge never completed — a conflict leaves no record to make", () => {
+    let called = false;
+    merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ conflict: true }).vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => { called = true; return { lines: STAMP }; },
+    }, CONFIG, input());
+    expect(called).to.equal(false);
   });
 });

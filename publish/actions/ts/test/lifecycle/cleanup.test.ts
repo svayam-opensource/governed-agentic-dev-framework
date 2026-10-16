@@ -25,7 +25,7 @@ function vcs(over: Partial<Vcs> = {}): { v: Vcs; calls: string[] } {
   const calls: string[] = [];
   const noop = () => {};
   const v = {
-    refExists: () => true, isAncestor: () => true, isClean: () => true,
+    refExists: () => true, isAncestor: () => true, isClean: () => true, dirtyPaths: () => [],
     localBranchExists: () => false, remoteBranchExists: () => false, headSha: () => "h",
     lsRemoteHeads: () => [], lsRemoteRefs: () => [], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => null, remoteBranchesMatching: () => [],
@@ -66,12 +66,29 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
     expect(s.verdict.kind).to.equal("reversible");
   });
 
+  it("gov's OWN harness in a clone does not count as uncommitted work", () => {
+    // Gov writes nine untracked files into every code repo on launch. `git status --porcelain` counts untracked
+    // files, so before this the refusal that exists to protect unpushed work fired on gov's own output, for every
+    // repo, forever — and the first fix (hiding them in `.git/info/exclude`) was reversed, because a hidden file
+    // can never be part of the ordinary commit that tracks it. So gov discounts its own files by name: it can
+    // rewrite them from the governance repo, which is exactly what a developer's edit is not.
+    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, dirtyPaths: () => ["AGENTS.md", "CLAUDE.md", ".cursor/rules/agent.mdc"] });
+    const step = classify(e, CFG, { kind: "workspace-dir", path: "/awr/PRJ-9" }, PATHS);
+    expect(step.verdict.kind, "nothing of the developer's is at risk").to.not.equal("refused");
+  });
+
+  it("but a real edit beside gov's files still refuses", () => {
+    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, dirtyPaths: () => ["AGENTS.md", "src/main.ts"] });
+    const step = classify(e, CFG, { kind: "workspace-dir", path: "/awr/PRJ-9" }, PATHS);
+    expect(step.verdict.kind).to.equal("refused");
+  });
+
   it("a work root with UNCOMMITTED changes is REFUSED, not offered with a warning", () => {
     // The distinction the issue turns on: a confirmation cannot make destroying unpushed edits
     // correct, so gov must not present one. It names the repos so the operator can go and commit.
     const { e } = env(
       { readdir: () => ["svm-prj-work", "app"], fs: { pathExists: () => true } },
-      { isClean: (d: string) => !d.endsWith("app") },
+      { isClean: (d: string) => !d.endsWith("app"), dirtyPaths: (d: string) => (d.endsWith("app") ? ["src/main.ts"] : []) },
     );
     const s = classify(e, CFG, A.workspaceDir, PATHS);
     expect(s.verdict.kind).to.equal("refused");
@@ -80,7 +97,7 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
   });
 
   it("a refused step is never executed, even if a caller asks", () => {
-    const { e, calls } = env({ readdir: () => ["app"] }, { isClean: () => false });
+    const { e, calls } = env({ readdir: () => ["app"] }, { isClean: () => false, dirtyPaths: () => ["src/main.ts"] });
     const s = classify(e, CFG, A.workspaceDir, PATHS);
     const r = reverse(e, CFG, s, PATHS);
     expect(r.ok).to.equal(false);
@@ -130,7 +147,7 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
   it("each artifact is judged on ITS OWN evidence — a dirty work root does not save a merged branch", () => {
     // The all-or-nothing failure the issue calls out, in reverse: one refusal must not silently
     // downgrade the others, and must not authorise them either.
-    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, isAncestor: () => true });
+    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, isAncestor: () => true, dirtyPaths: () => ["src/main.ts"] });
     const plan = planCleanup(e, CFG, [A.workspaceDir, A.localBranch, A.homeStub], PATHS);
     expect(plan.map((s) => s.verdict.kind)).to.deep.equal(["refused", "reversible", "needs-consent"]);
     expect(hasRefusals(plan)).to.equal(true);
@@ -169,7 +186,7 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
   });
 
   it("the plan reads as a plan — every line says what and why, and refusals are called out", () => {
-    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, isAncestor: () => false });
+    const { e } = env({ readdir: () => ["app"] }, { isClean: () => false, isAncestor: () => false, dirtyPaths: () => ["src/main.ts"] });
     const text = planLines(planCleanup(e, CFG, [A.workspaceDir, A.remoteBranch], PATHS)).join("\n");
     expect(text).to.include("[REFUSE]");
     expect(text).to.include("[ask   ]");

@@ -24,11 +24,27 @@ describe("gov-work — gov agent reports (#196)", () => {
     expect(text).to.contain("has not approved any agents yet");
   });
 
-  it("an EMPTY block is a decision, and reads as one", () => {
-    // Different from "no block": somebody decided on nothing.
-    const text = formatAgentReport(agentReport({ approved: [], hasTool: () => false, env: {} })).join("\n");
-    expect(text).to.contain("Nothing is approved");
-    expect(text).to.contain("gov agent approve");
+  it("an EMPTY list is a decision — structure-only — and reads as a STATE, not a problem", () => {
+    // Different from "no block": the organization answered, and the answer was `none`. It used to
+    // print "Nothing is approved. Add one…", which reads as an oversight about an org that had
+    // just decided it runs no agents.
+    const r = agentReport({ approved: [], hasTool: () => false, env: {} });
+    expect(r.structureOnly, "and the report says which empty this is").to.equal(true);
+    expect(r.usingDefaults, "it is NOT the undecided state").to.equal(false);
+    const text = formatAgentReport(r).join("\n");
+    expect(text).to.contain("none authorized (structure-only)");
+    expect(text, "the fixed process is what they are left with, and it is complete").to.contain("development process");
+    expect(text, "and turning agents on is one named command").to.contain("gov agent approve");
+    expect(text, "no scolding about an empty list").to.not.contain("Nothing is approved");
+    expect(text, "and it is not reported as an undecided org").to.not.contain("has not approved any agents yet");
+  });
+
+  it("refuses an install for a structure-only org by naming the DECISION, not one missing approval", () => {
+    const plan = planAgentInstall("claude-code", [], () => false);
+    expect(plan.ok).to.equal(false);
+    if (plan.ok) return;
+    expect(plan.message).to.contain("authorizes no AI agents");
+    expect(plan.message, "and the way to change it").to.contain("gov agent approve claude-code");
   });
 
   it("reports a missing key by its absence, never by reading one", () => {
@@ -78,10 +94,12 @@ describe("gov-work — gov agent install (#196)", () => {
   it("runs a vendor script too — approval IS the trust decision", () => {
     // Gating on npm-vs-curl would be gov second-guessing a reviewed decision by the
     // Infrastructure Owner (#196, Q2).
-    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false);
+    // On a POSIX machine: on Windows a curl|bash installer is refused with the vendor's URL (the win32 cases below).
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "linux");
     expect(p.ok).to.equal(true);
     if (!p.ok) return;
-    expect(p.steps.map((s) => s.command[0])).to.include("sh");
+    // Run as a verified download now, not `sh -c "curl | bash"` (#205) — agent-script-pin.test.ts.
+    expect(p.steps.some((s) => s.script?.url === "https://cursor.com/install")).to.equal(true);
   });
 
   it("installs an extension into a host that exists", () => {
@@ -103,5 +121,58 @@ describe("gov-work — gov agent install (#196)", () => {
     expect(p.ok).to.equal(false);
     if (p.ok) return;
     expect(p.message).to.contain("already installed");
+  });
+});
+
+describe("gov-work — gov agent install on Windows (#223, plan 04 T10)", () => {
+  it("installs an npm agent with the same argv — the chokepoint resolves npm.cmd, not the planner", () => {
+    const p = planAgentInstall("claude-code", [{ id: "claude-code" }], () => false, "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["npm", "install", "-g", "@anthropic-ai/claude-code"]);
+  });
+
+  it("refuses a curl | bash installer on Windows, naming where to get the agent instead", () => {
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "win32");
+    expect(p.ok).to.equal(false);
+    if (p.ok) return;
+    expect(p.message).to.contain("does not run on Windows");
+    expect(p.message).to.contain("https://cursor.com/cli");
+  });
+
+  it("never plans `sh -c` on Windows", () => {
+    for (const id of ["cursor", "ibm-bob"]) {
+      const p = planAgentInstall(id, [{ id }], () => false, "win32");
+      if (p.ok) expect(p.steps.map((s) => s.command[0])).to.not.include("sh");
+    }
+  });
+
+  it("installs a pip agent as `python -m pip`, never a bare `pip` (a .exe shim that is often missing)", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], has("python"), "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["python", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("uses the `py` launcher on Windows when `python` is absent", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], () => false, "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["py", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("uses python3 -m pip off Windows when python3 is there", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], has("python3"), "linux");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["python3", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("still runs the vendor script off Windows", () => {
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "linux");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    // Run as a verified download now, not `sh -c "curl | bash"` (#205) — agent-script-pin.test.ts.
+    expect(p.steps.some((s) => s.script?.url === "https://cursor.com/install")).to.equal(true);
   });
 });

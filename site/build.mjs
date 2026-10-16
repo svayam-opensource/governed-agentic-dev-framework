@@ -431,10 +431,12 @@ if (verify) {
     if (!page.includes(needed)) fail.push(`index.html does not state ${needed}`);
   }
   if (page.includes("{{")) fail.push("index.html has an unsubstituted {{TOKEN}}");
-  // The copy button hands over whatever is in #cmd-unix. Piped into bash, a failed download exits 0.
-  const primary = page.match(/<code id="cmd-unix">([^<]*)<\/code>/)?.[1] ?? "";
-  if (!primary.includes("-o install.sh")) fail.push("the primary install command does not fetch to a file first");
-  if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push("the primary install command pipes curl into bash, which hides a failed download");
+  // The copy buttons hand over whatever is in #cmd-mac / #cmd-linux. Piped into bash, a failed download exits 0.
+  for (const id of ["cmd-mac", "cmd-linux"]) {
+    const primary = page.match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
+    if (!primary.includes("-o install.sh")) fail.push(`the #${id} install command does not fetch to a file first`);
+    if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push(`the #${id} install command pipes curl into bash, which hides a failed download`);
+  }
   if (env.label && !page.includes(env.label)) fail.push("a non-prod build is missing its environment banner");
   if (!env.label && page.includes("envbar")) fail.push("the prod build carries an environment banner");
   for (const f of ["index.html", "style.css", "install.sh", "install.ps1", "CNAME", "robots.txt"]) {

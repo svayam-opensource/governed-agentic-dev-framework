@@ -84,7 +84,10 @@ new_world() {
   export GH_STUB_TEMPLATE="$(cd "$TS_DIR/../../.." && pwd)"
   # `gov` as a wrapper on the built binary — the same shape install.sh writes, so PATH
   # behaves the way it does on a real machine.
-  printf '#!/usr/bin/env bash\nexec node "%s/lib/esm/cli/bin.js" "$@"\n' "$TS_DIR" > "$WORLD/bin/gov"
+  # The one addition: e2e/stub/vendor-fetch.mjs answers gov's own vendor-script download from the
+  # scenario's `curl` double (#205 moved the download into Node — see that file).
+  export GOV_E2E_VENDOR_CURL="$WORLD/bin/curl"
+  printf '#!/usr/bin/env bash\nexec node --import "%s/stub/vendor-fetch.mjs" "%s/lib/esm/cli/bin.js" "$@"\n' "$HERE" "$TS_DIR" > "$WORLD/bin/gov"
   chmod +x "$WORLD/bin/gh" "$WORLD/bin/git" "$WORLD/bin/gov"
   no_agents_installed
   TRANSCRIPT="$WORLD/transcript.txt"      # exactly what the terminal received, codes and all
@@ -142,23 +145,35 @@ harness_files() {
 
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
-  mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
+  mkdir -p "$dir/framework/rules" "$dir/framework/build/templates" "$dir/policies" "$dir/agent" "$dir/knowledge"
   cat > "$dir/org-config.yaml" <<YAML
 org_name: "$org Ltd"
 org_short_name: "$org"
 org_slug: "$slug"
-org_slug_lower: "$(echo "$slug" | tr '[:upper:]' '[:lower:]')"
 org_repo_url: "git@github.com:$org/$org-gov.git"
 github_org: "$org"
-workspace_repo: "$org-gov"
+org_gov_repo: "$org-gov"
 default_branch: "main"
 default_code_branch: "dev"
-agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projects"
-policy_owner_email: "owner@example.test"
+YAML
+  # The governance choices, in their own file since the org-config split. The work root is the default,
+  # ~/.gov/<slug>/projects — a person's own, never a key in either file.
+  cat > "$dir/policies/governance.yaml" <<YAML
+governance_posture: "soft"
+policy_owner:
+  email: "owner@example.test"
+  github: ""
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
-  cp "$CONTENT_DIR/governance/policies/llm-governance.md" "$dir/governance/policies/" 2>/dev/null \
-    || echo "# llm governance" > "$dir/governance/policies/llm-governance.md"
+  cp "$CONTENT_DIR/framework/framework-specification.md" "$dir/framework/" 2>/dev/null \
+    || echo "# framework specification" > "$dir/framework/framework-specification.md"
+  cp "$CONTENT_DIR"/framework/rules/*.yaml "$dir/framework/rules/" 2>/dev/null || true
+  # A CURRENT governance repo carries the todo template a project is seeded from, and the content VERSION. Without
+  # them gov rightly reads the repo as an older framework (F15/F16) and offers nothing to start — the fixture's
+  # `framework/build/templates/` was an empty folder, which git does not even keep.
+  cp "$CONTENT_DIR/framework/build/templates/todo-template.md" "$dir/framework/build/templates/" 2>/dev/null \
+    || printf '# todo — <PROJECT_ID>\n\n## Open\n\n## Done\n' > "$dir/framework/build/templates/todo-template.md"
+  cp "$CONTENT_DIR/VERSION" "$dir/VERSION" 2>/dev/null || true
 
   # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
   #
@@ -183,7 +198,9 @@ YAML
       return 1
     fi
   done
-  ( cd "$dir" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
+  # `-b main`, because org-config says so: gov reads the harness from `default_branch` (GOV-FRM-456), and a CI
+  # container's git still names its first branch `master`.
+  ( cd "$dir" && git init -q -b main . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
 }
 
 # A project workspace as a REAL join leaves it: a git dir, and the rendered harness in it.
@@ -193,8 +210,22 @@ YAML
 # project with no governance in it — and gov now refuses to launch an agent into exactly that.
 # The shortcut was fine while nothing checked; it is a false world now, so it has a helper that
 # builds the true one.
+#
+# A CLONE, WHEN THERE IS A GOVERNANCE REPO TO CLONE (GOV-FRM-456, rule-model-design.md P3 wave 1). gov builds the
+# harness from the governance repo's DEFAULT BRANCH, read through git in this folder — never from the files in its
+# working tree, which belong to a project branch. An empty `.git` beside copied files has no default branch, so gov
+# rightly refused to launch into it ("could not read the default branch 'main'"). A real join leaves a git
+# checkout of the governance repo on the project branch, with `main` reachable; that is what this builds when the
+# scenario has made the remote. Without one, the old shape stays: only scenarios that never launch an agent use it.
 fake_joined_project() {
-  local project_dir="$1" ws="$2"
+  local project_dir="$1" ws="$2" remote="$GIT_STUB_REMOTES/$2"
+  if [ -d "$remote/.git" ]; then
+    local id; id="$(basename "$project_dir")"           # PRJ-<n>-<slug> → BRNCH-<n>-<slug>
+    mkdir -p "$project_dir"
+    /usr/bin/git clone -q "$remote" "$project_dir/$ws" || { printf 'fake_joined_project: could not clone %s\n' "$remote" >&2; return 1; }
+    /usr/bin/git -C "$project_dir/$ws" checkout -q -b "BRNCH-${id#PRJ-}"
+    return 0
+  fi
   mkdir -p "$project_dir/$ws/.git"
   # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
   # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
@@ -210,16 +241,26 @@ fake_joined_project() {
   done
 }
 
-# Record the org's approved agents the way `gov agent approve` would.
+# Record the org's authorized agents the way `gov agent approve` would — in policies/governance.yaml since the
+# org-config split (2026-10-06): the framework publishes the master list, the org records which of them are ours.
 approve_agents() {
-  local file="$1/governance/policies/llm-governance.md"; shift
-  { printf '\n```yaml\napproved_agents:\n'
-    local first=1
+  local file="$1/policies/governance.yaml"; shift
+  { printf '\nauthorized_agents:\n'
+    local first=1 n=0
     for id in "$@"; do
-      printf '  - id: %s\n' "$id"
-      [ $first = 1 ] && printf '    default: true\n'; first=0
-    done
-    printf '```\n'; } >> "$file"
+      if [ $first = 1 ]; then printf '  default: "%s"\n' "$id"; first=0
+      else n=$((n+1)); printf '  agent%d: "%s"\n' "$n" "$id"; fi
+    done; } >> "$file"
+}
+
+# THE OTHER ANSWER TO THE SAME QUESTION: this organization runs NO AI agents (structure-only).
+#
+# Written the way gov writes it — a SCALAR. Not an empty block: `policies/governance.yaml` ships
+# `authorized_agents:` with `default: ""` under it, so an empty block is what an unanswered setup
+# looks like, and a fixture spelled that way would be testing "nobody has decided" while claiming
+# to test a decision.
+authorize_no_agents() {
+  printf '\nauthorized_agents: none\n' >> "$1/policies/governance.yaml"
 }
 
 # ── driving ───────────────────────────────────────────────────────────────────
@@ -247,7 +288,13 @@ conv() { CONV="$WORLD/conv.$$"; cat > "$CONV"; echo "$CONV"; }
 saw()     { grep -qF -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected: %s%s\n' "$DIM" "$2" "$RST"; }; }
 saw_re()  { grep -qE -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected /%s/%s\n' "$DIM" "$2" "$RST"; }; }
 never()   { grep -qF -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
-says()    { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; }; }
+# On a miss, show the closest thing gov DID say (lines sharing the expectation's first words) — CI then explains its
+# own failure instead of only naming what was missing (scenario 72 failed in CI only, and the log could not say why).
+near()    { local k="${2:0:14}" hits; hits="$(grep -nF -- "$k" "$1" 2>/dev/null | head -3)"
+            # Nothing close at all: show the top of the screen — the banner, where the state is named.
+            [ -n "$hits" ] || hits="$(grep -n -v '^[[:space:]]*$' "$1" 2>/dev/null | head -6)"
+            printf '%s\n' "$hits" | sed "s/^/${DIM}     near: /;s/\$/${RST}/"; }
+says()    { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; near "$FLAT" "$2"; }; }
 never_says(){ grep -qF -- "$2" "$FLAT" && { fail "$1"; printf '%s     forbidden sentence: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 never_re(){ grep -qE -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden /%s/%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 # Colour lives in the RAW transcript, and is asserted as "this phrase arrived painted" —
@@ -262,7 +309,13 @@ exists()  { [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path
 runs()    { "$@" >/dev/null 2>&1; }
 dump()    { printf '%s--- transcript ---%s\n%s\n' "$DIM" "$RST" "$(sed 's/^/    /' "$PLAIN")"; }
 
-[ -f "$TS_DIR/lib/esm/cli/bin.js" ] || ( cd "$TS_DIR" && npm run build >/dev/null 2>&1 )
+# Build when lib/ is missing OR STALE (PRJ-121 intent 05, Item 7a): a lib/ compiled before the last src/ change was
+# run silently when this only checked that bin.js existed. scripts/lib-fresh.mjs compares src/** + tsconfig*.json
+# with the fingerprint the build recorded. A failed build stops the run — it is never followed by the old lib/.
+node "$TS_DIR/scripts/lib-fresh.mjs" --root "$TS_DIR" 2>/dev/null || {
+  printf 'lib/ missing or stale — building gov (npm run build)\n' >&2
+  ( cd "$TS_DIR" && npm run build >/dev/null 2>&1 ) || { printf 'npm run build failed in %s\n' "$TS_DIR" >&2; exit 1; }
+}
 
 export HERE TS_DIR CONTENT_DIR
 shopt -s nullglob

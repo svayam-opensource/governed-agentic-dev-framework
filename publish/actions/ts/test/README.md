@@ -39,7 +39,7 @@ echo 'has "$(gov deps 2>&1)" "git" "gov deps lists prerequisites"' \
 `e2e/adopter-journey.sh` runs the full lifecycle against real GitHub, self-cleaning.
 **Real-GitHub lifecycle conditions go here** (a new step in seed→task→merge→close).
 Run: `E2E_ORG=<throwaway-org> GH_TOKEN=<token> npm run test:adopter`. Gated in CI on
-`GOV_E2E_TOKEN` + `GOV_E2E_ORG`; skips (never fails) when unset.
+`TESTBED_BOT_PAT` + `TESTBED_SANDBOX_ORG`; skips (never fails) when unset, naming what is missing.
 
 ## Where does a new test go?
 

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:svayam-opensource:gov:check-seam:seal",
+  "title": "segment seal line",
+  "description": "The last line of a segment. root = sha256 over the concatenated 32-byte sha256 digests of the canonical JSON of each record line; sig = Ed25519 (base64url) over the canonical JSON of the seal object without sig.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "seal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "segment": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,199}$"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "root": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "chainPrev": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "writer": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "cert": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "sig": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "segment",
+        "count",
+        "root",
+        "chainPrev",
+        "writer",
+        "cert",
+        "sig"
+      ]
+    }
+  },
+  "required": [
+    "seal"
+  ]
+}

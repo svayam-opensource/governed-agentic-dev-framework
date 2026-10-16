@@ -17,7 +17,8 @@
  *   gov agent approve <id>   propose adding one — a pull request, not an edit
  */
 import { AGENT_CATALOG, variantStatuses, runnableVariants, type AgentCandidate, type VariantStatus } from "./agent-catalog.js";
-import { defaultAgent, type ApprovedAgent } from "../config/approved-agents.js";
+import { defaultAgent, NO_AGENTS, type ApprovedAgent } from "../config/approved-agents.js";
+import type { VendorScript } from "./vendor-script.js";
 
 export interface AgentReportFacts {
   /** The org's block, or null when the policy carries none. */
@@ -42,6 +43,13 @@ export interface AgentReport {
   /** Approved agents the framework has no harness for — should be impossible; reported if it happens. */
   readonly unknownIds: readonly string[];
   readonly usingDefaults: boolean;
+  /**
+   * The org authorized NO agents — `authorized_agents: none`, structure-only.
+   *
+   * Distinct from `usingDefaults`, and the distinction is the whole row: one org has not answered
+   * and is being governed by gov's list, the other has answered and is being governed by its own.
+   */
+  readonly structureOnly: boolean;
 }
 
 export function agentReport(f: AgentReportFacts): AgentReport {
@@ -49,6 +57,7 @@ export function agentReport(f: AgentReportFacts): AgentReport {
   // so. An empty block is different: it means somebody decided on nothing, and an
   // empty report is the honest answer to that.
   const usingDefaults = f.approved === null;
+  const structureOnly = f.approved !== null && f.approved.length === 0;
   const approved: readonly ApprovedAgent[] = f.approved ?? AGENT_CATALOG.map((a) => ({ id: a.id }));
   const def = defaultAgent(approved);
 
@@ -67,16 +76,29 @@ export function agentReport(f: AgentReportFacts): AgentReport {
       credentialDrifted: f.credentialDrift?.(candidate.id) ?? false,
     });
   }
-  return { rows, unknownIds, usingDefaults };
+  return { rows, unknownIds, usingDefaults, structureOnly };
 }
 
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + " ".repeat(n - s.length));
 
 export function formatAgentReport(r: AgentReport): readonly string[] {
   const out: string[] = [""];
+  // A STATE, NOT A MISCONFIGURATION (Policy Owner, 2026-09-28). `gov agent` on a structure-only
+  // org used to print "Nothing is approved. Add one…" — reading an answered question as an empty
+  // one, and telling an organization to undo a decision it had just made. The row that belongs
+  // here says what IS true, and names the way forward for whoever does want an agent.
+  if (r.structureOnly) {
+    out.push(`  AI agents: ${NO_AGENTS} authorized (structure-only)  —  policies/governance.yaml: authorized_agents`);
+    out.push("");
+    out.push("  This organization uses gov for its development process and runs no AI agents.");
+    out.push("  gov installs none, renders no agent instructions into your projects, launches none.");
+    out.push("");
+    out.push("  gov agent approve <id>   propose using one (raises a pull request)");
+    return out;
+  }
   out.push(r.usingDefaults
     ? "  Your organization has not approved any agents yet — showing the framework's list."
-    : "  Approved by your organization  (governance/policies/llm-governance.md)");
+    : "  Approved by your organization  (policies/governance.yaml: authorized_agents)");
   out.push("");
 
   if (!r.rows.length && !r.unknownIds.length) {
@@ -137,12 +159,23 @@ export interface HostNeeded {
   readonly extensionId: string;
 }
 
+/**
+ * One install step. A `script` step's `command` is `bash -s`, and it is never run as-is: the performer downloads
+ * `script.url` once, verifies it (pinned digest, or the person's yes), and feeds those bytes to bash on stdin
+ * (vendor-script.ts, #205). `curl … | bash` is gone — that ran whatever the server sent that second.
+ */
+export interface InstallStep {
+  readonly what: string;
+  readonly command: readonly string[];
+  readonly script?: VendorScript;
+}
+
 export type InstallPlan =
   | { readonly ok: false; readonly message: string }
   | {
       readonly ok: true;
       readonly agent: AgentCandidate;
-      readonly steps: readonly { readonly what: string; readonly command: readonly string[] }[];
+      readonly steps: readonly InstallStep[];
       readonly signIn: readonly string[] | null;
       readonly signupUrl: string | null;
       /** Routes waiting on a host editor. Empty when every route is runnable as-is. */
@@ -153,13 +186,27 @@ export function planAgentInstall(
   id: string,
   approved: readonly ApprovedAgent[] | null,
   hasTool: (cmd: string) => boolean,
+  platform: NodeJS.Platform = process.platform,
 ): InstallPlan {
   const agent = AGENT_CATALOG.find((a) => a.id === id);
   if (!agent) {
     return { ok: false, message: `'${id}' is not an agent this version of gov knows. Try \`gov agent\` for the list.` };
   }
+  // STRUCTURE-ONLY IS ITS OWN REFUSAL (Policy Owner, 2026-09-28). An empty list reached the
+  // generic message below — "<tool> is not approved by your organization" — which is true and
+  // reads as an oversight about ONE agent. The fact is bigger and simpler: this organization runs
+  // no agents at all, so there is nothing to compare this id against. Same remedy, said once.
+  if (approved !== null && approved.length === 0) {
+    return {
+      ok: false,
+      message: `This organization authorizes no AI agents (policies/governance.yaml: authorized_agents: ${NO_AGENTS}),\n`
+        + `  so gov will not install ${agent.tool}.\n`
+        + `  To start using agents:  gov agent approve ${id}\n`
+        + "  That raises a pull request to the Policy Owner, who owns policies/governance.yaml.",
+    };
+  }
   // Approval is the gate, and the only one. An unapproved agent is Prohibited by
-  // default (C01, POL-136) — gov installing it would put the tool in breach of the
+  // default (C01; gov enforces the list — build-specification.md §3.1) — gov installing it would put the tool in breach of the
   // policy it exists to enforce.
   const list = approved ?? AGENT_CATALOG.map((a) => ({ id: a.id }));
   if (!list.some((a) => a.id === id)) {
@@ -167,12 +214,21 @@ export function planAgentInstall(
       ok: false,
       message: `${agent.tool} is not approved by your organization, so gov will not install it.\n` +
         `  Propose it with:  gov agent approve ${id}\n` +
-        "  That raises a pull request to whoever owns governance/policies/llm-governance.md.",
+        "  That raises a pull request to the Policy Owner, who owns policies/governance.yaml.",
     };
   }
 
-  const steps: { what: string; command: readonly string[] }[] = [];
+  const steps: InstallStep[] = [];
   const hostNeeded: HostNeeded[] = [];
+  // ROUTES WINDOWS CANNOT TAKE (#223, Q10 B). A vendor's `curl … | bash` is a POSIX shell script: on Windows
+  // there is no `sh` to run it, and guessing a PowerShell equivalent would be running code nobody reviewed.
+  // Refused, with the vendor's own page. A vendor-published PowerShell installer may become its own catalog
+  // field later, verified per vendor.
+  const noWindows: { what: string; url: string }[] = [];
+  const win = platform === "win32";
+  // `pip` is a .exe shim that is often absent or the wrong interpreter's; `python -m pip` is the one that matches
+  // the Python that will run the agent. On Windows the `py` launcher stands in when `python` is not on PATH.
+  const python = win ? (hasTool("python") ? "python" : "py") : (hasTool("python3") ? "python3" : "python");
   for (const v of variantStatuses(agent, hasTool)) {
     if (v.variant.kind === "extension") {
       if (v.host) {
@@ -187,8 +243,12 @@ export function planAgentInstall(
     if (v.installed) continue;
     const inst = v.variant.install;
     if (inst?.npm) steps.push({ what: v.variant.label, command: ["npm", "install", "-g", inst.npm] });
-    else if (inst?.script) steps.push({ what: v.variant.label, command: ["sh", "-c", inst.script] });
-    else if (inst?.pip) steps.push({ what: v.variant.label, command: ["pip", "install", "--user", inst.pip] });
+    else if (inst?.script && win) noWindows.push({ what: v.variant.label, url: inst.url });
+    else if (inst?.script) {
+      steps.push({ what: v.variant.label, command: ["bash", "-s"],
+        script: { url: inst.script, ...(inst.scriptSha256 ? { sha256: inst.scriptSha256 } : {}) } });
+    }
+    else if (inst?.pip) steps.push({ what: v.variant.label, command: [python, "-m", "pip", "install", "--user", inst.pip] });
   }
 
   // WHEN "ALREADY INSTALLED" IS THE HONEST ANSWER, AND WHEN IT IS NOT.
@@ -201,6 +261,14 @@ export function planAgentInstall(
   // needs an editor. That used to fall into "already installed" — wrong twice over, because
   // nothing was installed and the one useful fact was never said.
   const runnable = variantStatuses(agent, hasTool).some((v) => v.installed);
+  if (!steps.length && !runnable && noWindows.length) {
+    return {
+      ok: false,
+      message: `${agent.tool}'s installer is a shell script (curl … | bash), which does not run on Windows,\n`
+        + "  and gov will not guess a substitute for code it cannot verify.\n"
+        + `  Install ${agent.tool} from ${noWindows[0]!.url}, then run \`gov agent\` again.`,
+    };
+  }
   if (!steps.length && (runnable || !hostNeeded.length)) {
     const extra = hostNeeded.length
       ? `\n  ${hostNeeded.map((h) => `${h.what} would also work, in ${h.hosts.join(" or ")}`).join("\n  ")}`

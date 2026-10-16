@@ -34,7 +34,7 @@ const FM = (over: Record<string, string> = {}): string => {
 };
 
 describe("prj-work Phase 3 — checkKnowledge (port of check_knowledge.py)", () => {
-  it("passes a well-formed tree (index links the doc; front-matter valid)", () => {
+  it("passes a well-formed tree (index links the doc)", () => {
     const r = checkKnowledge(
       ctx({
         "knowledge/policies/README.md": `${FM()}\n[foo](foo.md)\n`,
@@ -42,18 +42,6 @@ describe("prj-work Phase 3 — checkKnowledge (port of check_knowledge.py)", () 
       }),
     );
     expect(r).to.deep.equal({ name: "knowledge", ok: true, errors: [] });
-  });
-
-  it("flags missing + invalid front-matter", () => {
-    const r = checkKnowledge(
-      ctx({
-        "knowledge/policies/README.md": `${FM()}\n[a](a.md)\n[b](b.md)\n`,
-        "knowledge/policies/a.md": "no front-matter here\n",
-        "knowledge/policies/b.md": `${FM({ domain: "bogus" })}\n`,
-      }),
-    );
-    expect(r.errors.some((e) => /a\.md: missing front-matter/.test(e))).to.equal(true);
-    expect(r.errors.some((e) => /b\.md: front-matter domain='bogus' invalid/.test(e))).to.equal(true);
   });
 
   it("flags an orphan, a wikilink, a broken link, and a binary diagram", () => {
@@ -70,14 +58,15 @@ describe("prj-work Phase 3 — checkKnowledge (port of check_knowledge.py)", () 
     expect(r.errors.some((e) => /binary diagram embed 'diagram\.png'/.test(e))).to.equal(true);
   });
 
-  it("enforces layer↔folder agreement in a layer folder", () => {
+  it("mandates no front matter: none, or any fields and values, pass (the org's choice — Policy Owner, 2026-10-06)", () => {
     const r = checkKnowledge(
       ctx({
-        "knowledge/development/README.md": `${FM({ domain: "development" })}\n[m](mandates/m.md)\n`,
-        "knowledge/development/mandates/m.md": `${FM({ domain: "development", layer: "pattern" })}\n`,
+        "knowledge/README.md": `# Knowledge\n[a](development/a.md)\n[b](development/mandates/b.md)\n`,
+        "knowledge/development/a.md": "# No front matter at all\n",
+        "knowledge/development/mandates/b.md": `${FM({ domain: "our-own-domain", layer: "pattern", compliance: "whatever" })}\n`,
       }),
     );
-    expect(r.errors.some((e) => /m\.md: layer 'pattern' disagrees with folder 'mandate'/.test(e))).to.equal(true);
+    expect(r, r.errors.join("; ")).to.deep.equal({ name: "knowledge", ok: true, errors: [] });
   });
 
   it("enforces journey purity for paths/*.md", () => {
@@ -112,7 +101,7 @@ describe("prj-work Phase 3 — checkKnowledge (port of check_knowledge.py)", () 
 });
 
 describe("gov-work — knowledge validator exemptions (README indexes + templates)", () => {
-  it("index README needs no front-matter and de-orphans the docs it links", () => {
+  it("index README de-orphans the docs it links", () => {
     const r = checkKnowledge(
       ctx({
         "knowledge/policies/README.md": `# Policies\n\n- [roles](roles.md)\n`, // no front-matter — exempt
@@ -122,7 +111,7 @@ describe("gov-work — knowledge validator exemptions (README indexes + template
     expect(r.ok, r.errors.join("; ")).to.equal(true);
   });
 
-  it("TEMPLATE.md and *-template.md are skeletons — never validated (no front-matter OK, not orphans)", () => {
+  it("TEMPLATE.md and *-template.md are skeletons — never validated (not orphans)", () => {
     const r = checkKnowledge(
       ctx({
         "knowledge/policies/README.md": `# Policies\n\n- [p](p.md)\n`,
@@ -134,9 +123,9 @@ describe("gov-work — knowledge validator exemptions (README indexes + template
     expect(r.ok, r.errors.join("; ")).to.equal(true);
   });
 
-  it("a NON-README, NON-template doc without front-matter still fails (exemption is scoped)", () => {
+  it("a NON-README, NON-template doc is still judged — as an orphan, not for front matter", () => {
     const r = checkKnowledge(ctx({ "knowledge/policies/loose.md": `# Loose\n` }));
     expect(r.ok).to.equal(false);
-    expect(r.errors.join("\n")).to.match(/loose\.md: missing front-matter/);
+    expect(r.errors).to.deep.equal(["knowledge/policies/loose.md: orphan — not linked from any index or journey (Knowledge Organization Standard §7)"]);
   });
 });

@@ -44,6 +44,9 @@ drive "$(conv <<'C'
 ~ 120
 > Proceed\? \(y/N\)
 < y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
+< y
 # #213 — a NAMED CHOICE, the way `gh` asks it. 2 is "paste an API key"; this walk takes 3,
 # skip, because what is under test is that the choice exists and that skipping is honest.
 > Choose \[1-3\]
@@ -55,6 +58,7 @@ C
 says "#201 — the vendor is named BEFORE anything runs" "Vendor: https://bob.ibm.com"
 never "#201 — and never the package that was not IBM's" "@bobsworkshop/cli"
 saw "#201 — IBM's own channel is what runs" "bob.ibm.com/download/bobshell.sh"
+saw "D1 — IBM's script is shown with its digest and asked about, not pinned" "Run this script (sha256"
 
 # #213 — NO ASSUMPTION ABOUT A BROWSER, for any agent.
 #

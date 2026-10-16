@@ -176,7 +176,7 @@ install `gh`, and walk you through signing in to GitHub.
 
 ```bash
 source ~/.bashrc     # this shell predates the install; it has never heard of gov
-gov list
+gov
 ```
 
 `source` is not optional and not superstition: `install.sh` appended the PATH entry
@@ -184,7 +184,7 @@ to a file your **already-running** shell read minutes ago. Skip it and the next
 thing you type is `gov: command not found`, which looks like a failed install and
 is not one.
 
-`gov list` is the shortest way to reach the **first-run role question** (A/B/C).
+Bare `gov` reaches the **first-run role question** (A/B/C) — the same hand-over `install.sh` makes.
 Answer **C** first — it only prints.
 
 ---
@@ -203,7 +203,7 @@ at least once.
 | 5 | **No sudo at all** | omit `dnf install -y sudo` too | Same, phrased for a machine with no `sudo` |
 | 6 | **No terminal** | `bash < install.sh` instead of `\| bash` | Reports, names `gov doctor --fix`, exits — must not hang |
 | 7 | **Unattended** | `gov doctor --fix --yes` | Never reaches `gh auth login`; names it as the human's remaining job |
-| 8 | **First run** | `gov list` | The A/B/C role question. **C** is the safe one to explore — it only prints |
+| 8 | **First run** | `gov` | The A/B/C role question. **C** is the safe one to explore — it only prints |
 
 ### Other distributions
 
@@ -245,6 +245,51 @@ The `bootstrap` job in `.github/workflows/node-ci.yml` is the test bed: it runs 
 stripped from `PATH`. **Open a PR to run it.** A push to a branch will not — the
 workflow's `push` trigger is limited to `main` and `dev`.
 
+The **`windows` job in `adopter-e2e.yml`** tests the Windows door end to end on `windows-latest`. It builds the
+MSI with the same script gov-cicd uses, test-signs it with a certificate made inside the job, and renders the winget
+manifests from the signed bytes. It then removes the runner's Node from PATH and works only with what the MSI left:
+
+```
+msiexec /i /qn (per-user) → signature Valid, bin\ the only PATH entry, gov --version in a new process
+ → gov setup --non-interactive against the gh double
+ → REAL gov agent install claude-code → claude --version through bin\claude.cmd, in a new process
+ → msiexec /x → node\ app\ bin\ and the PATH entry gone, ~/.gov kept
+```
+
+The install and uninstall checks are Pester tests (`packages/msi/test/install.Tests.ps1`). The middle part is
+`publish/actions/ts/e2e/windows/adopter-windows.ps1`. Dispatch it on your branch:
+`gh workflow run adopter-e2e.yml --ref <branch>`. The interactive journeys over ConPTY are not in this job yet.
+
+---
+
+## The automated journey scenarios
+
+The walks above are by hand. The hermetic **journey** tier (`publish/actions/ts/e2e/journey.d/`, how it works:
+`e2e/README-journey.md`) drives the real gov in a pty against stub `gh`/`git` and agent doubles. CI's `journey`
+job in `adopter-e2e.yml` runs **every** scenario on rocky, debian and fedora — there is no sharding, so a new file
+in `journey.d/` is in the matrix the moment it lands. Run one locally with `npm run test:journey <number>`.
+
+| # | Scenario |
+|---|---|
+| 30 | adopter founds an org, IBM Bob as the default agent |
+| 32 | adopter founds an org that uses no AI agents (structure-only) |
+| 40 | joiner, org default agent, nothing installed |
+| 45 | the closing checklist follows the path actually walked |
+| 47 | joiner, organization on an older framework layout |
+| 48 | **adopter whose template is older than gov** — the template is `git archive` of this repository at the newest `gov-work-*` release tag on an older layout; the new repository must come out in the layout gov seeds (`framework/`, `policies/`, nothing else at the root). Fails if `d087f8e` is reverted. Needs the release tags: the CI job checks out with full history, and locally `git fetch --tags`. |
+| 50 | adopter, org already governed → the pivot to joining |
+| 55 | adopter declines the pivot |
+| 60 | agent install — IBM Bob |
+| 62 | the work flow installs and signs in an agent |
+| 64 | the menu installs and signs in an agent |
+| 66 | the closing offer installs and signs in an agent |
+| 68 | a first-run licence gate, cleared in the same terminal |
+| 69 | a failed retry says the reason gov knows |
+| 70 | an expired agent trial is said plainly, another approved agent is offered |
+| 72 | the menu with a dead active org |
+| 74 | knowledge search reads the workspace |
+| 76 | the work picker |
+
 ---
 
 ## What to look at, beyond pass or fail
@@ -263,6 +308,169 @@ it is any good, and they are the ones worth writing up:
 
 Record findings as you go. `#186`'s were logged one at a time while testing, and
 seven of them turned out to be real.
+
+---
+
+## The human walk tier — the timed 10-minute walk
+
+The tiers above are scripts. The release gate is a **person** who has never seen gov,
+on a fresh machine, timed from opening the README to their agent posting its context
+manifest — **≤ 10:00** (account creation excluded, every sign-in included). Each step
+has a budget:
+
+| # | Step | macOS / Linux | Windows | ends when |
+|---|---|---|---|---|
+| 1 | Door: README → one command | 0:30 | 0:45 | install command running |
+| 2 | Install: Node 24 + gov | 1:30 | 1:00 | `gov` runs in this shell |
+| 3 | Dependencies + GitHub sign-in | 1:30 | 2:00 | step 6 of the checklist ticked |
+| 4 | Adopt interview + repo created + seeded | 2:30 | 2:30 | "what now exists" printed |
+| 5 | Agent install + sign-in | 1:30 | 1:30 | agent installed **and runnable** |
+| 6 | Review offer → seed → launch | 1:30 | 1:30 | agent posts its context manifest |
+
+**The log is the stopwatch.** gov writes a phase marker into its run log at every
+checklist banner (`phase step-<n>`, `phase step-<n>-done`) and at each walk boundary
+(`phase first-run`, `adopt-done`, `review-offer`, `agent-ready`, `agent-launch`).
+`scripts/walk-times.mjs` cuts the six steps from those lines. Three marks are the
+observer's, because gov is not running at them: README opened, install command
+running, manifest posted.
+
+```bash
+cd publish/actions/ts
+node scripts/walk-times.mjs --os linux \
+  --start 2026-10-12T10:00:00Z --install-at 2026-10-12T10:00:25Z --manifest-at 2026-10-12T10:08:30Z \
+  --markdown ~/.gov/logs/2026-10-12 ~/.gov/<slug>/projects/preferences/<login>/state/logs/2026-10-12
+```
+
+It prints the walk record's step table with each step over or under its budget, and
+says where each end came from. Without the observer's marks it still cuts steps 3–6
+and says the result is partial. `--json` gives the same for a script.
+
+The walk kit — what the walker is told (only the README link), the observer's
+checklist, the record template and the machine setup — lives with the project that
+runs the walks: `projects/PRJ-121-doc-update-issue-116/knowledge/walks/` in the
+workspace repo (`WALK-SCRIPT.md`, `TEMPLATE.md`, `MACHINES.md`).
+
+---
+
+## What green means — adopter-e2e, computed
+
+`adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`
+(pty, three distros), `os-tier` (bare machines), `windows` (the MSI on `windows-latest`), `live` (the adopter, joiner and rule-model journeys
+against real GitHub in the sandbox org), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
+nobody decides it by reading a summary line:
+
+- the run concluded `success`, and **every job** concluded `success` — a skipped job is not a pass;
+- **no step was skipped** and **no assertion was skipped** — a journey that passed with a skipped
+  assertion is `incomplete`;
+- it is the **first attempt** — a re-run is a retry, and a retry is not evidence.
+
+The release measure (PRJ-121 I05.1) is **three such runs in a row, all manual dispatches, on the same
+commit**. A new commit restarts the count at 0. `green-streak.sh` computes it:
+
+```bash
+cd publish/actions/ts
+gh workflow run adopter-e2e.yml --ref <branch>      # one at a time; wait for each to finish
+bash e2e/green-streak.sh <branch> 3                 # GREEN_STREAK_REPO=owner/repo for a fork
+```
+
+It walks the branch's runs newest first, reads every run's jobs, steps and annotations, and prints
+one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`, `attempt 2`,
+`job "…" failure`, `step skipped: …`, `annotation: rule-model journey: skipped (f) …`) — then
+`STREAK k/3`. It exits 0 only at 3/3. Paste its output, with the run ids, into the PR.
+
+### Which secrets each tier needs, and when a skip is allowed
+
+| Tier | Needs | When something is missing |
+|---|---|---|
+| `smoke`, `journey`, `os-tier` | nothing | — |
+| `live` — adopter journey | secret `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`, `read:org`, `delete_repo`; or fine-grained on **all** repositories of the sandbox org — a selected-repositories token cannot read the repos a run creates), variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
+| `live` — rule-model journey, assertion (f) | secrets `GOV_E2E_APP_CLIENT_ID`, `GOV_E2E_APP_PRIVATE_KEY` | the same: the guard names them up front on a strict run; elsewhere (f) is skipped, named, and the journey reports `incomplete` |
+| `live` — joiner journey (second identity) | secret `TESTBED_JOINER_PAT` (a **second** member of the sandbox org — classic: `repo`, `project`, `read:org`) and secret `TESTBED_JOINER_LOGIN` (its login) | as for the adopter journey: **fails** a strict run, naming both; on a feature-branch push only the joiner skips, visibly. The journey itself fails if the token is not `TESTBED_JOINER_LOGIN`, or is the adopter bot's own account |
+| `live` — signal round-trip | the joiner's two secrets (it runs as both bots) | as the joiner journey |
+| `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
+
+**The joiner tier** (PRJ-121 intent 05, Item 4). First, in seconds, `e2e/joiner-identity.sh` checks that
+`TESTBED_JOINER_PAT` authenticates, is **not** the adopter bot's account (fails loudly if it is) and is an active
+member of the sandbox org; the login the token authenticates as is the one every later step uses (a
+`TESTBED_JOINER_LOGIN` that disagrees is a warning naming the fix, by shape — the value is never printed). Then the
+`live` job runs the adopter journey in two phases around a
+second identity. The **work phase** (`E2E_PHASE=work`, bot A = `TESTBED_BOT_PAT`, the sandbox org's owner) creates
+the org's gov repo, board and code repo, seeds → task → merge, then opens issue #2 for bot B and grants bot B write on
+both repos and the board — bot A grants, bot B's token is never widened. It writes the names the later steps need to
+`$RUNNER_TEMP/live.env` and deletes nothing. The **joiner** (`e2e/joiner-journey.sh`, bot B = `TESTBED_JOINER_PAT`,
+in a HOME of its own) installs the same packed gov and drives it through flags only — `gov setup --join
+<org>/<gov-repo>`, `gov work --project=<PRJ> --no-launch`, `gov task`, `gov merge`, stdin closed (ruling Q5: a prompt
+is a defect, the pty scenarios 40/45/47 stay hermetic) — and asserts issue #2 closed **by bot B** and its board Status
+`Done`. The **finish phase** (`E2E_PHASE=finish`, `if: always()`) closes the project and tears down everything the
+work phase recorded. Its dry run (`bash e2e/joiner-journey.sh --dry-run`) is tested in
+`test/e2e/joiner-journey-dry.test.ts`; `gov setup --join` itself runs hermetically in `e2e/smoke.d/35-setup-join.sh`.
+
+**The signal tier** (PRJ-121 intent 03, L09). After the joiner, `e2e/signal-journey.sh` proves a `gov signal`
+round-trip between two projects and two people: bot A seeds two projects (`gov project --seed`, which waits for
+GitHub's board index to list the anchor before seeding), makes bot B a writer on the second and bot B opens it
+(`gov work --no-launch`). Bot A sends an **ask**, a **depends** and a **notice**; for each, bot B's `gov signal list`
+— the session manifest's lines — must show it under **Incoming signals**, bot B answers or acknowledges it
+(`gov signal ack`), and bot A's **Outgoing signals** must no longer list it. Then a **handover** moves an issue from
+A's board to B's, and a **merge** closes A's board. A person sends (spec 03 Q6): every send and ack runs in a
+pseudo-terminal (`script`) and answers its confirmation, as the person at the keyboard would. Dry run:
+`bash e2e/signal-journey.sh --dry-run` (`test/e2e/signal-journey-dry.test.ts`).
+
+The decision is made by `publish/actions/ts/e2e/live-guard.sh` (the workflow's first `live` step), and
+the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and every skipped assertion
+in the run summary. Both are tested with the secrets unset (`test/e2e/live-gate.test.ts`), so proving
+the guard never needs the repository's real secrets removed. Token scopes are in
+`publish/actions/ts/e2e/README.md`.
+
+### The bridge tier — rehearsing the Svayamtech migration
+
+The bridge pre-release (`2.0.0-next.B`, PRJ-121 intent 01) carries Svayamtech's governance repo from its 1.0
+layout to the 2.0 layout in one `gov upgrade --pr`. Before that runs on the real repository it is rehearsed on a
+copy: `svayam-e2e/svm-prj-work-rehearsal`, private, one commit with no history, secret-scanned before it was
+pushed (H01). H01 tags that commit `h01-snapshot`. The copy is deleted once both real runs are done (H05).
+
+`publish/actions/ts/e2e/bridge-journey.sh` is the rehearsal (spec 01 §4.3 step 2) as a script:
+
+```mermaid
+flowchart LR
+  R[reset the copy to h01-snapshot<br/>+ point org-config at the sandbox] --> U[gov upgrade --pr<br/>CI green, merged]
+  U --> P[gov rules propose --all<br/>stub model, policy PR merged]
+  P --> B[gov rules build] --> PR[gov repo protect apply] --> I[gov check install<br/>on e2e-app]
+  I --> D[gov doctor: ok] --> J[seed, join, work,<br/>task, merge] --> C[gov-cicd dry run<br/>on the migrated copy]
+```
+
+- **Every run starts from the same tree.** It moves the copy's default branch back to `h01-snapshot`, closes open
+  pull requests and deletes the other branches. It then adds one commit that points `org-config.yaml` at the
+  sandbox org, never at Svayamtech, and makes CI install the gov under test.
+- **It refuses any other target**: a repository outside the sandbox org, a sandbox repository whose name does not
+  contain `rehearsal`, or the real org itself. It checks this before it reads a token.
+- **The copy is kept** after the run, so the Policy Owner can review the rehearsal PR (§4.3 step 4). What the run
+  created beside it — the board, the issue, the branch on `e2e-app` — is deleted.
+- **"CI green"** means every check run on the PR passed, except the checks that wait for an authorized approval
+  (`approver-check`, `GOV-FRM-455 · pull_request`). The bot is not the copy's approver.
+
+Run it from the workflow: `gh workflow run adopter-e2e.yml --ref <branch> -f bridge=true`. Without
+`bridge=true`, the `bridge` job runs the script's hermetic dry run (`--dry-run`: every call is printed and none is
+made). The job therefore never shows as skipped on a dispatch, and the green streak still counts the run. Its last
+step, `live-verdict.sh` with `JOURNEYS=bridge:<outcome>`, gives the verdict under the same rules as the `live` job:
+a skipped step (for example, no `GOV_CICD_PACKAGE` for the gov-cicd step) makes the rehearsal `incomplete`, and
+that fails the dispatch. `test/e2e/bridge-journey-dry.test.ts` checks the dry run, the refusals, the job's shape
+and its verdict without a token.
+
+| Bridge tier needs | |
+|---|---|
+| the copy `svayam-e2e/svm-prj-work-rehearsal` with tag `h01-snapshot` | H01 |
+| secret `TESTBED_BOT_PAT`, variable `TESTBED_SANDBOX_ORG` | as for `live` |
+| the sandbox code repo `svayam-e2e/e2e-app` (`BRIDGE_APP_REPO` to change) | step 5 is skipped (incomplete) without it |
+| variable `GOV_CICD_PACKAGE` (the gov-cicd package or tarball) | the gov-cicd step is skipped (incomplete) without it |
+
+The rehearsal is done when two runs in a row are clean (H02), on dev builds, and once more on the cut bridge
+(H03).
+
+**Board poll and token probe.** After adding its issue to the board, the adopter journey prints
+`probe:` lines (`e2e/token-probe.sh`): the token's kind, and whether it can read the new repo, the
+issue and the board item. Its poll then tells two failures apart: items whose content is null — the
+token cannot read the issue; it dies at once, `token cannot read <repo> — <kind>` — and no items yet,
+which is GitHub's index latency; it waits up to 3 minutes and says on which poll the item appeared.
 
 ---
 
@@ -296,6 +504,34 @@ image has one and says `SKIPPED` when it does not. A skipped assertion is not a 
 if the image lacks `Xvfb`, that branch was not exercised here at all.
 
 ---
+
+## Traffic capture — what reached Svayam (evidence journey)
+
+The paid-evidence promise is that evidence never leaves the customer's environment: only licence exchanges and a few
+usage numbers reach Svayam. The journey proves it from the outside. **Sandbox only (svayam-e2e); never Svayamtech.**
+
+```mermaid
+flowchart LR
+  T["tools under test<br/>(node, git, npm, browser)"] -- "HTTPS_PROXY" --> M["mitmdump<br/>svayam_egress.py"]
+  M --> I["the real hosts"]
+  M -- "flows.jsonl" --> A["assert-egress.py"]
+  C["canaries.txt<br/>rule ids, shas, repo and file names,<br/>a planted string"] --> A
+  S["lease-request.schema.json"] --> A
+  A -- "exit 0 / FAIL lines" --> R["run verdict + artifacts"]
+```
+
+`e2e/traffic-capture/`: `setup-proxy.sh start <flows.jsonl>` starts `mitmdump` and prints the environment that routes
+node, git and npm through it (and trusts the capture CA); `svayam_egress.py` records every request (the body only
+for Svayam hosts, never an Authorization value); `assert-egress.py` fails the run unless every request is to Svayam,
+GitHub, npmjs or the configured judge provider (`--allow-host`), every Svayam-bound request is a portal load, a lease
+exchange, a key call or a registry read, every lease body fits the strict schema, and no canary appears anywhere in
+a Svayam-bound request. The one ruled exception is GitHub's own identity token inside an OIDC lease body, which names
+repo and sha and is minimised by the service; nothing else is excluded. An unsubscribed org runs with
+`--expect-no-svayam`: any Svayam-bound request fails.
+
+The asserter is unit-tested over recorded fixtures (`test/e2e/assert-egress.test.ts`): an allowed flow passes, a lease
+body with an extra field fails, and a planted leak fails — the negative control that proves the scan can fail. Keep
+the flows file and its sha256 with the run; the data statement cites the latest capture.
 
 ## Resetting
 

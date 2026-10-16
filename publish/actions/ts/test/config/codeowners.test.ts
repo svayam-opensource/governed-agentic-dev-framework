@@ -15,8 +15,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  renderCodeowners, unresolvedTokens, normalizeHandle, POLICY_OWNER_PATHS, DOMAIN_ROLES,
+  renderCodeowners, unresolvedTokens, normalizeHandle, codeownersDrift, POLICY_OWNER_PATHS, CHECK_OWNER,
 } from "../../src/config/codeowners.js";
+import type { RoleHolder } from "../../src/config/role-list.js";
+import { ORG_CONFIG_KEYS } from "../../src/config/org-config.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -24,31 +26,139 @@ describe("CODEOWNERS generation", () => {
   it("a Policy Owner is required — no owner means no file, not a partial one", () => {
     // Refusing is the point. A CODEOWNERS missing its floor protects nothing, and that state is
     // indistinguishable from the broken template it replaces.
-    expect(renderCodeowners({})).to.equal(null);
-    expect(renderCodeowners({ policy_owner_github: "   " }), "blank is not a holder").to.equal(null);
-    expect(renderCodeowners({ legal_owner_github: "x" }), "a domain role cannot stand in").to.equal(null);
+    expect(renderCodeowners({}, [])).to.equal(null);
+    expect(renderCodeowners({ policyOwner: "   " }, []), "blank is not a holder").to.equal(null);
+    expect(renderCodeowners({ checkOwner: "x" }, [{ role: "Legal Owner", holder: "@x", owns: ["knowledge/legal/"] }]), "no other role can stand in").to.equal(null);
   });
 
-  it("org-config.yaml is gated, and listed FIRST", () => {
-    // Decision 6: it holds every other handle, so an ungated copy is a route to naming yourself
-    // the approver of everything else. First because order is how a reader sees the point.
-    const r = renderCodeowners({ policy_owner_github: "rkant" })!;
+  it("org-config.yaml and policies/governance.yaml are gated, and listed FIRST", () => {
+    // Decision 6: governance.yaml holds the framework roles' handles (since the org-config split), so an ungated copy
+    // is a route to naming yourself the approver of everything else. First because order is how a reader sees it.
+    const r = renderCodeowners({ policyOwner: "rkant" }, [])!;
     const rules = r.text.split("\n").filter((l) => l.startsWith("/"));
     expect(rules[0]).to.match(/^\/org-config\.yaml\s+@rkant$/);
+    expect(rules[1]).to.match(/^\/policies\/governance\.yaml\s+@rkant$/);
     for (const p of POLICY_OWNER_PATHS) expect(r.text).to.contain(p);
   });
 
-  it("a domain line appears only when the role is HELD", () => {
-    // POL-403: a top-level domain exists if and only if a named Owner role exists for it. The
-    // framework no longer ships eight domains with owners TBD, so an unheld role adds no line.
-    const none = renderCodeowners({ policy_owner_github: "rkant" })!;
-    for (const r of DOMAIN_ROLES) for (const p of r.paths) expect(none.text).to.not.contain(p);
-    expect(none.unheld).to.have.length(DOMAIN_ROLES.length);
+  // GOV-FRM-083 (W2-Q7): every folder of knowledge/ and policies/ routes to a named owner — the role list's holder
+  // where a role owns the folder, the Policy Owner everywhere else — and policies/actions/ to the Check Owner.
+  const ROLES: readonly RoleHolder[] = [
+    { role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"] },
+    { role: "Legal Owner", holder: null, owns: ["knowledge/legal/", "knowledge/contracts/"] },
+    { role: "Security Lead", holder: "@sec", owns: [] },
+  ];
+  const ruleLines = (text: string): string[][] =>
+    text.split("\n").filter((l) => l.startsWith("/")).map((l) => l.split(/\s+/));
+  const ownerOf = (text: string, file: string): string | undefined => {
+    // CODEOWNERS' own semantics: the LAST matching pattern wins.
+    let hit: string | undefined;
+    for (const [pat, who] of ruleLines(text)) {
+      const p = pat!.replace(/^\//, "");
+      if (p.endsWith("/") ? file.startsWith(p) : file === p) hit = who;
+    }
+    return hit;
+  };
 
-    const one = renderCodeowners({ policy_owner_github: "rkant", legal_owner_github: "lawyer" })!;
-    expect(one.text).to.contain("/knowledge/legal/");
-    expect(one.text).to.contain("@lawyer");
-    expect(one.unheld, "and the rest are REPORTED, not silently dropped").to.not.include("Legal Owner");
+  it("GOV-FRM-083 every folder of knowledge/ and policies/ routes to a named owner — the Policy Owner when no role owns it", () => {
+    const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
+    expect(r.text).to.match(/^\/knowledge\/\s+@polly$/m);
+    expect(r.text).to.match(/^\/policies\/\s+@polly$/m);
+    for (const f of ["knowledge/anything/x.md", "knowledge/top.md", "policies/org-policy.md", "policies/rules/rules.yaml"]) {
+      expect(ownerOf(r.text, f), f).to.equal("@polly");
+    }
+  });
+
+  // PRJ-121 intent 01 §3.11: policies/deploy/ and policies/run/ are reserved for gov-cicd and gov-infra. When they
+  // arrive they are phase folders like common/ and build/ — routed by the same /policies/ line, with no line of their own.
+  it("the reserved phase folders policies/deploy/** and policies/run/** route like any other phase folder", () => {
+    const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
+    for (const f of ["policies/common/data-classification.md", "policies/build/approved-technologies.md",
+      "policies/deploy/unit-catalog/services.yaml", "policies/deploy/policy.md", "policies/run/fleet-catalog/fleet.yaml"]) {
+      expect(ownerOf(r.text, f), f).to.equal("@polly");
+    }
+    expect(r.text, "no phase folder gets a line of its own").to.not.match(/^\/policies\/(common|build|deploy|run)\//m);
+    expect(ownerOf(r.text, "policies/actions/x/run.sh"), "the Check Owner's line still wins for actions").to.equal("@chuck");
+  });
+
+  it("GOV-FRM-083 a role's knowledge/ folder routes to its holder; a VACANT role's folder to the Policy Owner", () => {
+    const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
+    expect(ownerOf(r.text, "knowledge/data/model.md")).to.equal("@dana");
+    expect(ownerOf(r.text, "knowledge/legal/nda.md"), "vacant → the Policy Owner, never no line").to.equal("@polly");
+    expect(ownerOf(r.text, "knowledge/contracts/msa.md")).to.equal("@polly");
+    expect(r.text).to.match(/# Legal Owner — vacant/);
+    expect(r.vacant).to.deep.equal(["Legal Owner"]);
+    expect(r.text, "a role that owns no folder adds no line").to.not.contain("Security Lead");
+  });
+
+  it("GOV-FRM-083 policies/actions/ routes to the Check Owner, and comes last so it wins over /policies/", () => {
+    const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
+    expect(ownerOf(r.text, "policies/actions/spdx/action.yml")).to.equal("@chuck");
+    const pats = ruleLines(r.text).map(([p]) => p);
+    expect(pats.at(-1)).to.equal("/policies/actions/");
+  });
+
+  it("GOV-FRM-083 the stale /governance/ line is gone — that tree no longer exists", () => {
+    const r = renderCodeowners({ policyOwner: "polly" }, ROLES)!;
+    expect(r.text).to.not.match(/^\/governance\//m);
+    expect(POLICY_OWNER_PATHS).to.not.include("/governance/");
+  });
+
+  it("without a role list, the org defines no roles — the retired *_owner_github keys route nothing", () => {
+    const r = renderCodeowners({ policyOwner: "rkant" }, [])!;
+    expect(ownerOf(r.text, "knowledge/legal/x.md")).to.equal("@rkant");
+    expect(r.text).to.not.contain("Legal Owner");
+    expect(r.vacant).to.deep.equal([]);
+  });
+
+  it("GOV-FRM-083 a hand-edited CODEOWNERS that no longer matches what gov generates is reported as drift", () => {
+    const want = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!.text;
+    expect(codeownersDrift(want, want)).to.equal(null);
+    expect(codeownersDrift(`${want}\n# a note someone added\n`, want), "a comment is not a route").to.equal(null);
+    expect(codeownersDrift(want.replace(/^(\/policies\/actions\/\s+)@chuck$/m, "$1@mallory"), want))
+      .to.deep.equal({ missing: ["/policies/actions/ @chuck"], extra: ["/policies/actions/ @mallory"], reordered: false });
+    expect(codeownersDrift(`${want}/secret/ @mallory\n`, want)!.extra).to.deep.equal(["/secret/ @mallory"]);
+    const lines = want.split("\n");
+    const a = lines.findIndex((l) => l.startsWith("/policies/actions/")), b = lines.findIndex((l) => l.startsWith("/policies/ "));
+    [lines[a], lines[b]] = [lines[b]!, lines[a]!];
+    expect(codeownersDrift(lines.join("\n"), want), "order is routing: the last match wins").to.deep.equal({ missing: [], extra: [], reordered: true });
+  });
+
+  // THE CHECK OWNER (rule-model P1 rulings, 2026-10-06): the framework's second built-in role. The Policy Owner
+  // approves what a rule MEANS; the Check Owner approves the CODE that enforces it — `policies/actions/` holds
+  // executable actions, and an action is code that runs in CI with the org's tokens.
+  it("policies/actions/ is the Check Owner's, on a line of its own", () => {
+    const r = renderCodeowners({ policyOwner: "rkant", checkOwner: "@checker" }, [])!;
+    expect(CHECK_OWNER.key).to.equal("check_owner.github");
+    expect(r.text).to.match(/^# Check Owner/m);
+    expect(r.text).to.match(/^\/policies\/actions\/\s+@checker$/m);
+    expect(r.escalated).to.deep.equal([]);
+  });
+
+  it("GOV-FRM-083 GOV-FRM-033 a VACANT Check Owner escalates to the Policy Owner — the line is never dropped", () => {
+    // Unlike a domain role, whose paths do not exist until the role is held, `policies/actions/` exists the moment
+    // an org authors a check. An ungated actions directory is code anyone with write access can make CI run.
+    for (const vacant of [{}, { checkOwner: "" }, { checkOwner: "  " }]) {
+      const r = renderCodeowners({ policyOwner: "rkant", ...vacant }, [])!;
+      expect(r.text).to.match(/^\/policies\/actions\/\s+@rkant$/m);
+      expect(r.text).to.match(/vacant/);
+      expect(r.escalated).to.deep.equal(["Check Owner"]);
+      expect(r.vacant, "vacant lists the org's roles; the Check Owner is reported as escalated").to.not.include("Check Owner");
+    }
+  });
+
+  it("the Check Owner line comes after every Policy Owner path — CODEOWNERS' last match wins", () => {
+    const r = renderCodeowners({ policyOwner: "rkant", checkOwner: "checker" }, [])!;
+    const rules = r.text.split("\n").filter((l) => l.startsWith("/"));
+    const at = rules.findIndex((l) => l.startsWith("/policies/actions/"));
+    for (const p of POLICY_OWNER_PATHS) expect(rules.findIndex((l) => l.startsWith(p))).to.be.lessThan(at);
+  });
+
+  it("the Check Owner is set in policies/governance.yaml, and the shipped template carries it beside the Policy Owner", () => {
+    expect(ORG_CONFIG_KEYS).to.not.include("check_owner_github");
+    const tpl = fs.readFileSync(path.join(repoRoot, "publish", "content", "policies", "governance.yaml"), "utf8");
+    expect(tpl).to.match(/^policy_owner:\n {2}email: ""\n {2}github: ""\n/m);
+    expect(tpl).to.match(/^check_owner:\n {2}github: ""$/m);
   });
 
   it("handles are normalised, so `@x` and `x` cannot produce `@@x`", () => {
@@ -60,7 +170,7 @@ describe("CODEOWNERS generation", () => {
   });
 
   it("the generated file carries NO unresolved token", () => {
-    const r = renderCodeowners({ policy_owner_github: "rkant", legal_owner_github: "lawyer" })!;
+    const r = renderCodeowners({ policyOwner: "rkant" }, [{ role: "Legal Owner", holder: "@lawyer", owns: ["knowledge/legal/"] }])!;
     expect(unresolvedTokens(r.text)).to.deep.equal([]);
   });
 
@@ -78,16 +188,6 @@ describe("CODEOWNERS generation", () => {
       fs.existsSync(path.join(repoRoot, "publish", "content", "CODEOWNERS")),
       "publish/content/CODEOWNERS must not exist — CODEOWNERS is generated",
     ).to.equal(false);
-  });
-
-  it("reads org-config KEYS, which is not how tokenValuesFromOrgConfig hands them over", () => {
-    // THE WIRING BUG THIS EXISTS FOR. `tokenValuesFromOrgConfig` returns keys UPPERCASED
-    // (`POLICY_OWNER_GITHUB`), because its job is token substitution. Passing that object in
-    // directly makes every handle `undefined`, so this returns null and setup aborts with
-    // "org-config.yaml names no policy_owner_github" on a config that names one. The caller
-    // lowercases; this pins which shape the module expects.
-    expect(renderCodeowners({ POLICY_OWNER_GITHUB: "rkant" } as never), "token-cased keys must NOT work").to.equal(null);
-    expect(renderCodeowners({ policy_owner_github: "rkant" }), "config-cased keys must").to.not.equal(null);
   });
 
   it("nothing shipped will be substituted into an ACCESS-CONTROL file", () => {
@@ -118,7 +218,7 @@ describe("CODEOWNERS generation", () => {
     // the pre-2026-09-11 protocol — no version marker — while every rendered harness file came
     // from agent/session-protocol.md at the repo root. So adopters were seeded with a stale
     // source alongside current renders: two copies, and the one shipped as authoritative was
-    // the out-of-date one (POL-402).
+    // the out-of-date one (GOV-FRM-402).
     const shipped = fs.readFileSync(path.join(repoRoot, "publish", "content", "agent", "session-protocol.md"), "utf8");
     const source = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
     expect(shipped, "publish/content's copy has drifted from the render source").to.equal(source);

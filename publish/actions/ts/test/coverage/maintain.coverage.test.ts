@@ -19,7 +19,7 @@ import { checkDeps, formatDepsReport } from "../../src/maintain/deps.js";
 import { publishGate, formatPublishGate } from "../../src/maintain/publish.js";
 import { bumpVersion } from "../../src/maintain/bump-version.js";
 import {
-  parseManifest, expandEntries, planUpgrade, mergeOrgConfig, applyUpgrade, formatPlan,
+  parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan,
   RETIRE_PATHS, type PlanReaders, type UpgradePlan, type ManifestEntry,
 } from "../../src/maintain/upgrade-sync.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent } from "../../src/maintain/upgrade-run.js";
@@ -34,6 +34,7 @@ import { makePrivacyValidator } from "../../src/governance/privacy.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { ResolveResult } from "../../src/resolve/types.js";
 import { px } from "../helpers/paths.js";
+import { agentAnswer } from "../helpers/agents-answer.js";
 
 /** A writes-map keyed by normalised path, so a POSIX literal finds an entry the code wrote
  *  with the host separator (Windows). */
@@ -129,12 +130,16 @@ describe("coverage — doctor(facts): full cartesian", () => {
                 resolve: resolveOk ? RESOLVED : UNRESOLVED,
                 activeOrg, contentVersion,
               }));
-              const expectedOk = gitPresent && ghPresent && resolveOk && compatStatus !== "cli-behind-major";
+              // UNRESOLVED here is `no-active-org` — never set up. Since PRJ-121 (2026-09-22) that is the next step,
+              // not a failure, and the rows ABOUT a workspace (version compat, active org) are absent without one.
+              const expectedOk = gitPresent && ghPresent && (resolveOk ? compatStatus !== "cli-behind-major" : true);
               expect(r.ok, `git=${gitPresent} gh=${ghPresent} res=${resolveOk} compat=${compatStatus}`).to.equal(expectedOk);
-              expect(r.diagnostics.find((d) => d.name === "version compat")!.status).to.equal(diagStatus);
+              const compat = r.diagnostics.find((d) => d.name === "version compat");
+              if (resolveOk) expect(compat!.status).to.equal(diagStatus); else expect(compat).to.equal(undefined);
               expect(r.diagnostics.find((d) => d.name === "git")!.status).to.equal(gitPresent ? "ok" : "fail");
               expect(r.diagnostics.find((d) => d.name === "gh")!.status).to.equal(ghPresent ? "ok" : "fail");
-              expect(r.diagnostics.find((d) => d.name === "active org")!.status).to.equal(activeOrg ? "ok" : "warn");
+              const org = r.diagnostics.find((d) => d.name === "active org");
+              if (resolveOk) expect(org!.status).to.equal(activeOrg ? "ok" : "warn"); else expect(org).to.equal(undefined);
             }
     expect(n).to.equal(2 * 2 * 2 * 2 * contentCases.length); // 96 combos
   });
@@ -143,9 +148,13 @@ describe("coverage — doctor(facts): full cartesian", () => {
     const okD = doctor(facts()).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(okD.status).to.equal("ok");
     expect(okD.detail).to.equal("resolved → /gov (Svayamtech)");
-    const failD = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
+    // A workspace that EXISTS but will not resolve is a failure, with its actionable message.
+    const failD = doctor(facts({ resolve: { ok: false, code: 2, reason: "no-home", activeOrg: "Svayamtech" } })).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(failD.status).to.equal("fail");
-    expect(failD.detail).to.match(/gov org use/);
+    // Never set up is the next step, with the one remedy that is right for adopters AND joiners.
+    const notYet = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
+    expect(notYet.status).to.equal("warn");
+    expect(notYet.detail).to.match(/run `gov`/);
   });
 
   it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov upgrade", () => {
@@ -214,7 +223,7 @@ describe("coverage — checkVersionCompat: every status + boundaries", () => {
 
   it("messages carry the right guidance per status", () => {
     expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov upgrade/);
-    expect(checkVersionCompat("1.1.0", "1.4.0").message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
+    expect(checkVersionCompat("1.1.0", "1.4.0", "linux").message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
     expect(checkVersionCompat("1.9.0", "2.0.0").message).to.match(/MAJOR version behind/);
     expect(checkVersionCompat("1.0.0", null).message).to.match(/no content VERSION marker/);
     expect(checkVersionCompat("2.0.0", "2.0.0").message).to.match(/== content/);
@@ -355,7 +364,7 @@ files:
   - { src: VERSION, dst: VERSION, mode: scaffold-auto }
   - { src: CLAUDE.md, dst: CLAUDE.md, mode: scaffold-prompt }
   - { src: knowledge/guidance/, dst: knowledge/guidance/, mode: scaffold-prompt }
-  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }
 owned:
   - org-config.yaml
   - "projects/PRJ-*/"   # trailing comment
@@ -365,12 +374,12 @@ owned:
     const m = parseManifest(MANIFEST);
     expect(m.files).to.have.lengthOf(4);
     expect(m.files[0]).to.deep.equal({ src: "VERSION", dst: "VERSION", mode: "scaffold-auto" });
-    expect(m.files[3]).to.deep.equal({ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" });
+    expect(m.files[3]).to.deep.equal({ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "seed-once" });
     expect(m.owned).to.deep.equal(["org-config.yaml", "projects/PRJ-*/"]);
   });
 
   it("parseManifest: empty text → empty manifest", () => {
-    expect(parseManifest("")).to.deep.equal({ files: [], owned: [] });
+    expect(parseManifest("")).to.deep.equal({ files: [], owned: [], moves: [], retire: [], generated: [] });   // `moves` since 2026-09-23, `retire` since 2026-10-06, `generated` since 2026-10-12
   });
 
   it("expandEntries: directory entries expand per content file; file entries pass through; no-match dir yields nothing", () => {
@@ -410,13 +419,11 @@ owned:
     expect(planUpgrade(entries, { ...base, readAdopter: () => "CUSTOM" }).actions[0].kind).to.equal("conflict");
   });
 
-  it("planUpgrade overlay-schema: null→create(seed), present→overlay(merge)", () => {
-    const entries: ManifestEntry[] = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" }];
+  it("planUpgrade seed-once org-config: null→create, present→same (the template merge is gone)", () => {
+    const entries: ManifestEntry[] = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "seed-once" }];
     const rc = () => 'org_name: ""\n';
-    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => null, adopterPaths: () => [] }).actions[0])
-      .to.deep.include({ kind: "create", detail: "seed from template" });
-    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => 'org_name: "Acme"\n', adopterPaths: () => [] }).actions[0])
-      .to.deep.include({ kind: "overlay", detail: "add new keys · comment removed · keep values" });
+    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => null, adopterPaths: () => [] }).actions[0]).to.deep.include({ kind: "create" });
+    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => 'org_name: "Acme"\n', adopterPaths: () => [] }).actions[0]).to.deep.include({ kind: "same" });
   });
 
   it("planUpgrade: a shipped file missing from the content source produces no action", () => {
@@ -436,26 +443,6 @@ owned:
     expect(retired).to.have.members([...RETIRE_PATHS]); // every retire path hit, exactly once
     expect(retired).to.have.lengthOf(RETIRE_PATHS.length);
     expect(retired).to.not.include("src/keep.ts");
-  });
-
-  // mergeOrgConfig — add / comment / keep
-  it("mergeOrgConfig: keeps org values, adds template keys, comments dropped keys, preserves comments/order", () => {
-    const template = "# header comment\norg_name: \"\"\norg_short_name: \"\"\ndefault_branch: \"main\"\n";
-    const org = "org_name: \"Acme\"\ndefault_branch: \"trunk\"\nlegacy_field: \"old\"\n";
-    const merged = mergeOrgConfig(template, org);
-    expect(merged).to.match(/# header comment/);              // template comment preserved
-    expect(merged).to.match(/org_name: "Acme"/);              // org value kept
-    expect(merged).to.match(/org_short_name: ""/);            // new template key added
-    expect(merged).to.match(/default_branch: "trunk"/);       // org value wins over template default
-    expect(merged).to.match(/# Removed from the framework template/); // dropped-key banner
-    expect(merged).to.match(/# legacy_field: "old"/);         // dropped key commented
-    expect(merged.endsWith("\n")).to.equal(true);             // single trailing newline
-  });
-
-  it("mergeOrgConfig: when org keys are a subset of template, no 'Removed' banner is emitted", () => {
-    const merged = mergeOrgConfig("org_name: \"\"\norg_slug: \"\"\n", "org_name: \"Acme\"\n");
-    expect(merged).to.match(/org_name: "Acme"/);
-    expect(merged).to.not.match(/Removed from the framework template/);
   });
 
   // applyUpgrade — with / without includeConflicts, every action kind
@@ -478,23 +465,21 @@ owned:
       { kind: "update", dst: "d-update", src: "vsrc" },
       { kind: "same", dst: "d-same", src: "vsrc" },
       { kind: "conflict", dst: "d-conflict", src: "vsrc" },
-      { kind: "overlay", dst: "org-config.yaml", src: "ovsrc" },
       { kind: "retire", dst: "framework/" },
       { kind: "create", dst: "d-nullsrc", src: "nullsrc" },
     ],
   };
 
-  it("applyUpgrade WITHOUT includeConflicts: writes create/update, merges overlay, retires, SKIPS conflict + same + null-src", () => {
+  it("applyUpgrade WITHOUT includeConflicts: writes create/update, retires, SKIPS conflict + same + null-src", () => {
     const { res, store, removed } = applyHarness(fullPlan, {});
     expect(store["d-create"]).to.equal("V-NEW");
     expect(store["d-update"]).to.equal("V-NEW");
-    expect(store["org-config.yaml"]).to.match(/org_name: "Acme"/); // value kept
-    expect(store["org-config.yaml"]).to.match(/new_key: ""/);      // new key added
+    expect(store["org-config.yaml"]).to.equal('org_name: "Acme"\n'); // never touched
     expect(removed).to.deep.equal(["framework/"]);
     expect(store["d-conflict"]).to.equal(undefined);               // skipped
     expect(store["d-nullsrc"]).to.equal(undefined);                // src content null → no write
     expect(res.skipped).to.deep.equal(["d-conflict"]);
-    expect(res.applied).to.have.members(["d-create", "d-update", "org-config.yaml", "framework/"]);
+    expect(res.applied).to.have.members(["d-create", "d-update", "framework/"]);
   });
 
   it("applyUpgrade WITH includeConflicts: the conflict is written too and not skipped", () => {
@@ -502,15 +487,6 @@ owned:
     expect(store["d-conflict"]).to.equal("V-NEW");
     expect(res.skipped).to.deep.equal([]);
     expect(res.applied).to.include("d-conflict");
-  });
-
-  it("applyUpgrade overlay with no existing adopter file → seeds the raw template", () => {
-    const store: Record<string, string> = {};
-    applyUpgrade({ actions: [{ kind: "overlay", dst: "org-config.yaml", src: "t" }] }, {
-      readContent: () => 'org_name: ""\n', readAdopter: () => null,
-      writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: () => {},
-    });
-    expect(store["org-config.yaml"]).to.equal('org_name: ""\n');
   });
 
   it("formatPlan: hides 'same', renders a summary; empty (all-same) plan shows the matched-content notice", () => {
@@ -640,13 +616,11 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(parseOriginOwnerRepo("not-a-url")).to.equal(null);
   });
 
-  it("deriveOrgConfig: owners default to the policy owner; slug_lower + canonical paths derived", () => {
+  it("deriveOrgConfig: the Check Owner defaults to the policy owner; canonical gov_repo path derived", () => {
     const v = deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX);
     expect(v).to.include({
-      orgSlugLower: "acme", githubOrg: "Acme", workspaceRepo: "acme-gov",
-      agentWorkRoot: "~/.gov/acme/projects", govWorkspace: "~/.gov/acme/gov_repo",
-      policyOwnerGithub: "@rk", legalOwnerGithub: "@rk", infraOwnerGithub: "@rk",
-      systemArchOwnerGithub: "@rk", dataArchOwnerGithub: "@rk",
+      githubOrg: "Acme", workspaceRepo: "acme-gov", govWorkspace: "~/.gov/acme/gov_repo",
+      policyOwnerGithub: "@rk", checkOwnerGithub: "@rk",
     });
   });
 
@@ -674,7 +648,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     };
     const code = await runSetup({
       fs: fakeFs(writes), cwd: "/repo", ...CTX, ghUser: "rk", gitEmail: "rk@acme.io",
-      prompt: async (q, def) => answers[q] ?? def,
+      prompt: async (q, def) => agentAnswer(q) ?? answers[q] ?? def,
       print: (l) => printed.push(l),
       setOriginRemote: (u) => { remote = u; },
     }, true);
@@ -708,7 +682,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       // orgName too: this stub answers every prompt with its default, and an empty
       // default for a required field is now correctly refused rather than accepted.
       existing: { orgSlug: "ACME", orgName: "Acme Inc" },
-      prompt: async (q, def) => { asked.push(q); return def; },
+      prompt: async (q, def) => { asked.push(q); return agentAnswer(q) ?? def; },
       print: (l) => printed.push(l),
     }, true);
     expect(code).to.equal(0);
@@ -783,12 +757,12 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
     "knowledge/policies/foo.md": `${FM}\n# Foo policy\n`,
   });
 
-  it("all-green workspace → runSuite ok, no failures (all 5 core validators pass)", () => {
+  it("all-green workspace → runSuite ok, no failures (all 4 core validators pass)", () => {
     const r = runSuite(workspaceCtx(greenFiles()));
     expect(r).to.deep.equal({ ok: true, failures: [] });
     // and the aggregated run reports 4 passing results
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
-    expect(run.results).to.have.lengthOf(5);
+    expect(run.results).to.have.lengthOf(4);
     expect(run.results.every((x) => x.ok)).to.equal(true);
   });
 
@@ -838,6 +812,6 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
   it("CORE_VALIDATORS excludes privacy (it is publish-branch only)", () => {
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
     expect(run.results.map((r) => r.name)).to.not.include("privacy");
-    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge", "project-knowledge"]);
+    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge"]);
   });
 });

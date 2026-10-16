@@ -37,7 +37,6 @@ class World {
   tags = new Map<string, Set<string>>();
   issues = new Map(Object.entries({ [ISSUE]: { state: "OPEN" as "OPEN" | "CLOSED", assignees: [] as string[] } }));
   anchorCreated = false;
-  boardClosed = false;
   log: string[] = [];
 
   // Every map in this world is keyed by the NORMALISED path: production composes with `path.join`, so on
@@ -84,6 +83,7 @@ class World {
     pushDelete: (_dir, _r, b) => this.pushed.delete(b),
     clone: (_url, dest) => this.markGit(dest),
     fetch: () => {},
+    fetchDefault: () => "base-sha",
     setIdentity: () => {},
     checkout: (dir, b) => this.current.set(px(dir), b),
     checkoutNew: (dir, b) => {
@@ -109,7 +109,7 @@ class World {
     // silently (Decision 1, 2026-09-14). While it was read from `framework/…` the read returned
     // null and no project was ever given a todo list, though the protocol tells every agent to
     // read one and surface its `## Open` items.
-    readFile: (f) => (px(f).endsWith("governance/guidance/todo-template.md")
+    readFile: (f) => (px(f).endsWith("framework/build/templates/todo-template.md")
       ? "# To-do for <PROJECT_ID>\n\n## Open\n\n## Done\n"
       : this.files.get(px(f)) ?? null),
     rm: (t) => {
@@ -126,15 +126,11 @@ class World {
   issuesPort: Issues = {
     state: (url) => this.issues.get(url)?.state ?? "UNKNOWN",
     assign: (url, a) => this.issues.get(url)?.assignees.push(a),
-    setBoardStatus: () => {},
     close: (url) => {
       const i = this.issues.get(url);
       if (i) i.state = "CLOSED";
     },
     resolveIssueUrl: () => ISSUE,
-    closeBoard: () => {
-      this.boardClosed = true;
-    },
   };
 
   anchor: AnchorCreator = {
@@ -143,6 +139,8 @@ class World {
       return "Svayamtech/wsrepo#1";
     },
     setState: () => true,
+    // No anchor until seed makes one (seed reuses an existing anchor — plan 03 L06).
+    find: () => null,
   };
 }
 

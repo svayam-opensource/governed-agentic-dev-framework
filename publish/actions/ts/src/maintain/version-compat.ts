@@ -25,7 +25,12 @@ function cmp(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
-export function checkVersionCompat(cliVersion: string, contentVersion: string | null): CompatResult {
+/** How to update the CLI, as the notice prints it. Windows: winget (the MSI), never `npm i -g` (Q11, plan 04 T11). */
+function updateLine(version: string, platform: NodeJS.Platform): string {
+  return platform === "win32" ? "winget upgrade Svayam.Gov" : `npm i -g @svayam-opensource/gov@${version}`;
+}
+
+export function checkVersionCompat(cliVersion: string, contentVersion: string | null, platform: NodeJS.Platform = process.platform): CompatResult {
   if (!contentVersion) return { status: "no-marker", ok: true, message: "no content VERSION marker — run `gov upgrade` to install one" };
   const cli = parse(cliVersion);
   const content = parse(contentVersion);
@@ -33,7 +38,7 @@ export function checkVersionCompat(cliVersion: string, contentVersion: string | 
   if (c === 0) return { status: "ok", ok: true, message: `CLI ${cliVersion} == content ${contentVersion}` };
   if (c > 0) return { status: "content-behind", ok: true, message: `content ${contentVersion} is behind the CLI ${cliVersion} — run \`gov upgrade\` to sync the workspace` };
   if (cli[0] < content[0]) {
-    return { status: "cli-behind-major", ok: false, message: `gov CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  npm i -g @svayam-opensource/gov@${contentVersion}` };
+    return { status: "cli-behind-major", ok: false, message: `gov CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  ${updateLine(contentVersion, platform)}` };
   }
-  return { status: "cli-behind", ok: true, message: `gov CLI ${cliVersion} is behind the content ${contentVersion} — consider \`npm i -g @svayam-opensource/gov@${contentVersion}\`` };
+  return { status: "cli-behind", ok: true, message: `gov CLI ${cliVersion} is behind the content ${contentVersion} — consider \`${updateLine(contentVersion, platform)}\`` };
 }

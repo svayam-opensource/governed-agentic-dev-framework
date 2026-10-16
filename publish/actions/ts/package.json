@@ -19,7 +19,18 @@
         "types": "./lib/cjs/index.d.ts",
         "default": "./lib/cjs/index.js"
       }
-    }
+    },
+    "./check-host": {
+      "import": {
+        "types": "./lib/esm/check-seam/public.d.ts",
+        "default": "./lib/esm/check-seam/public.js"
+      },
+      "require": {
+        "types": "./lib/cjs/check-seam/public.d.ts",
+        "default": "./lib/cjs/check-seam/public.js"
+      }
+    },
+    "./check-host/schemas/*": "./lib/esm/check-seam/schemas/*"
   },
   "files": [
     "lib/",
@@ -35,19 +46,22 @@
   },
   "scripts": {
     "clean": "rm -rf lib",
-    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && node scripts/copy-seam-schemas.mjs",
     "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
     "test:e2e": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/e2e/**/*.test.ts'",
     "lint": "eslint .",
     "prepublishOnly": "npm run build && npm run test",
     "prepack": "npm run build",
     "tsc": "npm run build",
-    "postbuild": "chmod +x lib/esm/cli/bin.js",
+    "postbuild": "chmod +x lib/esm/cli/bin.js && node scripts/write-build-identity.mjs && node scripts/lib-fresh.mjs --write",
     "test:adopter": "bash e2e/run-adopter-e2e.sh",
     "test:adopter:smoke": "bash e2e/adopter-smoke.sh",
     "test:journey": "bash e2e/journey.sh",
+    "door:check": "node scripts/door-link-check.mjs",
     "catalog:freshness": "npm run build --silent && node scripts/catalog-freshness.mjs",
-    "harness:freshness": "node scripts/harness-paths-freshness.mjs"
+    "harness:freshness": "node scripts/harness-paths-freshness.mjs",
+    "docs:cli": "node --import tsx scripts/gen-cli-reference.mjs",
+    "docs:cli:check": "node --import tsx scripts/gen-cli-reference.mjs --check"
   },
   "keywords": [
     "gov",
@@ -67,8 +81,10 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/chai": "^4.3.16",
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.0.0",
+    "ajv": "^8.20.0",
     "chai": "^4.5.0",
     "jiti": "^2.4.2",
     "mocha": "^10.8.2",
@@ -77,7 +93,8 @@
     "typescript-eslint": "^8.56.0"
   },
   "dependencies": {
-    "@svayam-opensource/svm-util-log": "^1.0.1"
+    "@svayam-opensource/svm-util-log": "^1.1.1",
+    "js-yaml": "^4.3.2"
   },
   "homepage": "https://github.com/svayam-opensource/governed-agentic-dev-framework#readme",
   "bugs": {

@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * WHAT A RUN ACTUALLY RECORDS (PRJ-121, 2026-09-23).
+ *
+ * The design's claim is that coverage comes from CHOKEPOINTS rather than sprinkled calls, so the test reads a
+ * real run's log file back: start a run into a temp folder, do the things gov does — write a file, run a
+ * transaction, make a decision, run a process — and assert the lines are there, with no secret among them.
+ *
+ * It needs svm-util-log ≥ 1.1.0 (`gate: "level"`): before that, `info` was dropped unless NODE_DEBUG named the
+ * module, which is the defect this whole slice began with.
+ */
+import { expect } from "chai";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { decide, endRun, log, startRun } from "../src/log.js";
+import { createNodeFs } from "../src/lifecycle/fs-io.js";
+import { Transaction } from "../src/lifecycle/transaction.js";
+import { run } from "../src/run-process.js";
+
+/** The run's log file, once the transport has flushed it. */
+async function readRunLog(dir: string): Promise<string> {
+  for (let i = 0; i < 60; i++) {
+    const f = fs.existsSync(dir) ? fs.readdirSync(dir).find((n) => n.endsWith(".log")) : undefined;
+    const text = f ? fs.readFileSync(path.join(dir, f), "utf8") : "";
+    if (text.includes("run finished")) return text;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return "";
+}
+
+describe("a run's log — the chokepoints, read back from the file", function () {
+  this.timeout(20000);
+  let root = "", logText = "";
+
+  before(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "gov-logtest-"));
+    startRun({ argv: ["work", "--token", "sk-live-secret"], command: "work", project: "PRJ-9-demo", workRoot: root, login: "tester", version: "9.9.9" });
+
+    createNodeFs().writeFile(path.join(root, "made", "file.txt"), "some content nobody should see");
+    createNodeFs().rm(path.join(root, "made", "file.txt"));
+
+    const tx = new Transaction();
+    tx.step("push the branch", () => "done", () => { /* undo */ });
+    tx.rollback();
+
+    decide("agent", "ibm-bob", "org default", "gov-work:test", "chokepoints");
+    run("echo", ["hello"], { pgm: "gov-work:test" });
+    log("info", "hidden answer received", "gov-work:cli:ask", "secret", { chars: 14 });
+
+    endRun(0);
+    const day = new Date();
+    const p = (n: number): string => String(n).padStart(2, "0");
+    const dayDir = path.join(root, "preferences", "tester", "state", "logs", `${day.getFullYear()}-${p(day.getMonth() + 1)}-${p(day.getDate())}`);
+    const runDir = fs.existsSync(dayDir) ? path.join(dayDir, fs.readdirSync(dayDir)[0]!) : "";
+    logText = runDir ? await readRunLog(runDir) : "";
+  });
+
+  after(() => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* gone */ } });
+
+  it("writes into the person's state folder, under the day and the run", () => {
+    expect(logText, "the run's file was written and flushed").to.not.equal("");
+    expect(logText).to.contain("run started").and.contain("run finished");
+  });
+
+  it("GOV-FRM-423 records the file it wrote and the one it removed — the bytes, never the content", () => {
+    expect(logText).to.contain("wrote a file").and.contain("file.txt");
+    expect(logText, "the content is not gov's to write down").to.not.contain("nobody should see");
+    expect(logText).to.contain("removed");
+  });
+
+  it("records a transaction's step and its undo", () => {
+    expect(logText).to.contain("step done").and.contain("push the branch");
+    expect(logText).to.contain("undone");
+  });
+
+  it("records a decision: what was chosen, and why", () => {
+    expect(logText).to.contain("chose agent").and.contain("ibm-bob").and.contain("org default");
+  });
+
+  it("GOV-FRM-423 records the processes it ran, with timing and exit code", () => {
+    expect(logText).to.contain("ran").and.contain("echo").and.contain("exitCode: 0");
+  });
+
+  // No secret in a log, C01 — the one rule that is not a preference.
+  it("NEVER a secret: the token on the command line is redacted, the hidden answer is a count", () => {
+    expect(logText, "the token typed in argv").to.not.contain("sk-live-secret");
+    expect(logText).to.contain("'***'");
+    expect(logText).to.contain("chars: 14");
+  });
+});
+
+// Policy Owner, 2026-09-23 (preferences design §6, decision 3): gov's own state moves into the person's folder.
+describe("the context acknowledgement lives with the org it is about", () => {
+  it("goes to <work-root>/preferences/<login>/state/ack.json", async () => {
+    const { ackFileFor } = await import("../src/cli/context-gate.js");
+    expect(ackFileFor("/w", "rk")).to.equal(path.join("/w/preferences/rk/state", "ack.json"));
+  });
+
+  it("falls back to the legacy home file until gov knows whose it is", async () => {
+    const { ackFileFor } = await import("../src/cli/context-gate.js");
+    expect(ackFileFor(null, null, "/home/rk")).to.equal(path.join("/home/rk", ".gov-context-ack.json"));
+    expect(ackFileFor("/w", null, "/home/rk"), "a work root without a login is not enough").to.contain(".gov-context-ack.json");
+  });
+});
+
+// §12.3 (W9, rule model): one logging utility, and nobody's own. The chokepoints above prove gov logs through it;
+// this proves nothing logs AROUND it — a `console.log` added anywhere in src/ is the ad-hoc output §12.3 forbids.
+describe("one logging utility — nothing logs around it", () => {
+  const SRC = path.join(import.meta.dirname, "..", "src");
+  const files = (dir: string): string[] => fs.readdirSync(dir).flatMap((n) => {
+    const p = path.join(dir, n);
+    return fs.statSync(p).isDirectory() ? files(p) : n.endsWith(".ts") ? [p] : [];
+  });
+
+  it("GOV-FRM-423 no source file writes ad-hoc log output, and only log.ts reaches the logging utility", () => {
+    const adHoc: string[] = [];
+    const ownLogger: string[] = [];
+    for (const f of files(SRC)) {
+      const rel = path.relative(SRC, f).split(path.sep).join("/");
+      const text = fs.readFileSync(f, "utf8");
+      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace)\s*\(/.test(text)) adHoc.push(rel);
+      if (rel !== "log.ts" && /from\s+["']@svayam-opensource\/svm-util-log["']/.test(text)) ownLogger.push(rel);
+    }
+    expect(adHoc, "console.* bypasses the levels, the structure and the redaction — use log() from src/log.ts").to.deep.equal([]);
+    expect(ownLogger, "a second door to the utility is a logger written for one module").to.deep.equal([]);
+    expect(fs.readFileSync(path.join(SRC, "log.ts"), "utf8"), "and log.ts is that door").to.match(/from\s+["']@svayam-opensource\/svm-util-log["']/);
+  });
+});

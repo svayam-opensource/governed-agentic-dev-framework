@@ -1,10 +1,10 @@
 # <ORG_NAME> — Org-Level Agent Entry Point
-# Repository: <WORKSPACE_REPO>
+# Repository: <ORG_GOV_REPO>
 # This file is the primary context entry point for all agents working in this repository.
 
 ## About This Repository
 
-`<WORKSPACE_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
+`<ORG_GOV_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
 - All project workspaces (`projects/PRJ-<board#>-<slug>/`)
@@ -12,14 +12,15 @@ It is NOT a code repository. It contains:
 Project state is derived live from GitHub (boards + anchor issues) — there is no
 `registry.yaml` or `project.yaml`.
 
-`<WORKSPACE_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
+`<ORG_GOV_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
 
 ## Authoritative Policy
 
 All work in this repository and all agentic development at <ORG_NAME> is governed by:
-`governance/policies/org-ai-agent-governance-policy.md`
+`framework/framework-specification.md` (how the framework works) and your organization's
+`policies/` (its own rules). Every rule is listed in `agent/harness/rule-map.md`.
 
-Read this policy before beginning any work session.
+Read these before beginning any work session.
 
 ## Knowledge Layer Priority (Highest to Lowest)
 
@@ -34,12 +35,12 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 ## Conflict Resolution by Compliance Level
 
 - **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
-- **C02 — Always Apply**: Block work. Require approved PR in `governance/policies/exceptions/` before continuing.
-- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-<board#>-<slug>/knowledge/compliance.md`.
+- **C02 — Always Apply**: Block work. Require approved PR in `policies/exceptions/` before continuing.
+- **C03 — Apply Intelligently**: Proceed with deviation, but record the reasoning in the project's knowledge as you decide it, and list the deviation under `## Deviations` in the pull request: one line citing the rule's GOV id.
 
 ## Session Start Checklist (C01 — complete before any work)
 
-1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
+1. Read `org-config.yaml` at workspace root — org identity and branches — and `policies/governance.yaml` — the Policy and Check Owners, the posture, the authorized agents. Every other step references their values.
 2. Verify you are authorized via **write access to the project's GitHub Project** (or you own the current task sub-branch)
 3. Verify the project's GitHub board is **open** (active)
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)
@@ -49,15 +50,15 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 Governance is sourced from **`<DEFAULT_BRANCH>`**: your session-start context and all governing
 knowledge/policy (`knowledge/`, `agent/session-protocol.md`, `policies/`) are built from
-`<DEFAULT_BRANCH>`, never from the project branch (POL-086a). Project work — **including edits to org
+`<DEFAULT_BRANCH>`, never from the project branch (GOV-FRM-086). Project work — **including edits to org
 `knowledge/`** — is committed to the **project branch**, where such edits are **proposals with no
 governing force**. Never self-govern by your own unratified edits. Project-specific context
-(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (POL-086b).
+(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (GOV-FRM-086).
 
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
-owners for `policies/`/`mandates/` (POL-086c). See
-`governance/policies/org-ai-agent-governance-policy.md` §6.4.
+owners for `policies/`/`mandates/` (GOV-FRM-455). See
+`framework/framework-specification.md` §7.4.
 
 ## Data Classification — Hard Rules
 
@@ -67,11 +68,11 @@ owners for `policies/`/`mandates/` (POL-086c). See
 
 ## Roles
 
-Current role holders are defined in `governance/policies/org-ai-agent-governance-policy.md` §3.2.
+Current role holders are defined in `policies/common/authorized-representatives.md`.
 All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
 
 ## Lifecycle operations
 
-Use the `gov` CLI (`npm i -g @svayam-opensource/gov`) for all lifecycle operations
-(`gov seed`, `gov task`, `gov merge`, `gov close`, …) — never perform lifecycle
-actions manually.
+Use the `gov` CLI for all lifecycle operations (`gov seed`, `gov task`, `gov merge`,
+`gov close`, …) — never perform lifecycle actions manually. A person gets it by
+install.sh, then the first-run flow (adopt / join / not sure); on Windows, the installer.

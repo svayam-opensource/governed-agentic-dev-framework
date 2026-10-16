@@ -1,13 +1,10 @@
-# Agentic Development Framework — Organization Configuration
+# Organization configuration — who this organization is, and the infrastructure it uses.
 #
-# This file is shipped empty by the framework template. An adopting org runs
-# gov setup once after cloning the template; that fills in real values here.
-# Framework files (CLAUDE.md, AGENTS.md, knowledge/policies/, etc.) read these
-# values at runtime, so this is the ONLY file that diverges from the upstream
-# template after setup.
-#
-# Re-run gov setup to update. Do not edit by hand unless you know what you're
-# doing — setup.sh overwrites the file.
+# The values are yours; the list of keys and what each one means is the framework's, in
+# framework/common/reference/org-config.schema.yaml, and `gov doctor` checks this file against it.
+# How the organization GOVERNS — its posture, its Policy and Check Owners, the agents it
+# authorizes — is in policies/governance.yaml, where a change needs the Policy Owner.
+# The first-run flow (adopt) fills it in; to change a value, edit it here by pull request.
 
 # Full legal name of your organization
 org_name: ""
@@ -15,71 +12,70 @@ org_name: ""
 # Short display name (used in headings and prose)
 org_short_name: ""
 
-# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
-# Not used in project IDs (which use a literal PRJ- prefix).
+# Two to six capital letters naming your organization (e.g. ACME). Not FRM, which is the framework's.
 org_slug: ""
 
-# Lowercase derivation of org_slug — used for filesystem paths under
-# agent_work_root. Auto-derived from org_slug.
-org_slug_lower: ""
-
-# Full URL of this workspace repository. 'origin' will be set to this.
+# Full URL of this governance repository. 'origin' will be set to this.
 org_repo_url: ""
 
 # GitHub organization or username (derived from org_repo_url)
 github_org: ""
 
-# Name of this workspace repository (derived from org_repo_url)
-workspace_repo: ""
+# Name of this governance repository (derived from org_repo_url)
+org_gov_repo: ""
 
-# Default branch name for this workspace repo
+# Default branch name for this governance repo
 default_branch: "main"
 
-# Default base branch for code repositories (used by seed script)
+# Default base branch for code repositories (used by seed)
 default_code_branch: "dev"
 
-# The env branches BETWEEN default_branch and default_code_branch, HIGHEST FIRST.
-# Leave it out and the ladder is just [default_branch, default_code_branch], which
-# is right until you have a uat branch.
+# Where the WORK happens, when that is not where the issue lives (#194).
+# A board may link an issue in a repository this org can read but not write — the
+# usual shape when you work from a fork. Map upstream to your own copy and gov
+# branches, pushes and merges in yours, while the board keeps linking theirs:
 #
-# `close` uses it to land a project branch in its base AND every branch below:
-# an ordinary project is cut from `dev` and lands in `dev`; a HOTFIX is cut from a
-# higher env branch and must reach that one (or production is never fixed) and every
-# branch below it (or the next ordinary release silently reverts the fix).
+# repo_overrides:
+#   genevaers/Workbench: svm-geneva/Workbench
 #
-#   env_branches:
-#     - uat
+# Declared, never guessed: gov will not choose where your code is pushed.
 
-# Per-project workspaces are created under this path. Each gets its own
-# folder containing a clone of this workspace repo on the project branch
-# plus clones of each impacted code repo on the project branch.
-agent_work_root: ""
-
-# Policy Owner details (initial holder of all policy roles at launch)
-policy_owner_email: ""
-policy_owner_github: ""
-
-# Other role GitHub handles (update as roles are formally assigned)
-legal_owner_github: ""
-infra_owner_github: ""
-system_arch_owner_github: ""
-data_arch_owner_github: ""
-
-# Effective date of the policy (YYYY-MM-DD)
-policy_effective_date: ""
-
-# Governance account (multi-tenant): the account this org operates under (service auth mints under it).
+# Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
 gov_account: ""
 
-# ── Service endpoints — ORG-LEVEL, GOVERNED ──────────────────────────────────────────────────────────
-# The shared infrastructure this org uses. Set ONCE by the gov-admin here; adopters INHERIT these (they are
-# never prompted per-user). Per-user *secrets/tokens* do NOT go here — those live in Vault via `gov creds`.
-# `vault` + `oidc` are used by gov-work core (auth/creds); `jenkins`/`npm`/`docker` are read by the
-# gov-cicd deploy plugin. Leave a line "" if the org doesn't use that service.
+# ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
+#    Per-user secrets/tokens go to Vault via `gov-cicd creds`, NOT here. gov-work itself needs NEITHER:
+#    it authenticates with your own git + gh. vault/oidc/jenkins/npm/docker are read by the deploy
+#    clients (gov-cicd, gov-infra) — fill them as you adopt deploy.
 services:
-  vault: ""              # OpenBao/Vault base — per-user token store + attest target (gov creds → Vault)
-  oidc: ""               # IAM broker OIDC base — `gov auth login` (loopback + PKCE)
-  oidc_client_id: "gov"  # the OIDC public client id for the CLI
-  jenkins: ""            # org Jenkins base — a deploy triggers a job here as the user (gov-cicd)
-  npm: ""                # org npm/Verdaccio registry — publish target for npm units (gov-cicd)
-  docker: ""             # org container image registry — publish target for container units (gov-cicd)
+  vault: ""
+  oidc: ""
+  oidc_client_id: "gov"
+  jenkins: ""
+  npm: ""
+  docker: ""
+
+# ── Session policy. NOT a service endpoint: the block above lists URLs of things we talk to, this is a
+#    number the identity provider is told to honour.
+#
+#    access_ttl_sec — how long an access token lives, in seconds. The org standard, declared here and
+#    MINTED by the issuer from this value; the deploy compares the two and FAILS when they disagree,
+#    because a lifetime that is true in a file and false in production is the shape of a failure nobody
+#    finds until a token dies somewhere unrelated.
+#
+#    It is short on purpose. The same bearer is handed to other tools, so its life is the window in
+#    which a leak is useful — everywhere. A client that needs longer is granted it NARROWLY: per client,
+#    or per job. Raising this number to buy one client room is explicitly not an exception to it.
+#
+#    See knowledge/architecture/system/specs/token-lifetime-standard.md §3.4.
+session:
+  access_ttl_sec: 300
+
+# ── Platforms. Which platform gov talks to for each kind of work: the work tracker (boards, issues), the
+#    code host (change requests, reviews, required checks) and CI identity. Leave it out and gov uses
+#    GitHub for all three — the only platform it has today. `gov doctor` fails on a name it does not have.
+#
+# adapters:
+#   work_tracker: github
+#   vcs: github
+#   ci_identity: github

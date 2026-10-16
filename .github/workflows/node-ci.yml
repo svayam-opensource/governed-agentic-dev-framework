@@ -11,6 +11,9 @@ name: node-ci
 #   container Debian · Fedora            (on the ubuntu host — glibc/toolchain differences, also free)
 
 on:
+  # Manual runs, on any branch: `gh workflow run node-ci.yml --ref <branch>`. How a Windows defect is
+  # iterated on by someone with no Windows machine — the hosted runner is the only one we have.
+  workflow_dispatch:
   # PRs: NO path filter — so the required checks always run + report (a path-filtered required check
   # blocks PRs that don't touch the paths, since the check never runs). Cached + fast when unchanged.
   pull_request:
@@ -21,6 +24,13 @@ on:
     paths:
       - "publish/actions/ts/**"
       - ".github/workflows/node-ci.yml"
+      # The `generated` job below checks files rendered FROM these, so a push that changes only the
+      # protocol, a policy's cue blocks or the shipped content must still run this workflow. Leaving
+      # them out is how "the check is wired into CI" would have been true and still caught nothing.
+      - "agent/**"
+      - "publish/content/**"
+      - "package.json"
+      - "package-lock.json"
 
 # ONE RUN PER COMMIT. Keyed on the HEAD REF, not `github.ref`: for a push that is
 # `refs/heads/<branch>` and for a pull_request it is `refs/pull/<n>/merge`, so a ref-keyed
@@ -34,6 +44,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── the GENERATED files still match their sources ────────────────────────────────────────────────
+  #
+  # THREE CHECKS THAT EXISTED AND WERE CALLED BY NOTHING (PRJ-121, 2026-09-28). `render-harness --check`
+  # was implemented, documented, and invoked by no workflow, no test and no hook — so editing
+  # `agent/session-protocol.md` or a policy's `gov:cue` block and forgetting to re-render passed every gate
+  # this repository has. The nine harness files are the ONLY thing that puts governance in an agent's
+  # context; a stale one is an agent obeying a protocol nobody ratified, and it fails the way every defect
+  # in this area fails, which is silently. `docs:cli:check` is the same shape for the CLI reference.
+  #
+  # HERE, NOT A THIRD WORKFLOW. `catalog-freshness.yml` is deliberately a weekly SCHEDULE — it queries npm,
+  # and a registry hiccup must not redden a pull request. These two are offline byte comparisons and belong
+  # on the PR, so they join the workflow that already gates merges. Nothing existing is touched.
+  #
+  # ONE OS: the inputs are files in the repository and the comparison is bytes. A five-platform matrix would
+  # assert the same equality five times. Line endings are handled by `.gitattributes`, and the cross-OS
+  # suites under `test/cross-os` are where that belongs.
+  generated:
+    name: generated files match their sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      # BOTH manifests. `render-harness.mjs` lives at the repo root (js-yaml + tsx) and imports the renderer
+      # out of `publish/actions/ts/src`, which is the whole point of it being a thin wrapper: the publisher
+      # runs the same code an adopter's `gov rules build` runs, so the two cannot drift.
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: publish/actions/ts
+
+      # Fails with the exact file list and the command to run. Locally: `npm run render-harness` from the
+      # repository root, then commit what it wrote.
+      - name: the nine harness files match the protocol + the policies' cue blocks
+        run: npm run render-harness:check
+
+      # Locally: `npm run docs:cli` in publish/actions/ts.
+      - name: the generated CLI reference matches the specs
+        working-directory: publish/actions/ts
+        run: npm run docs:cli:check
+
+      # ADVISORY BY CONSTRUCTION, and kept advisory here. This one asks the VENDORS — it downloads each
+      # agent's published package and looks for the context filename the catalog claims it reads — so it
+      # needs the network and exits 0 whatever it finds: a vendor renaming a file between releases is news,
+      # not a broken pull request. It runs weekly in `catalog-freshness.yml` as well; that is the run that
+      # matters. It is here so a change to the harness path list gets the vendor's answer in the same place
+      # the two gates above are read, and `continue-on-error` says out loud that it cannot fail the build —
+      # so nobody later mistakes a green tick here for a verified path.
+      #
+      # Locally: `npm run harness:freshness` in publish/actions/ts.
+      - name: (advisory) each vendor's package still ships the path gov writes for it
+        working-directory: publish/actions/ts
+        continue-on-error: true
+        run: npm run harness:freshness
+
   # ── the CLI, on every hosted OS an adopter runs it on ─────────────────────────────────────────────
   gov-work:
     name: gov-work (${{ matrix.label }})
@@ -71,6 +139,19 @@ jobs:
       # lint is platform-independent — one run is the signal, three is noise.
       - if: matrix.lint
         run: npm run lint
+      # AUDIT GATE (PRJ-121 intent 05, Item 11). FAILS the build on any moderate-or-worse advisory in what an
+      # adopter installs (`--omit=dev`). It went unnoticed that gov shipped moment 2.30.1 (GHSA-4p3w-j4w9-5jqw)
+      # because nothing gated on audit: `npm ci` prints an advisory count and exits 0 whatever it says.
+      # Two checks, because they answer different questions:
+      #   1. our lockfile — what this repository builds and tests with;
+      #   2. the PACKED gov installed fresh — what an adopter's `npm i -g` resolves (a tarball ships no lockfile).
+      # Platform-independent, and (2) needs the registry, so one leg runs them.
+      - name: npm audit --omit=dev (lockfile) — moderate or worse fails
+        if: matrix.lint
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: npm audit of the packed gov, installed fresh — moderate or worse fails
+        if: matrix.lint
+        run: bash e2e/packed-audit.sh
       - run: npm test
       # MANDATORY full-flow e2e gate (PRJ-43): the hermetic seed→task→merge e2e must pass before a PR
       # merges (and thus before publish). It is already part of `npm test`; this named step makes it a
@@ -227,16 +308,28 @@ jobs:
       # actions themselves need (checkout wants git; setup-node unpacks a .tar.xz) — deliberately not
       # a build-essential kitchen sink, so a test that needs something we do not ship FAILS here
       # instead of quietly finding it on the host.
+      #
+      # python3 is the one exception, and it is not ours: an org check action may be `python/<name>`, and
+      # test/rules/checks/org-actions.test.ts runs a REAL one (the behaviour under test is a process's). An org
+      # that binds a python action has Python on the machine that runs it; Debian slim ships none, Fedora does.
+      # What gov says on a machine WITHOUT it is tested separately, on every leg, by emptying PATH.
       - name: bootstrap the container
         working-directory: /
         run: |
           set -eu
           if command -v apt-get >/dev/null; then
-            apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates curl xz-utils
+            apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates curl xz-utils python3
           else
-            dnf -y install git ca-certificates tar xz findutils
+            dnf -y install git ca-certificates tar xz findutils python3
           fi
       - uses: actions/checkout@v4
+      # THE CHECKOUT BELONGS TO ANOTHER USER. The workspace is a host directory owned by the runner's uid, mounted
+      # into a container that runs as root, so git refuses it ("detected dubious ownership") — and every test that
+      # asks git about this repository (pol-aliases' `git grep`, run 38838958583) failed for a reason no adopter
+      # has. checkout's own exception lives in a temporary HOME that is gone after its step. SYSTEM scope, not
+      # global: tests run git with their own HOME, and a global setting would not reach them.
+      - name: trust the checkout (container user ≠ the workspace's owner)
+        run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"

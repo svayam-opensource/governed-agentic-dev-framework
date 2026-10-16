@@ -6,7 +6,9 @@
  * assert the handling directly so a regression is caught regardless of runner.
  */
 import { expect } from "chai";
-import { parseManifest, expandEntries, mergeOrgConfig, planUpgrade, RETIRE_PATHS } from "../../src/maintain/upgrade-sync.js";
+import { parseManifest, expandEntries, planUpgrade, RETIRE_PATHS } from "../../src/maintain/upgrade-sync.js";
+import { splitOrgConfig } from "../../src/maintain/org-config-split.js";
+import { parseGovernance } from "../../src/config/governance.js";
 import { parseOrgConfig } from "../../src/config/org-config.js";
 import { checkKnowledge } from "../../src/governance/knowledge.js";
 
@@ -17,12 +19,10 @@ describe("cross-OS — CRLF line endings", () => {
     expect(m.owned).to.include("org-config.yaml");
   });
 
-  it("mergeOrgConfig on a CRLF org-config keeps clean values + emits LF", () => {
-    const merged = mergeOrgConfig('org_name: ""\norg_short_name: ""\n', 'org_name: "Acme"\r\nlegacy: "x"\r\n');
-    expect(merged).to.match(/org_name: "Acme"/);
-    expect(merged).to.match(/org_short_name: ""/);
-    expect(merged).to.match(/# legacy: "x"/);
-    expect(merged).to.not.match(/\r/); // no carriage returns leak through
+  it("the org-config split on a CRLF org-config keeps its values and its line endings", () => {
+    const out = splitOrgConfig({ orgConfig: 'org_name: "Acme"\r\npolicy_owner_github: "po"\r\norg_slug: "ACM"\r\n', governance: null, roleList: null });
+    expect(out.orgConfig).to.equal('org_name: "Acme"\r\norg_slug: "ACM"\r\n');
+    expect(parseGovernance(out.governance).policyOwner.github).to.equal("po");
   });
 
   it("parseOrgConfig tolerates CRLF (no trailing \\r in values)", () => {

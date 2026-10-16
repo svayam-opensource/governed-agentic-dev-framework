@@ -25,6 +25,12 @@
  * the registry either way, so R2 is unaffected.
  */
 
+import { parseGovernance, governanceTokens } from "../config/governance.js";
+import { defaultWorkRoot } from "../config/org-config.js";
+import { isReservedSlug } from "./answers.js";
+import { selectContent, type BuildIdentity, type ContentFlags, type Fetch, type Invocation, type SelectedContent } from "../maintain/build-identity.js";
+import { GH_SCOPES_ARGS, GH_SIGNED_IN_ARGS, parseGrantedScopes } from "../maintain/fix-env.js";
+
 /** The GitHub coordinates of the repo to create. */
 export interface CreateTarget {
   readonly org: string;
@@ -54,7 +60,9 @@ export type PreflightFailure =
   /** something is already at the derived (or --path) location. */
   | { readonly why: "path-occupied"; readonly path: string }
   /** the governance probe could not run — refusing rather than risking a duplicate. */
-  | { readonly why: "cannot-verify"; readonly org: string };
+  | { readonly why: "cannot-verify"; readonly org: string }
+  /** the slug is the framework's own rule scope (rule-model Q7). */
+  | { readonly why: "reserved-slug"; readonly slug: string };
 
 /** Non-fatal findings. The command proceeds; the adopter is told. */
 export interface PreflightWarning {
@@ -119,7 +127,7 @@ export function findExistingGovernanceRepo(io: CreateIo, org: string): { readonl
   try {
     const parsed = JSON.parse(raw) as { repos?: string[]; more?: boolean };
     return { repos: parsed.repos ?? [], truncated: parsed.more === true, verified: true };
-  } catch {
+  } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
     return { repos: [], truncated: false, verified: false };
   }
 }
@@ -169,8 +177,11 @@ export function preflight(
 ): { readonly ok: false; readonly failure: PreflightFailure } | { readonly ok: true; readonly target: CreateTarget; readonly govRepo: string; readonly warnings: readonly PreflightWarning[] } {
   const target = parseTarget(rawTarget);
   if (!target) return { ok: false, failure: { why: "bad-target", got: rawTarget } };
+  // Before GitHub is asked anything: no answer from it could make this slug usable.
+  if (isReservedSlug(slug)) return { ok: false, failure: { why: "reserved-slug", slug } };
 
-  if (io.gh(["auth", "status"]) === null) return { ok: false, failure: { why: "not-authenticated" } };
+  // `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY stored account is stale.
+  if (io.gh(GH_SIGNED_IN_ARGS) === null) return { ok: false, failure: { why: "not-authenticated" } };
 
   // Ask GitHub whether this token may create here, rather than inferring it from scopes — an org can
   // forbid member repo creation with every scope present, and the scope list is not the authority.
@@ -191,8 +202,9 @@ export function preflight(
     warnings.push({ what: "governance-scan-truncated",
       detail: `${target.org} has more than 100 repositories — only the first 100 were checked for an existing governance repo. Confirm by hand that none exists before continuing.` });
   }
-  const scopes = io.gh(["auth", "status"]) ?? "";
-  if (!/\bproject\b/.test(scopes)) {
+  // Null = the token states no scopes (fine-grained or app token): cannot tell, so no warning rather than a false one.
+  const scopes = parseGrantedScopes(io.gh(GH_SCOPES_ARGS) ?? "");
+  if (scopes !== null && !scopes.includes("project")) {
     warnings.push({ what: "no-project-scope",
       detail: "the 'project' scope is missing — GitHub Projects are the source of truth for project state, so `gov seed` will need it. Add it with: gh auth refresh -s project" });
   }
@@ -208,6 +220,10 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
               "  to configure: gov setup            (inside an existing workspace)"];
     case "not-authenticated":
       return ["gov setup: not signed in to GitHub.", "  fix: gh auth login"];
+    case "reserved-slug":
+      return [`gov setup: '${f.slug}' is reserved for the framework — its own rules are numbered GOV-FRM-NNN, and an`,
+              "  organization's rule ids carry its identifier, so the two would collide.",
+              "  fix: re-run and choose another 2-6 character identifier."];
     case "cannot-create":
       return [`gov setup: cannot create a repository in '${f.org}' — the org does not exist, or your token cannot see it.`,
               "  fix: check the org name, then: gh auth refresh -s repo"];
@@ -242,18 +258,6 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
   }
 }
 
-/**
- * Publisher scaffolding that must not reach an adopter (#159 finding 6c).
- *
- * The framework repo is also the template, so `gh repo create --template` copies EVERYTHING the
- * publisher needs to build and test itself. An adopter has no TypeScript to build and no framework to
- * document, so these are noise at best — and `.github` is worse than noise: the workflows build the
- * CLI's own source, so a brand-new adopter's first push turns their repo red.
- *
- * Pruned in the adopter's clone, never in the framework repo, which keeps whatever shape it needs.
- * `publish/` is deliberately NOT here: it is the copy source the framework replaces on upgrade.
- */
-export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages", ".github"];
 
 /**
  * The framework's OWN working copies, which the template copy also brings.
@@ -265,54 +269,57 @@ export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages",
  */
 export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
 
-/**
- * The framework's OWN root FILES, which the template copy also brings — and which used to
- * survive the seed and govern the adopter's agents.
- *
- * THE GOVERNANCE HOLE THIS CLOSES, found on a walk 2026-09-12. This repo has its own
- * `AGENTS.md`: twenty-five lines about contributing to the framework, which even says "the
- * adopter-facing agent protocol lives in `publish/content/`". `gh repo create --template`
- * copies it into every adopter's repo. Then the seed plans it as `scaffold-prompt`, and on a
- * FIRST seed there is no baseline to compare against — so `base === null`, the entry is
- * classified `conflict`, and `applyUpgrade` skips conflicts. The verdict "org-customized —
- * review before applying" was wrong: the adopter had customized nothing, they had inherited the
- * template.
- *
- * The consequence was invisible and total for two of the launch-list agents. `ensureRootProtocol`
- * mirrors `<workspace>/AGENTS.md` to the project root, so openai-codex and ibm-bob — both of
- * which read AGENTS.md — were handed instructions for building this repository instead of the
- * governance protocol. Nothing failed; they were simply governed by the wrong document.
- * `verifyAgentContext` is what finally noticed, because the file carries no renderer banner.
- *
- * `README.md` is the same mistake with a smaller blast radius: adopters were reading the
- * framework's README rather than the one written for them.
- *
- * Pruned in the adopter's clone, never in the framework repo. The framework keeps its own
- * AGENTS.md at the conventional name, which is right for its own contributors — it just must
- * not be inherited, exactly like `agent/` and `knowledge/` are not.
- */
-export const INHERITED_FILES: readonly string[] = [
-  // Collide with a manifest destination — found by the 2026-09-12 AGENTS.md defect.
-  "AGENTS.md", "README.md",
-  // NO manifest counterpart at all, so nothing replaced or removed them (Decision 5,
-  // 2026-09-14). `INHERITED_FILES` originally covered only COLLISIONS, because that is the
-  // shape the AGENTS.md bug had; these seven reached every adopter untouched.
-  //
-  // CONTRIBUTING.md is the same defect as AGENTS.md without a collision to reveal it: this
-  // repository's own contributing guide, landing in an adopter's governance repo.
-  "CONTRIBUTING.md",
-  // The framework's licence, not the org's.
-  "LICENSE",
-  // Publisher artifacts — an adopter's governance repo builds nothing.
-  "package.json", "package-lock.json", ".npmignore",
-];
+// PUBLISHER_ONLY_DIRS and INHERITED_FILES — hand-kept lists of framework paths to delete from the template
+// copy — were retired 2026-09-22 for cleanSlateEntries / strayRootEntries below. They covered the defect of
+// 2026-09-12 (the framework's own AGENTS.md survived the seed and governed openai-codex and ibm-bob), but
+// went stale on the next top-level entry the framework grew. The clean slate removes EVERY root entry.
 
 /**
  * What an adopter should be left with — asserted after pruning so a new publisher
  * dir cannot creep in. The FLOOR, not the whole answer: everything MANIFEST.yaml
  * scaffolds is expected too, and {@link expectedDirs} unions the two.
  */
-export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
+export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge"];
+
+/**
+ * THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22).
+ *
+ * The template copy brings the WHOLE framework repo, and setup used to delete a hand-kept list of framework
+ * paths (PUBLISHER_ONLY_DIRS, INHERITED_FILES). The list went stale every time the framework grew a
+ * top-level entry: a real adopter repo, svm-geneva-gov, was created with 507 files, ~450 of them the
+ * framework's own — `publish/` (436: the CLI's source, its tests, a second copy of the content), `site/`,
+ * `install.ps1`, `CHANGELOG.md`, `.gitattributes`. And keeping `publish/` made the adopter repo LOOK like the
+ * framework to gov's own checks: `staleArtifactsIn` skipped it, and the framework's version-sync gate ran in
+ * the adopter's CI.
+ *
+ * So the rule is inverted, and nothing needs to be remembered:
+ *   before the seed — CLEAN SLATE: remove every root entry except `.git` and `publish/` (the seed's source);
+ *   after the seed  — remove every root entry the manifest did not produce, `publish/` included.
+ * `gov upgrade` never needed the local copy: it fetches publish/content from the template remote.
+ */
+export const GENERATED_ROOT_ENTRIES: readonly string[] = ["CODEOWNERS"];   // written by setup, not the manifest
+
+/** Root entries to remove from the template copy BEFORE seeding: everything but `.git` and the seed source. */
+export function cleanSlateEntries(rootEntries: readonly string[]): string[] {
+  return rootEntries.filter((e) => e !== ".git" && e !== "publish");
+}
+
+/** The root entries an adopter's repo is meant to have: the top level of every manifest destination, plus what
+ *  setup itself generates, plus `.git`. */
+export function adopterRootEntries(manifestText: string): Set<string> {
+  const keep = new Set<string>([".git", ...ADOPTER_DIRS, ...GENERATED_ROOT_ENTRIES]);
+  for (const m of manifestText.matchAll(/\bdst:\s*([^\s,}]+)/g)) {
+    const top = m[1]?.trim().split("/")[0];
+    if (top) keep.add(top);
+  }
+  return keep;
+}
+
+/** Root entries left AFTER seeding that the manifest did not produce — removed before the first commit. */
+export function strayRootEntries(rootEntries: readonly string[], manifestText: string): string[] {
+  const keep = adopterRootEntries(manifestText);
+  return rootEntries.filter((e) => !keep.has(e));
+}
 
 /**
  * Every top-level directory the manifest scaffolds into an adopter's repo (#193).
@@ -372,6 +379,32 @@ export function tokenValuesFromOrgConfig(text: string): Record<string, string> {
   return values;
 }
 
+/**
+ * EVERY TOKEN SETUP FILLS, after the org-config split (2026-10-06): org-config.yaml's own values, the governance
+ * choices from policies/governance.yaml (the Policy Owner's email and handle, the Check Owner), and the values that
+ * are no longer keys anywhere but that the framework's documents still name:
+ *
+ *   ORG_SLUG_LOWER / <org_slug>   org_slug in lower case (org_slug_lower is retired — it is derived)
+ *   AGENT_WORK_ROOT               the default work root, ~/.gov/<slug>/projects (a person's own is theirs)
+ *   POLICY_EFFECTIVE_DATE         the day setup ran — the date the organization's policies took effect
+ *   *_OWNER_GITHUB                the role list's starting holders: the Policy Owner, until the org names others
+ */
+export function setupTokenValues(orgConfigText: string, governanceText: string | null, today: string): Record<string, string> {
+  const values = tokenValuesFromOrgConfig(orgConfigText);
+  const g = parseGovernance(governanceText);
+  Object.assign(values, governanceTokens(g));
+  const slug = values.ORG_SLUG ?? "";
+  if (slug) {
+    values.ORG_SLUG_LOWER = slug.toLowerCase();
+    values.org_slug = slug.toLowerCase();
+    values.AGENT_WORK_ROOT = defaultWorkRoot(slug);
+  }
+  values.POLICY_EFFECTIVE_DATE = today;
+  const po = g.policyOwner.github;
+  if (po) for (const k of ["LEGAL_OWNER_GITHUB", "INFRA_OWNER_GITHUB", "SYSTEM_ARCH_OWNER_GITHUB", "DATA_ARCH_OWNER_GITHUB"]) values[k] = po;
+  return values;
+}
+
 /** One line per thing setup actually did, printed at the end instead of leaving it silent (6b/6d). */
 export interface ManifestLine { readonly what: string; readonly detail: string }
 
@@ -427,4 +460,19 @@ export function canAdoptExisting(io: CreateIo, target: CreateTarget): AdoptVerdi
 /** Where a previous attempt's clone is moved so a retry can proceed without destroying evidence. */
 export function archivePathFor(home: string, slug: string, stamp: string): string {
   return `${derivedPaths(home, slug).govRepo.replace(/\/gov_repo$/, "")}/archive/${stamp}/gov_repo`;
+}
+
+/**
+ * WHICH CONTENT A NEW REPOSITORY IS SEEDED FROM — the content this gov carries (Policy Owner, 2026-10-07, option B):
+ * its bundle, or a source checkout's own `publish/content`. No fetch, and no recorded commit needed. `--ref` and
+ * `--from` name other content deliberately (F21), and whatever is named is checked against this gov's build, as
+ * `gov upgrade` checks it. A refusal never throws; the caller owns `cleanup`.
+ */
+export function selectSetupContent(identity: BuildIdentity | null, flags: ContentFlags, fetch: Fetch, inv: Invocation): SelectedContent {
+  try {
+    const r = selectContent(identity, flags, fetch, inv);
+    return r.ok ? r : { ok: false, lines: [...r.lines, "  setup seeds a repository only from the content this gov was built with."] };
+  } catch (e) {
+    return { ok: false, lines: [`gov setup: could not fetch the content — ${(e as Error).message}`, "  Nothing was seeded."] };
+  }
 }

@@ -15,8 +15,10 @@ import * as path from "node:path";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
+import { NO_TRACKER, STATE_NAMES, type BoardStatusOutcome, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { userDirtyPaths, dirtyRefusal } from "./root-protocol.js";
 import { parseIssueUrl, taskIdFor, projectBranchOf, boardNumberFromBranch } from "./task.js";
 
 export interface MergeConfig {
@@ -38,9 +40,37 @@ export interface MergeDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly issues: Issues;
+  /** Sets the board Status (gadf#225). Absent → every issue reports `unreachable`, never a silent skip. */
+  readonly tracker?: BoardWriter;
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
+  /**
+   * WHAT GOVERNED THIS CHANGE (design §10.10) — the rules hash, the POL-lock versions, the gov version.
+   *
+   * Optional, and a failure is a `error` rather than a throw, because this is a RECORD of a merge that has
+   * already happened. By the time it is called every branch is pushed and every issue closed; refusing here
+   * would leave the work landed and the command reporting failure.
+   */
+  readonly stamp?: () => { readonly lines?: readonly string[]; readonly error?: string };
+  /**
+   * Put the stamp in the pull request whose head branch is the task branch, from inside `repoDir`.
+   *
+   * `repoDir` rather than an `owner/name`: the task branch exists in several repositories at once, each with
+   * its own pull request or none, and the directory is the only handle that resolves to the right one without
+   * this module learning how repositories are named.
+   */
+  readonly stampPr?: (repoDir: string, head: string, lines: readonly string[]) => StampOutcome;
   readonly log?: (msg: string) => void;
+}
+
+export type StampOutcome = "stamped" | "no-pr" | "failed";
+
+/** What merge managed to record about the rules in force, for the caller to print. */
+export interface MergeStamp {
+  readonly lines: readonly string[];
+  readonly placed: readonly { readonly repoDir: string; readonly outcome: StampOutcome }[];
+  /** Why the facts could not be computed. Present ⇒ `lines` is empty and nothing was stamped. */
+  readonly error?: string;
 }
 
 export interface MergeSuccess {
@@ -49,8 +79,12 @@ export interface MergeSuccess {
   readonly projectBranch: string;
   readonly boardNumber: number;
   readonly issueUrls: readonly string[];
+  /** What happened to each issue's board Status — the caller prints it; a failure never fails the merge. */
+  readonly boardStatus: readonly BoardStatusOutcome[];
   readonly reposMerged: readonly string[];
   readonly reposSkipped: readonly string[];
+  /** Absent when no `stamp` dep was wired — the behaviour every caller had before §10.10. */
+  readonly stamp?: MergeStamp;
 }
 
 export type MergeFailReason =
@@ -129,8 +163,10 @@ export function merge(deps: MergeDeps, config: MergeConfig, input: MergeInput): 
 
   // All working trees must be clean before merging.
   for (const dir of repos) {
-    if (!deps.vcs.isClean(dir)) {
-      return { ok: false, code: 1, reason: "dirty", message: `Uncommitted changes in ${dir} — commit or stash first.`, repoDir: dir };
+    // gov's own harness files never block (Q7); anything else is somebody's work, so it is named.
+    const dirty = userDirtyPaths(deps.vcs, dir);
+    if (dirty.length > 0) {
+      return { ok: false, code: 1, reason: "dirty", message: dirtyRefusal(dir, dirty), repoDir: dir };
     }
   }
 
@@ -157,14 +193,41 @@ export function merge(deps: MergeDeps, config: MergeConfig, input: MergeInput): 
     reposMerged.push(dir);
   }
 
+  // STAMP BEFORE ARCHIVING. `archiveBranch` deletes the remote task branch, and a pull request is found by its
+  // HEAD BRANCH — so a stamp attempted afterwards would be looking for a branch that no longer exists and would
+  // report "no pull request" for every task that had one. This is the only ordering that works.
+  const stamp = stampGovernance(deps, taskId, reposMerged);
+
   // Every merge+push succeeded — now safe to archive across all repos.
   for (const dir of reposMerged) archiveBranch(deps.vcs, dir, taskId, remote);
 
-  // Close the issue(s) + mark Done on the board (best-effort).
+  // Close the issue(s) (best-effort) + mark Done on the board (outcome reported, never fatal).
+  const boardStatus: BoardStatusOutcome[] = [];
   for (const url of issueUrls) {
     deps.issues.close(url, `Task \`${taskId}\` merged into \`${projectBranch}\`.`);
-    deps.issues.setBoardStatus(ref, url, "Done");
+    const result = deps.tracker ? deps.tracker.setState(ref, url, "done") : NO_TRACKER;
+    boardStatus.push({ issueUrl: url, status: STATE_NAMES.done, result });
   }
 
-  return { ok: true, taskId, projectBranch, boardNumber, issueUrls, reposMerged, reposSkipped };
+  return { ok: true, taskId, projectBranch, boardNumber, issueUrls, boardStatus, reposMerged, reposSkipped, ...(stamp ? { stamp } : {}) };
+}
+
+/**
+ * Compute the governance stamp and put it wherever there is a pull request to put it in (§10.10).
+ *
+ * Separate from `merge` so the ordering constraint above is the only thing `merge` has to hold, and so a
+ * `stampPr` that is absent (no terminal, no `gh`) degrades to "the facts, printed" rather than to nothing: the
+ * lines still reach the run log through the command's own output, which is the minimum the audit needs.
+ */
+function stampGovernance(deps: MergeDeps, taskId: string, reposMerged: readonly string[]): MergeStamp | undefined {
+  if (!deps.stamp) return undefined;
+  const got = deps.stamp();
+  if (got.error || !got.lines?.length) {
+    return { lines: [], placed: [], error: got.error ?? "the stamp came back empty" };
+  }
+  const lines = got.lines;
+  const placed = deps.stampPr
+    ? reposMerged.map((repoDir) => ({ repoDir, outcome: deps.stampPr!(repoDir, taskId, lines) }))
+    : [];
+  return { lines, placed };
 }

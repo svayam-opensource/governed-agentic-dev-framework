@@ -1,18 +1,31 @@
+> **Who this is for:** people working *on* the framework. Adopting or joining it? Start at [gov.svayamtech.com](https://gov.svayamtech.com) — the doors are below.
+
 # Governed Agentic Development Framework
 
 The source repository for the **`gov`** CLI and the **framework content** that adopting
 organizations consume. One repo, two published artifacts.
 
-**If you are adopting the framework, you do not start here** — you start at
-**[gov.svayam.ai](https://gov.svayam.ai)**, which serves the installer and the adopter and
-joiner instructions. This README is for people working *on* the framework.
+## Using the framework? Start here
+
+**[gov.svayamtech.com](https://gov.svayamtech.com)** — one door per OS:
+
+| OS | Door |
+|---|---|
+| macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
+| Windows | `winget install Svayam.Gov` |
+
+The Windows door goes live with the first release of the installer; until then there is no Windows door. The installer
+is unsigned until a production certificate exists, so use winget: a directly downloaded `.msi` shows "Unknown publisher".
+Every door ends in the same
+**first-run flow**: `gov` checks git and `gh`, signs you in to GitHub, and asks whether you are
+adopting, joining, or not sure. [docs/installing.md](docs/installing.md) has the detail.
 
 ## The two artifacts
 
 | | Built from | Published as | Consumed by |
 |---|---|---|---|
 | **CLI** | [`publish/actions/ts`](publish/actions/ts) | npm [`@svayam-opensource/gov`](https://www.npmjs.com/package/@svayam-opensource/gov), command `gov` | one install per machine |
-| **Content** | [`publish/content`](publish/content) | this repo, used as a GitHub template | `gov setup`, then `gov upgrade` |
+| **Content** | [`publish/content`](publish/content) | this repo, used as a GitHub template | the first-run flow, then `gov upgrade` |
 
 The enterprise plugin units (`gov-catalog` · `gov-deploy` · `gov-data`, under the `gov-cicd`
 umbrella) live in a separate repo and publish to `npm.svayamtech.com`.
@@ -30,12 +43,12 @@ publish/
   content/                 What an adopter's governance repo is seeded with. Its own layout is
                            the adopter's layout — see publish/content/README.md.
   actions/ts/              The Node 24 / TypeScript CLI.
-  actions/deprecated/      The frozen bash CLI (@svayam-opensource/prj @ 0.10.0). Not published.
+  actions/deprecated/      The frozen bash CLI (prj @ 0.10.0). Not published.
 
 docs/                      Framework design docs, ADRs, and how to test the adopter path.
 ci/                        Jenkins pipeline definitions.
 .github/                   CI: build · lint · test · e2e gates, and the weekly freshness checks.
-install.sh / install.ps1   The bootstrap installers served from gov.svayam.ai.
+install.sh / install.ps1   The bootstrap installers served from gov.svayamtech.com.
 ```
 
 ### One thing worth knowing before you edit anything under `agent/`

@@ -7,12 +7,19 @@
 # It exits 1 only when a package exists that the VENDOR published for an agent the catalog says
 # gov cannot install. A lookalike from an unrelated maintainer is reported and ignored — that
 # refusal is the point (#201), not a limitation.
+#
+# VENDOR SCRIPTS (#205). Each vendor install script's digest is reported for information. None is
+# pinned (D1, 2026-10-13: IBM Bob unpinned like Cursor — gov asks the adopter), so this workflow
+# proposes no pins and opens no pull requests; it needs read access only.
 name: catalog-freshness
 
 on:
   schedule:
     - cron: "0 6 * * 1"          # Mondays, 06:00 UTC
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   freshness:
@@ -24,6 +31,8 @@ jobs:
         with:
           node-version: "24"
       - name: Look
+        id: look
+        continue-on-error: true
         working-directory: publish/actions/ts
         run: |
           npm ci --no-audit --no-fund
@@ -39,3 +48,23 @@ jobs:
           #
           # Advisory, like the catalog check: a vendor rename is news, not a build break.
           npm run harness:freshness
+      - name: Verdict
+        if: steps.look.outcome == 'failure'
+        run: |
+          echo "catalog-freshness found something — see the Look step"
+          exit 1
+
+  # DOES THE DOOR OPEN? (#181, ruling Q2 A) — the first link an adopter follows, and the two
+  # installers it serves, each answer 200. A network check, so it lives here on the schedule and
+  # never in `npm test`. Not advisory: a dead door fails every walk on its own.
+  door:
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Door URL answers 200
+        working-directory: publish/actions/ts
+        run: npm run door:check

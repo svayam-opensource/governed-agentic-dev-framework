@@ -48,3 +48,45 @@ npm install && npm run build && npm run lint && npm test   # the gov-work gate
 npm run test:adopter:smoke                                 # the adopter-smoke gate
 E2E_ORG=<throwaway-org> GH_TOKEN=<token> npm run test:adopter   # live (bring your own sandbox)
 ```
+
+### Build before you test — a stale `lib/` is never used silently
+
+`npm test` runs `src/` through tsx and builds nothing, but a few tests and both e2e
+harnesses run the **compiled** `lib/`. The build records a fingerprint of what it
+compiled (`src/**` + `tsconfig*.json`, in `lib/source-fingerprint.json`);
+`node scripts/lib-fresh.mjs` recomputes it — exit 0 fresh, 1 stale
+(`lib/ is stale — npm run build`), 2 no `lib/`.
+
+- The `lib/`-dependent unit tests **fail** on a stale `lib/` and **skip** only when
+  there is no `lib/` at all (a pure unit run that never built).
+- `e2e/journey.sh` and `e2e/adopter-smoke.sh` **rebuild** when `lib/` is missing or
+  stale, and stop if that build fails.
+
+So run `npm run build` first after changing `src/` — the gate order above.
+
+### Dependency audit — a moderate advisory fails the build
+
+The `gov-work` check runs, on its Linux leg, both:
+
+```bash
+npm audit --omit=dev --audit-level=moderate   # our lockfile
+bash e2e/packed-audit.sh                      # the packed gov, installed fresh (needs the registry)
+```
+
+The first audits what we build with. The second packs gov, installs the tarball into an
+empty project and audits that tree — what an adopter's `npm i -g` resolves, since a
+tarball ships no lockfile. Either one finding a **moderate or worse** advisory in a
+production dependency fails the check. Fix it by raising the floor of the dependency
+that carries it (a library's `overrides` are ignored by its consumers), never by
+suppressing the advisory. `test/package/moment-advisory.test.ts` keeps the last such
+fix (GHSA-4p3w-j4w9-5jqw: `svm-util-log ^1.1.1`, `moment >= 2.31.0`) from regressing.
+
+### No barrel imports inside `src/`
+
+A module inside `src/` never imports a barrel (`index.js` — the package root
+`src/index.ts` or a folder's `index.ts`). The package entry (`main`/`exports`) is that
+root barrel; when `maintain/upgrade.ts` imported `PACKAGE_NAME` from it, loading the
+published library threw `Cannot access 'PACKAGE_NAME' before initialization`. Import
+the leaf module that defines the name instead — the package's own constants are in
+`src/package-identity.ts`. eslint (`no-restricted-imports`) enforces it, and
+`test/package/import-entry.test.ts` loads the built ESM and CJS entries.

@@ -1,0 +1,324 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * THE ORGANIZATION'S GOVERNANCE CHOICES — `policies/governance.yaml` (org-config split, Policy Owner 2026-10-06).
+ *
+ * `org-config.yaml` used to hold two kinds of value with two kinds of owner: who the organization IS (its name, its
+ * repositories, its service endpoints) and how it GOVERNS (its posture, who owns its policy, which agents it allows).
+ * The second kind is policy — a change to it needs the Policy Owner — so it lives under `policies/` now, beside the
+ * policy it configures, routed to the Policy Owner by CODEOWNERS and by the section-owner-approval check.
+ *
+ *   governance_posture     soft | hard — soft when absent or empty (W2-Q6)
+ *   policy_owner           { email, github } — the framework's first built-in role
+ *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
+ *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
+ *   models                 which model the org approves for `gov rules propose` (framework §9.3)
+ *
+ * SEED-ONCE. The framework ships it empty, `gov setup` fills it, and from then on it is the organization's: `gov
+ * upgrade` never writes it again, except the one recorded `org-config-split` migration that carries an older org's
+ * values here out of `org-config.yaml`.
+ *
+ * Every read is PURE over text; {@link readGovernance} is the one function that touches the disk.
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import yaml from "js-yaml";
+import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.js";
+
+/** Where the file lives, repo-relative. */
+export const GOVERNANCE_PATH = "policies/governance.yaml";
+
+/** The top-level keys gov reads in governance.yaml — anything else is reported, never acted on. */
+export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "autorun"] as const;
+
+/**
+ * Keys gov once wrote here and no longer reads. An org's file may still hold one: it stays exactly as written, and gov
+ * neither acts on it nor reports it — gov put it there, so it is not the org's mistake to be told about.
+ * `knowledge_publication` (PRJ-121 §3.3, T14): the knowledge tree, and whether and how it is published, are the org's own.
+ */
+export const RETIRED_GOVERNANCE_KEYS: readonly string[] = ["knowledge_publication"];
+
+/* ─────────────────────────────── the posture ─────────────────────────────── */
+
+/**
+ * HARD OR SOFT GOVERNANCE — the posture an organization CHOOSES (Policy Owner, 2026-09-29).
+ *
+ * `hard`  the action (a merge, say) is stopped when a policy violation is detected.
+ * `soft`  a violation record is opened so the Policy Owner can review it later.
+ */
+export type GovernancePosture = "hard" | "soft";
+
+/** Every posture gov understands — the list the messages quote, so they cannot drift from the type. */
+export const GOVERNANCE_POSTURES: readonly GovernancePosture[] = ["hard", "soft"];
+
+/**
+ * What the file says about the posture. ABSENT OR EMPTY IS `soft` (W2-Q6); `raw` stays `""` so a report can say
+ * soft is the DEFAULT rather than a recorded choice. `unrecognised` is a value that is not a posture — someone who
+ * chose and was not heard; `posture` is null only then.
+ */
+export interface PostureChoice {
+  readonly posture: GovernancePosture | null;
+  readonly raw: string;
+  readonly unrecognised: boolean;
+}
+
+/** Classify a raw `governance_posture` value. Pure. */
+export function classifyPosture(raw: string | null | undefined): PostureChoice {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (!value) return { posture: "soft", raw: "", unrecognised: false };
+  const known = GOVERNANCE_POSTURES.find((p) => p === value);
+  return known ? { posture: known, raw: value, unrecognised: false } : { posture: null, raw: value, unrecognised: true };
+}
+
+/** The posture, from governance.yaml's TEXT. Pure. */
+export function readPosture(governanceText: string | null | undefined): PostureChoice {
+  return parseGovernance(governanceText ?? null).posture;
+}
+
+/* ─────────────────────────────── the whole file ─────────────────────────────── */
+
+/** The providers `gov rules propose` can call. `command` runs a CLI that reads the request on stdin. */
+export type ModelProvider = "anthropic" | "gemini" | "command";
+const PROVIDERS: readonly ModelProvider[] = ["anthropic", "gemini", "command"];
+
+export interface GovernanceConfig {
+  /** The file existed (and was read). An absent file is every default — and not the same fact as a chosen default. */
+  readonly present: boolean;
+  readonly posture: PostureChoice;
+  readonly policyOwner: { readonly email: string; readonly github: string };
+  readonly checkOwner: { readonly github: string };
+  readonly authorizedAgents: AuthorizedAgents;
+  readonly models: {
+    readonly propose: { readonly provider: string; readonly model: string };
+    readonly command: string;
+    readonly ciAllowed: boolean;
+  };
+  /** What gov could not use: bad YAML, a key it does not read, a provider it does not know. Never fatal. */
+  readonly problems: readonly string[];
+}
+
+const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const str = (v: unknown): string => (v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v)).trim();
+
+/**
+ * Parse governance.yaml text. NEVER THROWS: a file gov cannot read gives every default plus a problem saying why,
+ * because a broken file must not be able to break `gov doctor`, which is how anyone would find out.
+ */
+export function parseGovernance(text: string | null | undefined): GovernanceConfig {
+  const problems: string[] = [];
+  let doc: Record<string, unknown> = {};
+  if (text && text.trim()) {
+    try {
+      const loaded = yaml.load(text);
+      if (isMap(loaded)) doc = loaded;
+      else if (loaded !== null && loaded !== undefined) problems.push(`${GOVERNANCE_PATH} should be a mapping of keys — gov is using the defaults`);
+    } catch (e) {
+      problems.push(`${GOVERNANCE_PATH} is not valid YAML (${(e as Error).message.split("\n")[0]}) — gov is using the defaults`);
+    }
+  }
+  for (const k of Object.keys(doc)) {
+    if (!(GOVERNANCE_KEYS as readonly string[]).includes(k) && !RETIRED_GOVERNANCE_KEYS.includes(k)) problems.push(`${k}: gov does not read this key in ${GOVERNANCE_PATH} — ignored`);
+  }
+  const po = isMap(doc.policy_owner) ? doc.policy_owner : {};
+  const co = isMap(doc.check_owner) ? doc.check_owner : {};
+  const models = isMap(doc.models) ? doc.models : {};
+  const propose = isMap(models.propose) ? models.propose : {};
+  const provider = str(propose.provider).toLowerCase();
+  if (provider && !(PROVIDERS as readonly string[]).includes(provider)) {
+    problems.push(`models.propose.provider: "${provider}" is not one gov can call (${PROVIDERS.join(" · ")}) — no model is approved`);
+  }
+  const ciRaw = models.ci_allowed;
+  if (ciRaw !== undefined && ciRaw !== null && typeof ciRaw !== "boolean") {
+    problems.push("models.ci_allowed: expected true or false — read as false");
+  }
+  return {
+    present: text !== null && text !== undefined,
+    posture: classifyPosture(str(doc.governance_posture)),
+    policyOwner: { email: str(po.email), github: str(po.github) },
+    checkOwner: { github: str(co.github) },
+    // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
+    authorizedAgents: readAuthorizedAgents(text ?? null),
+    models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
+    problems,
+  };
+}
+
+/** Read `<home>/policies/governance.yaml`. Absent → the defaults, with `present: false`. */
+export function readGovernance(home: string, read: (abs: string) => string | null = defaultRead): GovernanceConfig {
+  return parseGovernance(read(path.join(home, GOVERNANCE_PATH)));
+}
+
+function defaultRead(abs: string): string | null {
+  try { return fs.readFileSync(abs, "utf8"); } catch { return null; /* absent: the ordinary answer for a workspace not yet split */ }
+}
+
+/**
+ * THE MODEL SETTINGS `gov rules propose` READS (framework §9.3). `provider` is null when no model is approved — an
+ * empty provider, or one gov cannot call. `ciAllowed` is true only when the file says exactly `true`.
+ */
+export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string; ciAllowed: boolean } {
+  const p = g.models.propose.provider;
+  const provider = (PROVIDERS as readonly string[]).includes(p) ? (p as ModelProvider) : null;
+  return { provider, model: g.models.propose.model, command: g.models.command, ciAllowed: g.models.ciAllowed };
+}
+
+/** The framework's two built-in roles' handles, as written (CODEOWNERS and the role checks normalise them). */
+export function frameworkOwners(g: GovernanceConfig): { policyOwner: string; checkOwner: string } {
+  return { policyOwner: g.policyOwner.github, checkOwner: g.checkOwner.github };
+}
+
+/** The content tokens these values fill — they came from org-config.yaml's keys before the split. */
+export function governanceTokens(g: GovernanceConfig): Record<string, string> {
+  const out: Record<string, string> = {};
+  // The email is an OPTIONAL contact (Policy Owner, 2026-10-07). With none given the policies name the owner by
+  // handle — never the literal token, which would read as setup having failed.
+  const contact = g.policyOwner.email || g.policyOwner.github;
+  if (contact) out.POLICY_OWNER_EMAIL = contact;
+  if (g.policyOwner.github) out.POLICY_OWNER_GITHUB = g.policyOwner.github;
+  if (g.checkOwner.github) out.CHECK_OWNER_GITHUB = g.checkOwner.github;
+  return out;
+}
+
+/* ─────────────────────────────── what a change changed ─────────────────────────────── */
+
+const handle = (h: string): string => (h ? `@${h.replace(/^@/, "")}` : "vacant");
+const agentsText = (a: AuthorizedAgents): string =>
+  a.kind === "unset" ? "the framework's defaults" : a.kind === "none" ? "none"
+    : a.agents.map((x) => (x.default ? `${x.id} (default)` : x.id)).join(", ") || "none";
+const modelText = (g: GovernanceConfig): string => {
+  const { provider, model, command, ciAllowed } = modelSettings(g);
+  const which = provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
+  return `${which}; CI ${ciAllowed ? "may" : "may not"} use it`;
+};
+
+/**
+ * WHAT A CHANGE TO governance.yaml CHANGED, in plain words — one line per choice that differs (sandbox finding,
+ * PRJ-121, 2026-10-07: the changelog called a newly approved model "prose only"). Empty when no choice changed
+ * (a comment or layout edit). PURE; never throws — an unreadable side reads as every default, like gov does.
+ */
+export function describeGovernanceChanges(baseText: string | null, headText: string | null): string[] {
+  const b = parseGovernance(baseText), h = parseGovernance(headText);
+  const out: string[] = [];
+  const pair = (label: string, was: string, now: string) => { if (was !== now) out.push(`${label}: ${was} → ${now}`); };
+  const posture = (p: PostureChoice): string => p.posture ?? `"${p.raw}" (not a posture gov knows)`;
+  pair("Governance posture", posture(b.posture), posture(h.posture));
+  pair("Policy Owner", handle(b.policyOwner.github), handle(h.policyOwner.github));
+  pair("Policy Owner email", b.policyOwner.email || "none", h.policyOwner.email || "none");
+  pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
+  pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
+  if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
+  return out;
+}
+
+/* ─────────────────────────────── writing it ─────────────────────────────── */
+
+/** What setup writes. */
+export interface GovernanceValues {
+  readonly governancePosture: string;
+  readonly policyOwnerEmail: string;
+  readonly policyOwnerGithub: string;
+  readonly checkOwnerGithub: string;
+  /** The default agent, or "" (setup records the full list afterwards with `withAuthorizedAgents`). */
+  readonly defaultAgent: string;
+}
+
+/** The framework's template is this file with nothing filled in (a test holds the shipped copy to it). */
+export const EMPTY_GOVERNANCE_VALUES: GovernanceValues = {
+  governancePosture: "soft", policyOwnerEmail: "", policyOwnerGithub: "", checkOwnerGithub: "", defaultAgent: "",
+};
+
+/** Render governance.yaml. */
+export function renderGovernance(v: GovernanceValues): string {
+  return `# Governance choices — how this organization governs (policies/governance.yaml).
+#
+# These are POLICY: a change to this file needs the Policy Owner's approval (CODEOWNERS routes it to them, and
+# the section-owner-approval check requires it). The framework ships this file once, the first-run flow fills it in,
+# and from then on it is yours — \`gov upgrade\` never rewrites it. Who the organization IS (its name, its
+# repositories, its service endpoints) is in org-config.yaml.
+
+# HARD OR SOFT GOVERNANCE.
+#   soft   a violation opens a record so the Policy Owner can review it later. The default.
+#   hard   the action (for example a merge) is stopped when a policy violation is detected. Needs public
+#          repositories or a paid GitHub plan: on a private repository on GitHub Free, checks run but cannot block.
+governance_posture: "${v.governancePosture}"
+
+# THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
+policy_owner:
+  email: "${v.policyOwnerEmail}"
+  github: "${v.policyOwnerGithub}"
+
+# THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
+# Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
+# two-key review off; \`gov doctor\` says so.
+check_owner:
+  github: "${v.checkOwnerGithub}"
+
+# WHICH AI AGENTS THIS ORGANIZATION AUTHORIZES, and which gov launches by default. Every id comes from the
+# framework's list (\`gov agent list\`); \`gov agent approve <id>\` raises the pull request that adds one.
+# \`authorized_agents: none\` is a real answer: this organization uses gov for its process and runs no AI agents.
+# Left empty, gov uses the framework's defaults and says so.
+authorized_agents:
+  default: "${v.defaultAgent}"
+
+# WHICH MODEL THE ORGANIZATION APPROVES FOR \`gov rules propose\` (framework specification §9.3).
+#   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
+#   propose.model      the model id, for the anthropic and gemini providers.
+#   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
+#   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
+models:
+  propose:
+    provider: ""
+    model: ""
+  command: ""
+  ci_allowed: false
+
+# HOW FAR \`gov autorun\` MAY GO IN ONE RUN (see the user guide running-the-lifecycle.md). Ceilings, not suggestions:
+#   item_minutes   wall-clock minutes one item's agent may run before it is stopped (\`--max-minutes\` may only lower it)
+#   run_items      items one run starts; the rest wait for the next run
+#   run_crs        change requests one run opens
+autorun:
+  item_minutes: 30
+  run_items: 10
+  run_crs: 10
+`;
+}
+
+/**
+ * Set a scalar in governance.yaml text, keeping every other byte: a top-level `key: value` line, or `  leaf: value`
+ * inside a top-level block. A block written in flow style (`policy_owner: { … }`) is rewritten as a block. Absent
+ * entirely → appended. A comment at the end of the edited line is kept.
+ */
+export function setGovernanceScalar(text: string, path: readonly string[], value: string): string {
+  const quoted = JSON.stringify(value);
+  const lines = text.split("\n");
+  const [top, leaf] = path;
+  const at = lines.findIndex((l) => new RegExp(`^${top}\\s*:`).test(l));
+  if (leaf === undefined) {
+    if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}: ${quoted}\n`;
+    lines[at] = `${top}: ${quoted}${trailingComment(lines[at]!)}`;
+    return lines.join("\n");
+  }
+  if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}:\n  ${leaf}: ${quoted}\n`;
+  const flow = /^[^:]+:\s*\{(.*)\}\s*(#.*)?$/.exec(lines[at]!);
+  if (flow) {
+    const entries = (flow[1] ?? "").split(",").map((p) => /^\s*([a-z_]+)\s*:\s*(.*?)\s*$/i.exec(p)).filter((m): m is RegExpExecArray => !!m);
+    const out = [`${top}:`, ...entries.map((m) => `  ${m[1]}: ${m[1] === leaf ? quoted : m[2]}`)];
+    if (!entries.some((m) => m[1] === leaf)) out.push(`  ${leaf}: ${quoted}`);
+    lines.splice(at, 1, ...out);
+    return lines.join("\n");
+  }
+  for (let i = at + 1; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (/^\S/.test(l)) { lines.splice(i, 0, `  ${leaf}: ${quoted}`); return lines.join("\n"); }   // block ended
+    const m = new RegExp(`^(\\s+)${leaf}\\s*:`).exec(l);
+    if (m) { lines[i] = `${m[1]}${leaf}: ${quoted}${trailingComment(l)}`; return lines.join("\n"); }
+  }
+  lines.push(`  ${leaf}: ${quoted}`);
+  return lines.join("\n");
+}
+
+/** The ` # …` comment at the end of a `key: value` line ("" when none) — a `#` inside a quoted value is not one. */
+function trailingComment(line: string): string {
+  const m = /^\s*[^:#]+:\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^#]*?)(\s+#.*)?$/.exec(line);
+  return m?.[1] ?? "";
+}

@@ -1,0 +1,9 @@
+# YOUR ORGANIZATION'S RULES — one row per rule revision, GOV-<org_slug>-NNN (framework-specification.md chapter 9).
+#
+# Not written by hand. `gov rules propose` reads each section of your policies/ prose, proposes its rules here —
+# who each binds, how strict it is, its cue and its checks — and you approve the rows in the same pull request as
+# the prose. gov issues every id; an id is never reused, and a retired rule keeps its closed rows.
+#
+# Empty as seeded: your rules come from your own prose. The framework's rules are in framework/rules/rules.yaml,
+# and `gov rules build` renders both into agent/harness/rule-map.md.
+[]

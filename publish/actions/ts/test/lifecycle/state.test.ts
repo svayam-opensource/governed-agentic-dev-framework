@@ -4,10 +4,10 @@ import { expect } from "chai";
 import { deriveStatus, pause, resume, cancel, type StateConfig, type StateInput, type StateDeps } from "../../src/lifecycle/state.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { AnchorCreator, AnchorStateLabel } from "../../src/lifecycle/anchor.js";
-import type { Issues } from "../../src/lifecycle/issues.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 
 describe("prj-work Phase 2 — deriveStatus (SDD-020)", () => {
-  it("maps board state × anchor labels to status", () => {
+  it("GOV-FRM-451 maps board state × anchor labels to status", () => {
     expect(deriveStatus(true, [])).to.equal("active");
     expect(deriveStatus(true, ["paused"])).to.equal("paused");
     expect(deriveStatus(false, [])).to.equal("completed");
@@ -46,18 +46,19 @@ function fakeAnchor() {
   };
   return { anchor, calls };
 }
-function fakeIssues() {
+/** Closing the board goes through the WorkTrackerPort (gadf#225). */
+function fakeTracker() {
   const calls: string[] = [];
-  const issues: Issues = {
-    state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {},
-    resolveIssueUrl: () => null, closeBoard: (r) => calls.push(`closeBoard ${r.number}`),
+  const tracker: BoardWriter = {
+    setState: () => ({ ok: true }),
+    closeProject: (r) => { calls.push(`closeBoard ${r.number}`); return { ok: true }; },
   };
-  return { issues, calls };
+  return { tracker, calls };
 }
 function deps(vcs = fakeVcs()): { deps: StateDeps; anchorCalls: string[]; issueCalls: string[] } {
   const a = fakeAnchor();
-  const i = fakeIssues();
-  return { deps: { vcs, anchor: a.anchor, issues: i.issues, authorize: () => true }, anchorCalls: a.calls, issueCalls: i.calls };
+  const i = fakeTracker();
+  return { deps: { vcs, anchor: a.anchor, tracker: i.tracker, authorize: () => true }, anchorCalls: a.calls, issueCalls: i.calls };
 }
 
 describe("prj-work Phase 2 — pause / resume / cancel", () => {
@@ -89,7 +90,7 @@ describe("prj-work Phase 2 — pause / resume / cancel", () => {
     if (!r.ok) expect(r.reason).to.equal("not-a-project-branch");
   });
 
-  it("honors an authorization deny", () => {
+  it("GOV-FRM-454 honors an authorization deny", () => {
     const { deps: base } = deps();
     const r = cancel({ ...base, authorize: () => false }, CONFIG, INPUT);
     expect(r.ok).to.equal(false);

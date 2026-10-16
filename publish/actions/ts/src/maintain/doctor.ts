@@ -7,9 +7,20 @@
  */
 import { paint, type Ink } from "../cli/format.js";
 import type { ResolveResult } from "../resolve/types.js";
-import { resolveFailureMessage } from "../resolve/resolve-gov.js";
+import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
+import { parseOrgConfigSchema, validateOrgConfig, BUILT_IN_ORG_CONFIG_SCHEMA, parseAdapterSelection } from "../config/org-config.js";
+import { PORT_NAMES, PORT_CONFIG_KEYS } from "../ports/index.js";
+import { GOVERNANCE_PATH, parseGovernance } from "../config/governance.js";
+import { agentsDiagnostic } from "../cli/approve-agents-step.js";
+import { rulesRows, type RulesFacts } from "./rules-health.js";
+import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
+import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
+import { lifecycleDiagnostic } from "../intent/lifecycle-policy.js";
+import { lettersDiagnostic } from "../signal/letters.js";
+import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -52,11 +63,81 @@ export interface DoctorFacts {
   readonly gitIdentity?: { readonly name: string | null; readonly email: string | null };
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
+  /** Orgs in the registry. Absent = not gathered (treated as none): "not set up" is said only when this is empty. */
+  readonly registeredOrgs?: readonly string[];
   readonly cliVersion: string;
-  /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
+  /** Which content layout the workspace is on — `governance` is the pre-2026-09-23 one. */
+  readonly contentLayout?: "framework" | "governance" | "layout-1.0" | "none";
+  /** Old-world artifacts found in the workspace (registry.yaml, bin/, …). */
   readonly staleArtifacts?: readonly string[];
+  /** A workspace was actually examined — one resolved, or one the person named (`--gov-home`). Absent means
+   *  "whatever `resolve` says". Rows ABOUT a workspace (version compat, content layout) need one to exist. */
+  readonly workspaceChecked?: boolean;
   /** The workspace's content VERSION marker, or null. */
   readonly contentVersion?: string | null;
+  /**
+   * The TEXT of the workspace's `org-config.yaml`, for the unknown-key row. Absent/null = no config was
+   * examined, so no row — the rule the rest of this file keeps: a row about a fact nobody gathered is worse
+   * than no row. Doctor computes the row itself (`unknownOrgConfigKeys` is pure), so the caller only reads a
+   * file and this stays testable from a string.
+   */
+  readonly orgConfigText?: string | null;
+  /**
+   * The workspace's `framework/common/reference/org-config.schema.yaml` — what org-config.yaml is checked against. `null` or
+   * absent: the schema gov was built with.
+   */
+  readonly orgConfigSchemaText?: string | null;
+  /**
+   * `policies/governance.yaml` (the org's governance choices): text, `null` absent, undefined = not read. Read where
+   * org-config.yaml is — only in a workspace that was examined.
+   */
+  readonly governanceText?: string | null;
+  /** `policies/common/authorized-representatives.md` (the org's role list): text, `null` absent, undefined = not read. */
+  readonly roleListText?: string | null;
+  /** The workspace's root `CODEOWNERS`: text, `null` absent, undefined = not read. */
+  readonly codeownersText?: string | null;
+  /**
+   * What the rules compiler found. Absent when doctor could not run it (no workspace, no policies) — and then
+   * there are no rows, because doctor does not report on a fact nobody gathered.
+   */
+  readonly rules?: RulesFacts;
+  /**
+   * What the branch-protection read found for the ONE branch gov can name without a board: the governance
+   * repo's default branch (framework-specification.md §7.3). Absent = not probed (gh missing, not signed in, no org config).
+   *
+   * Participating CODE repos are equally in scope for the policy and are deliberately not here: their list
+   * comes from a project's board, which `gov doctor` does not have — it is a machine/workspace check, not a
+   * project one. `gov close`'s gates are where a project's own repos get read.
+   */
+  readonly protection?: {
+    readonly repo: string;
+    readonly branch: string;
+    /** null = gh could not answer. NOT the same as unprotected; see protection-check.ts. */
+    readonly facts: ProtectionFacts | null;
+    readonly why?: string;
+    /** The approver-verifying check this org requires, when it is not the framework's default name. */
+    readonly approverCheck?: string;
+  };
+  /**
+   * What `gov app check` found for the org's GitHub App (rule-model-design.md, "gov-repo access"). Absent = not
+   * probed (no org config). Offline, or gh not signed in, is `cannot-tell` — and the row says so, never `ok`.
+   */
+  readonly githubApp?: AppCheckResult;
+  /**
+   * `gov check status` in one row: is each repository's `gov-checks` workflow what `gov check install` would write
+   * now? Absent = not examined (no workspace, no git). Offline or not a git working tree is `cannot tell` — a warning,
+   * never ok.
+   */
+  readonly checksInstall?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
+  /** Signed evidence (spec 02): the paid module found or not, and whether the org wants it. Absent = not examined. */
+  readonly evidence?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
+  /**
+   * `policies/active/ai-sdlc-lifecycle.md` (spec 03 X7): text, `null` none adopted, undefined = not read. A section gov
+   * cannot parse is an advisory row, never a failure.
+   */
+  readonly lifecycleText?: string | null;
+  /** Every tracked file under `projects/` (repo-relative), for the retired-letters advisory. undefined = not listed. */
+  readonly projectFiles?: readonly string[];
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -102,22 +183,152 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             : { name: "gh scopes", status: "ok" as DiagnosticStatus, detail: facts.ghScopes.join(", ") };
         })()]
       : []),
-    facts.resolve.ok
-      ? { name: "gov workspace", status: "ok", detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
-      : { name: "gov workspace", status: "fail", detail: resolveFailureMessage(facts.resolve) },
-    facts.activeOrg
-      ? { name: "active org", status: "ok", detail: facts.activeOrg }
-      : { name: "active org", status: "warn", detail: "not set — run `gov org use <org>`" },
+    // NOT SET UP YET IS THE NEXT STEP, NOT A FAILURE (PRJ-121, 2026-09-22). On a fresh machine — no org has
+    // ever been chosen — a walk got the same fact three times: the banner's "⚠ no gov workspace resolved — run
+    // `gov setup` / `gov org use`", then "✗ gov workspace: No active org is set. Run `gov org use <github_org>`",
+    // then "! active org: not set — run `gov org use <org>`". Two different remedies, one premature (git and gh
+    // were not even installed yet), and the ✗ made the whole report FAILED seconds after "gov is installed" —
+    // on the state the installer's very next section ("Next: your organization") exists to change.
+    //
+    // So "never set up" is ONE warning with ONE remedy. `gov` is it, because any gov command starts the
+    // first-run flow, which asks whether you are adopting the framework or joining your org's — right for
+    // both roles, where `gov setup` and `gov org use` are each right for only one. A workspace that EXISTS but
+    // will not resolve (an org set, its home missing; a conflict) is still a failure.
+    // …and only when NOTHING is registered (PRJ-121, 2026-09-22). With orgs registered and none active, "not set
+    // up yet" was false, and sent the person to the first-run flow; that case names the orgs and `gov org use`.
+    ...(!facts.resolve.ok && facts.resolve.reason === "no-active-org" && !facts.registeredOrgs?.length
+      ? [{ name: "gov workspace", status: "warn" as DiagnosticStatus, detail: "not set up yet — run `gov`; it asks whether you are adopting the framework or joining your organization's" }]
+      : !facts.resolve.ok && facts.resolve.reason === "no-active-org"
+      ? [{ name: "gov workspace", status: "warn" as DiagnosticStatus, detail: workspaceStateMessage(facts.resolve, facts.registeredOrgs ?? []).text }]
+      : [
+          facts.resolve.ok
+            ? { name: "gov workspace", status: "ok" as DiagnosticStatus, detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
+            : { name: "gov workspace", status: "fail" as DiagnosticStatus, detail: workspaceStateMessage(facts.resolve, facts.registeredOrgs ?? []).text },
+          facts.activeOrg
+            ? { name: "active org", status: "ok" as DiagnosticStatus, detail: facts.activeOrg }
+            : { name: "active org", status: "warn" as DiagnosticStatus, detail: "not set — run `gov org use <org>`" },
+        ]),
     { name: "CLI version", status: "ok", detail: facts.cliVersion },
-    ((): Diagnostic => {
-      const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
-      return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
-    })(),
-    (facts.staleArtifacts && facts.staleArtifacts.length)
-      ? { name: "content layout", status: "warn", detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
-      : { name: "content layout", status: "ok", detail: "current" },
+    // ROWS ABOUT A WORKSPACE NEED ONE (PRJ-121, 2026-09-22). With none resolved, doctor used to read `VERSION`
+    // from wherever the person stood and print "✓ version compat: no content VERSION marker — run `gov upgrade`"
+    // — a tick carrying an instruction, aimed at someone with no workspace to upgrade — and "✓ content layout:
+    // current" about a layout that did not exist. The sibling of the old-world-artifact false alarm fixed in
+    // 5bec707. The rule this file already states for gh auth applies: a row about a fact nobody gathered is
+    // worse than no row.
+    ...((facts.workspaceChecked ?? facts.resolve.ok)
+      ? [
+          ((): Diagnostic => {
+            const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
+            return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
+          })(),
+          // THE LAYOUT, SAID PLAINLY (2026-09-23). A workspace still on `governance/` is not broken — it is
+          // one `gov upgrade` behind, and the upgrade carries its own files across. Saying so beats leaving
+          // someone to notice that their policy file is not where the documentation says.
+          facts.contentLayout === "governance"
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: "the older `governance/` layout — `gov upgrade --pr` moves it to framework/ + policies/, carrying your own files across" }
+            // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1)
+            : facts.contentLayout === "layout-1.0"
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: "the 1.0 layout (knowledge/policies/) — `gov upgrade --pr` moves it to framework/ + policies/, carrying your own files across" }
+            : (facts.staleArtifacts && facts.staleArtifacts.length)
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `files that are not this org's (${facts.staleArtifacts.join(", ")}) — \`gov upgrade --apply\` removes them (or \`gov upgrade --pr\` to review first)` }
+            : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },
+        ]
+      : []),
+    // WHAT GOV IGNORED IN ITS OWN CHANNEL (PRJ-121, 2026-09-27). `preferences.ts` has always reported an
+    // unknown setting; `org-config.yaml` — the file that gets reviewed and merged — dropped one in silence.
+    // A WARNING, never a failure: the keys gov did read are unaffected, and a config gov refuses to load is a
+    // gov that cannot tell you why.
+    // WHICH AGENTS THIS ORGANIZATION AUTHORIZED, as a STATE and not a scolding. `none` is a decision — an
+    // organization may adopt the framework for the structure alone — so it reports `ok`. What warns is an org
+    // that never answered, because it is being governed by a list it did not choose.
+    ...(() => { const a = facts.governanceText === undefined ? null : agentsDiagnostic(facts.governanceText); return a ? [a] : []; })(),
+    // HOW MUCH OF THE POLICY IS ACTUALLY ENFORCED — the numbers a Policy Owner cannot get by reading. In this
+    // framework's own policy, 92 of 107 rules are advisory; nobody could have known that from the document.
+    ...rulesRows(facts.rules),
+    // CHECKED AGAINST THE SCHEMA (org-config split, 2026-10-06): the framework owns the shape of org-config.yaml
+    // (framework/common/reference/org-config.schema.yaml), the org owns the values. Missing required keys FAIL — gov cannot
+    // work for the org without them; unknown, retired and renamed keys WARN, each saying what to do.
+    ...(facts.orgConfigText ? [orgConfigRow(facts.orgConfigText, facts.orgConfigSchemaText ?? null)] : []),
+    ...(facts.orgConfigText ? adaptersRows(facts.orgConfigText) : []),
+    ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),
+    // THE ADOPTED LIFECYCLE (spec 03 X7): gov reads its step headings; one it cannot read is skipped, and said so here.
+    ...(() => { const l = lifecycleDiagnostic(facts.lifecycleText); return l ? [l] : []; })(),
+    // LETTERS ARE RETIRED (spec 03 Q9): a new for-*.md is an advisory pointing at `gov signal`.
+    ...(() => { const l = lettersDiagnostic(facts.projectFiles); return l ? [l] : []; })(),
+    // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
+    // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
+    // WHO HOLDS EACH ROLE (GOV-FRM-033, W2-Q5) and whether CODEOWNERS still routes to them (GOV-FRM-083).
+    ...[
+      policyOwnerDiagnostic(facts.governanceText),
+      checkOwnerDiagnostic(facts.governanceText),
+      roleListDiagnostic(facts.roleListText),
+      codeownersDiagnostic(facts.governanceText, facts.roleListText, facts.codeownersText),
+    ].filter((d): d is Diagnostic => d !== null),
+    // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
+    // below it are FOR. It comes first because it decides whether they are a finding: an organization that
+    // deliberately chose `soft` is not failing GOV-FRM-447, and one that never chose is not excused from it.
+    ...(() => { const p = postureDiagnostic(facts.governanceText); return p ? [p] : []; })(),
+    // GOV-FRM-447 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
+    // thing gov never looked at.
+    //
+    // NOT UNDER `soft`. An organization that chose to leave room for direct work has not misconfigured
+    // anything, and four red crosses against a decision it made on purpose is the false alarm this file keeps
+    // arguing against — it would teach people to ignore the rows, which is fatal for the one rule that holds
+    // outside gov. UNSET is soft (W2-Q6), so it gets none either; an unrecognised value still does, because gov
+    // will not guess which posture was meant.
+    // No config examined is not soft: the posture is then unknown, and the rows stay.
+    ...(facts.protection && (facts.governanceText === undefined || postureOf(facts.governanceText).posture !== "soft")
+      ? assessProtection(facts.protection.facts, {
+          repo: facts.protection.repo,
+          branch: facts.protection.branch,
+          ...(facts.protection.approverCheck ? { approverCheck: facts.protection.approverCheck } : {}),
+          ...(facts.protection.why ? { why: facts.protection.why } : {}),
+        })
+      : []),
+    // THE ORG'S GITHUB APP — how a code repo's checks read the governance rules. A warning at worst: an org that has
+    // not run `gov app setup` yet has checks that cannot read the rules, which is a next step, not a broken machine.
+    ...(facts.githubApp ? [appDiagnostic(facts.githubApp)] : []),
+    // WHERE THE SECRETS REACH — every repo that will not receive a secret it needs (on GitHub Free an org secret
+    // never reaches a private repository), each with its fix.
+    ...(facts.githubApp && secretsDiagnostic(facts.githubApp) ? [secretsDiagnostic(facts.githubApp)!] : []),
+    ...(facts.checksInstall ? [facts.checksInstall] : []),
+    ...(facts.evidence ? [facts.evidence] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
+}
+
+/** org-config.yaml against the schema: one row, the worst finding deciding its status. */
+function orgConfigRow(text: string, schemaText: string | null): Diagnostic {
+  const r = validateOrgConfig(text, parseOrgConfigSchema(schemaText) ?? BUILT_IN_ORG_CONFIG_SCHEMA);
+  const parts = [
+    ...(r.missing.length ? [`missing ${r.missing.join(", ")} (required — \`gov setup\` writes them)`] : []),
+    ...(r.retired.length ? [`moved out of this file: ${r.retired.map((x) => `${x.key} → ${x.movedTo}`).join("; ")} — \`gov upgrade\` carries them`] : []),
+    ...(r.replaced.length ? [`renamed: ${r.replaced.map((x) => `${x.key} → ${x.by}`).join(", ")}`] : []),
+    ...(r.unknown.length ? [`${r.unknown.length} ${r.unknown.length === 1 ? "key" : "keys"} gov does not read — ${r.unknown.join(", ")} (ignored)`] : []),
+  ];
+  if (!parts.length) return { name: "org-config", status: "ok", detail: "matches the schema — all keys recognised" };
+  return { name: "org-config", status: r.missing.length ? "fail" : "warn", detail: parts.join("; ") };
+}
+
+/**
+ * `adapters:` in org-config.yaml — which platform answers each port (PRJ-121 intent 03, Q15). No block, no row:
+ * github is the default and there is nothing to say. A bad id FAILS, because every command that reaches that port
+ * would refuse it — better named here, once, than discovered mid-merge.
+ */
+function adaptersRows(text: string): Diagnostic[] {
+  const r = parseAdapterSelection(text);
+  if (!r.present) return [];
+  if (r.problems.length) return [{ name: "adapters", status: "fail", detail: r.problems.join("; ") }];
+  return [{ name: "adapters", status: "ok", detail: PORT_NAMES.map((p) => `${PORT_CONFIG_KEYS[p]} → ${r.selection[p]}`).join(", ") }];
+}
+
+/** policies/governance.yaml: present and readable, or what is wrong with it. */
+function governanceRow(text: string | null): Diagnostic {
+  if (text === null) return { name: "governance", status: "warn", detail: `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves your governance choices there from org-config.yaml` };
+  const g = parseGovernance(text);
+  return g.problems.length
+    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}` }
+    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read` };
 }
 
 const MARK: Record<DiagnosticStatus, string> = { ok: "\u2713", warn: "!", fail: "\u2717" };

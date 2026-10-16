@@ -6,17 +6,35 @@
  * seed if new, join if not cloned locally, else it's ready → session-start
  * guidance. Pure over injected deps (ports + run + prompt/print), so it's testable.
  */
+import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Projects } from "../lifecycle/project-list.js";
+import { isRateLimited, type BoardSummary, type Projects } from "../lifecycle/project-list.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
-import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import { boardNumberFromProjectId } from "../lifecycle/task.js";
+import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
+import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
+import type { GitRead } from "./policy-gate-io.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
-import { chooseAgent, choiceExplanation } from "./agent-choice.js";
+import { approvedIdOf, chooseAgent, choiceExplanation, type ChoiceResult } from "./agent-choice.js";
+import { readLastAgent, writeLastAgent } from "./last-agent.js";
+import { pickerDefault, pickerLines, pickerPrompt, pickerRows, resolvePickerAnswer } from "./agent-picker.js";
+import { accountFailureLine } from "./agent-account.js";
+import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
-import { paint } from "./format.js";
+import { decide, log } from "../log.js";
+import { withSessionEvidence } from "../check-seam/evidence.js";
+import { envGet, resolveWin32Command } from "../win-spawn.js";
+import {
+  fillPage, formatLevel, githubUnreachableLines, leadWithSearch, matchProjects, pageOf, pickerSettings,
+  rankProjects, resolvePickerInput, type LevelView, type LocalOrder, type PickerLevel,
+  type PickerRow, type PickerSettings,
+} from "./project-picker.js";
+import { inForce, type RuleRow } from "../rules/model/rule-row.js";
+import { runCaptureAsync, type CapturedRun } from "../run-process.js";
+import { lastUsedLabel, orderLocal, scanLocalProjects, type LocalProject } from "../lifecycle/local-projects.js";
 
 /**
  * The status of a board that has NO anchor issue: nobody has seeded it, anywhere, ever.
@@ -43,9 +61,14 @@ export interface WorkFlowDeps {
   /**
    * `govHome` is the governance clone held on the DEFAULT branch (`~/.gov/<slug>/gov_repo`).
    * Optional so a caller that cannot resolve it still works — the prompt then falls back to the
-   * project-branch worktree, which is a wrong-branch read (POL-086a) but not a dead path.
+   * project-branch worktree, which is a wrong-branch read (GOV-FRM-456) but not a dead path.
    */
-  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user" };
+  readonly config: { readonly orgName?: string; readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user"; readonly defaultBranch?: string };
+  /**
+   * `git -C <repo> <args>` → stdout, or null. The harness is mirrored from the DEFAULT branch through it
+   * (GOV-FRM-456); absent, the mirror says it could not read the branch — it never reads the worktree instead.
+   */
+  readonly git?: GitRead;
   readonly me: string | null;
   readonly canWriteBoard: (boardNumber: number) => boolean;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
@@ -54,10 +77,26 @@ export interface WorkFlowDeps {
   readonly hasTool?: (cmd: string) => boolean;
   /** The environment, for reporting a missing key without ever reading its value. */
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /** The org's approved_agents block, or null when the policy carries none (#196). */
+  /**
+   * The org's `authorized_agents`, in the three states `parseAuthorizedAgents` keeps apart (#196):
+   *
+   *   null  nobody has answered → gov falls back to the framework's list and says so
+   *   []    the org authorized NONE → structure-only; nothing agent-shaped happens here
+   *   […]   the org's list
+   *
+   * THE EMPTY ARRAY IS LOAD-BEARING. It used to be indistinguishable from null, so an org that had
+   * decided to run no agents was offered the whole framework catalogue to install — the fallback
+   * that #196 removed at adoption, arriving instead at the one moment the org had already
+   * answered. Both `[]` and null reach the same dep because the reader already tells them apart;
+   * nothing new had to be wired through the three callers that build this.
+   */
   readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
-  /** This person's preferred agent id, from their preferences file. C03. */
-  readonly agentPreference?: () => string | null;
+  /**
+   * Can a project be STARTED (seeded) in this governance repository? null: yes. Otherwise the lines that say why not
+   * and what to do instead (F16) — a repository on an older framework layout fails at seed, so nothing to start is
+   * offered there. Projects already started still open. Absent: gov assumes it can, as it always did.
+   */
+  readonly seedBlocked?: () => readonly string[] | null;
   /** Install an approved agent and offer its sign-in. Returns whether it is usable now. */
   /**
    * Install an approved agent and settle its sign-in. Returns whether it is usable now.
@@ -69,6 +108,9 @@ export interface WorkFlowDeps {
    * everything that needs to ask borrows it.
    */
   readonly installAgent?: (id: string, ask: AskFns) => Promise<boolean> | boolean;
+  /** Copy the governing files from the default branch into `<project>/.gov/governance` (PRJ-121). Absent or
+   *  null → the prompt keeps its old paths. */
+  readonly snapshotGovernance?: (projectDir: string) => GovSnapshot | null;
   /** Fork mappings the last `seed` proposed, if any (#194). */
   readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
   /** Record them in org-config.yaml. Returns whether anything was written. */
@@ -92,7 +134,9 @@ export interface WorkFlowDeps {
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
-  readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<number>;
+  readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<LaunchResult>;
+  /** The quiet evidence notice for the session manifest, or null (spec 02 A19). Absent → none. */
+  readonly evidenceNotice?: () => string | null;
   /** `--print-prompt` writes HERE, not through `print` — stdout must carry the prompt and nothing else,
    *  so `gov work … --print-prompt` can be captured or piped. */
   readonly printPrompt?: (prompt: string) => void;
@@ -134,51 +178,207 @@ export interface WorkFlowOpts {
   readonly seedOk?: boolean;
   /** `--print-prompt` — emit the kickoff prompt and stop. Seeds nothing, clones nothing, launches nothing. */
   readonly printPromptOnly?: boolean;
+  /** `--no-launch` — set the project up on this machine (seed or join, the root protocol, the governance snapshot)
+   *  and stop at "ready": no agent, editor or shell is started. The machine path a script or CI takes (PRJ-121
+   *  intent 05, ruling Q5) — the work it would do next is `gov task` / `gov merge` in that directory. */
+  readonly noLaunch?: boolean;
   /** false when there is no TTY: an unresolved choice must then FAIL naming the flag that would resolve it,
    *  because there is nobody to ask. */
   readonly interactive?: boolean;
+  /** `work.agent.ask` — `always` (the default) lists the approved agents when there is more than one and asks;
+   *  `never` opens the default (last used on this project, else the org's) without asking, and still names it. */
+  readonly agentAsk?: "always" | "never";
+  /** `work.picker.pageSize` — how many projects a page shows. The person's preference; 15 when unset. */
+  readonly pageSize?: number;
+  /** `work.picker.localFirst` — offer the projects already cloned here before any GitHub call. Default true. */
+  readonly localFirst?: boolean;
+  /** `work.picker.localOrder` — `last-used` (mtime, the default) or `number` (board order, like the GitHub lists). */
+  readonly localOrder?: LocalOrder;
+  /** `work.picker.searchThreshold` — past this many entries a level leads with search instead of a list. Default 30. */
+  readonly searchThreshold?: number;
+  /** The project the person is STANDING IN (cwd under the work root), when no `--project` was given. The menu
+   *  says "Continue the current project" in PROJECT context; the flow used to list every project anyway
+   *  (a walk, 2026-09-22). With this set, Work goes straight to it. */
+  readonly currentProject?: string;
 }
 
-/**
- * Projects whose id matches `pattern` — a regex, so `43` finds `PRJ-43-…` and a full id still matches
- * itself. An invalid regex is matched LITERALLY rather than throwing: someone typing `gov work
- * --project=portal(v2` wants a project, not a lecture about escaping.
- */
-export function matchProjects<T extends { readonly projectId: string }>(items: readonly T[], pattern: string): T[] {
-  let re: RegExp;
-  try { re = new RegExp(pattern, "i"); }
-  catch { return items.filter((i) => i.projectId.toLowerCase().includes(pattern.toLowerCase())); }
-  return items.filter((i) => re.test(i.projectId));
-}
+// `matchProjects` moved to `project-picker.ts` with the rest of the matching, and is re-exported here
+// because every caller and test already imports it from this module. The picker's `/text` search is a
+// strict superset of it, so the menu can never match less than `--project` does.
+export { matchProjects };
 
 /** The kickoff prompt that makes a speak-first CLI agent run the session-start protocol immediately, before
  *  the user types anything (ports the bash prj `agent_session_start_prompt`). Paths are workspace-relative
  *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
-export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string): string {
+export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string, snapshot?: GovSnapshot | null): string {
   const w = workspaceRepo;
-  // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (POL-086a, C01).
+  // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (GOV-FRM-456, C01).
   //
   // This pointed every read at `<project>/<workspace-repo>/…`, which is a worktree on the
-  // PROJECT branch. POL-086a is explicit: org knowledge, the session protocol and policies
+  // PROJECT branch. GOV-FRM-456 is explicit: org knowledge, the session protocol and policies
   // "must be built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project
   // branch", while `projects/PRJ-…/` is read from the project branch.
   //
   // Reading the policy from the project branch is not pedantically wrong, it is the hole
-  // POL-086b warns about: a project branch MAY edit org knowledge, as a proposal with no
+  // GOV-FRM-086 warns about: a project branch MAY edit org knowledge, as a proposal with no
   // governing force. Point the agent at that same branch and an unratified edit becomes the
-  // thing it obeys — self-governing, which POL-086b prohibits in as many words.
+  // thing it obeys — self-governing, which GOV-FRM-086 prohibits in as many words.
   //
   // `govHome` is the clone held on the default branch (~/.gov/<slug>/gov_repo). When a caller
   // cannot supply it the prompt falls back to the worktree copy rather than naming a path that
   // may not exist — a wrong-branch read is a governance defect, a missing path is a dead end.
+  //
+  // A SNAPSHOT INSIDE THE PROJECT WHEN THERE IS ONE (PRJ-121, 2026-09-22). `govHome` is outside the project
+  // folder, where an agent that sandboxes its reads cannot go — on a walk, Bob's `read_file` there failed and it
+  // fell back to `cat`. gov now copies the two files from the default branch into `<project>/.gov/governance`
+  // (see governance-snapshot.ts) and points here; the old paths remain the fallback when no snapshot was made.
+  if (snapshot) {
+    return `Run the session-start protocol for ${projectId} now, before I send anything else: `
+      + `read ${snapshot.files.map((f) => `${snapshot.dir}/${f}`).join(" and ")} — `
+      + `a read-only snapshot of ${snapshot.source}, the default branch, which is the only branch that governs `
+      + `(GOV-FRM-086); gov copied it into this project so you can read it here — then `
+      + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
+      + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
+      + `then post the context manifest, naming ${snapshot.source} as the governance you read, and wait for my direction.`;
+  }
   const governance = govHome ?? w;
   return `Run the session-start protocol for ${projectId} now, before I send anything else: `
     + `read ${governance}/org-config.yaml and `
-    + `${governance}/governance/policies/org-ai-agent-governance-policy.md — both from the `
-    + `default branch, which is the only branch that governs (POL-086a) — then `
+    + `${governance}/framework/framework-specification.md — both from the `
+    + `default branch, which is the only branch that governs (GOV-FRM-086) — then `
     + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
     + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
     + `then post the context manifest and wait for my direction.`;
+}
+
+
+/**
+ * THE kickoff prompt — the one every gov-launched session starts with, interactive or headless (03 §3.4).
+ *
+ * `gov work` hands it to the agent it opens; `gov autorun` hands it to the agent it runs headless. One function, so
+ * the two cannot drift: a headless session that skipped or reworded the session-start protocol would be the one
+ * session nobody watches, governed less than the ones people do.
+ */
+export function kickoffPrompt(
+  projectId: string,
+  config: { readonly workspaceRepo: string; readonly govHome?: string },
+  snapshot?: GovSnapshot | null,
+): string {
+  return sessionStartPrompt(projectId, config.workspaceRepo, config.govHome, snapshot);
+}
+
+// ── HEADLESS AGENT MODE (PRJ-121 intent 03, L16; 03-Q10, 03-Q16) ─────────────────────────────────────────────
+//
+// `gov autorun` runs one agent per item with nobody at the terminal. These are its launch pieces, pure where they
+// can be: which argv (or a refusal), what the exit means, and one spawn that captures output under a time budget.
+
+/** How a headless run ended. `c01` halts the whole autorun; `failed` is that item only (03 §3.3). */
+export type HeadlessOutcome = "ok" | "failed" | "c01";
+
+export interface HeadlessSpec {
+  readonly cmd: string;
+  readonly args: readonly string[];
+  /** The whole prompt handed over: the kickoff, then the task brief when there is one. */
+  readonly promptText: string;
+}
+
+/**
+ * The command for running `agentId` headless, or why it may not (03-Q16 (b): only an agent whose non-interactive
+ * mode was verified and recorded in the catalog; every other is refused with a reason, never launched and hoped).
+ *
+ * The prompt is the kickoff VERBATIM, with the task brief after a blank line: the session-start protocol runs first,
+ * then the work. A brief never replaces the kickoff.
+ */
+export function headlessLaunchSpec(
+  agentId: string,
+  kickoff: string,
+  catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+  task?: string,
+): HeadlessSpec | { readonly refused: string } {
+  const c = catalog.find((a) => a.id === agentId);
+  if (!c) return { refused: `'${agentId}' is not an agent gov knows, so it cannot be run headless.` };
+  if (!c.cmd || c.launch !== "cli") {
+    return { refused: `${c.tool} is not a command-line agent gov can start, so it cannot be run headless.` };
+  }
+  if (!c.headlessArgv) {
+    return { refused: `${c.tool} has no verified headless mode in gov's catalog (headlessArgv), so gov will not run it `
+      + "without a person at the terminal (03-Q16). Run it interactively with `gov work`, or choose an agent that has one." };
+  }
+  const promptText = task ? `${kickoff}\n\n${task}` : kickoff;
+  return { cmd: c.cmd, args: c.headlessArgv.map((a) => a.replaceAll("{prompt}", promptText)), promptText };
+}
+
+/** A GOV id anywhere in text — the shape `parseGovId` accepts (`GOV-<scope>-NNN`). */
+const GOV_ID_IN_TEXT = /\bGOV-[A-Z][A-Z0-9]{1,5}-\d{3,}\b/g;
+
+/** The ids that halt an autorun: the in-force C01 rows of the loaded rule stores (framework and org). */
+export function c01IdsFromRules(rows: readonly RuleRow[]): ReadonlySet<string> {
+  return new Set(inForce(rows).filter((r) => r.level === "C01").map((r) => r.id));
+}
+
+/**
+ * What a headless exit means (03-Q10, ruled (a)+(b)).
+ *
+ *   exit 0                         ok — even when the output cites a C01 rule: a context manifest NAMES the rules it
+ *                                  read (the kickoff itself cites GOV-FRM-086), and reading one is not breaking it.
+ *   non-zero, a C01 id in output   c01 — the agent's own exit carries a C01 refusal; the run halts.
+ *   any other non-zero, or killed  failed — a per-item failure (Q10 (c) is explicitly not a halt).
+ *
+ * Only ids `isC01` accepts count: an unknown or C02/C03 id on a failing exit is a failure, not a halt.
+ */
+export function classifyHeadlessExit(
+  code: number | null, output: string, isC01: (id: string) => boolean,
+): { readonly outcome: HeadlessOutcome; readonly c01Ids: readonly string[] } {
+  if (code === 0) return { outcome: "ok", c01Ids: [] };
+  const ids = [...new Set(output.match(GOV_ID_IN_TEXT) ?? [])].filter(isC01);
+  return ids.length && code !== null ? { outcome: "c01", c01Ids: ids } : { outcome: "failed", c01Ids: [] };
+}
+
+export interface HeadlessRunDeps {
+  readonly exec: (cmd: string, args: readonly string[], opts: { readonly cwd: string; readonly timeoutMs?: number }) => Promise<CapturedRun>;
+}
+
+export interface HeadlessRequest {
+  readonly agent: string;
+  /** The project directory, as `gov work` would launch in. */
+  readonly cwd: string;
+  /** {@link kickoffPrompt} for the project — the caller builds it so it is the same one `gov work` would send. */
+  readonly kickoff: string;
+  /** What to do once the protocol has run (autorun's per-item brief). */
+  readonly task?: string;
+  readonly isC01: (id: string) => boolean;
+  /** The per-item wall clock (03-Q11); past it the agent is killed and the item fails. */
+  readonly timeoutMs?: number;
+}
+
+export interface HeadlessResult {
+  readonly outcome: HeadlessOutcome | "refused";
+  /** Why it was refused — set only for `refused`. */
+  readonly reason?: string;
+  readonly c01Ids: readonly string[];
+  readonly exitCode: number | null;
+  /** stdout then stderr, as the agent wrote them. */
+  readonly output: string;
+  readonly timedOut?: boolean;
+  readonly argv?: readonly string[];
+}
+
+/** The real process runner for {@link runHeadless}: no terminal, output captured, logged (run-process.ts). */
+export const HEADLESS_EXEC: HeadlessRunDeps = {
+  exec: (cmd, args, o) => runCaptureAsync(cmd, args, { cwd: o.cwd, pgm: "gov-work:cli:work-flow", fn: "runHeadless",
+    ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}) }),
+};
+
+/** Run one agent headless and say how it ended. A refusal never spawns anything. */
+export async function runHeadless(
+  deps: HeadlessRunDeps, req: HeadlessRequest, catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+): Promise<HeadlessResult> {
+  const spec = headlessLaunchSpec(req.agent, req.kickoff, catalog, req.task);
+  if ("refused" in spec) return { outcome: "refused", reason: spec.refused, c01Ids: [], exitCode: null, output: "" };
+  const r = await deps.exec(spec.cmd, spec.args, { cwd: req.cwd, ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}) });
+  const output = r.stderr ? `${r.stdout}${r.stdout.endsWith("\n") || !r.stdout ? "" : "\n"}${r.stderr}` : r.stdout;
+  const c = classifyHeadlessExit(r.timedOut ? null : r.code, output, req.isC01);
+  return { outcome: c.outcome, c01Ids: c.c01Ids, exitCode: r.code, output, argv: [spec.cmd, ...spec.args], ...(r.timedOut ? { timedOut: true } : {}) };
 }
 
 
@@ -206,7 +406,7 @@ export function startSession(
 ): StartSession | undefined {
   const dir = path.join(projectWorkRoot, projectId);   // path.join, not a literal '/': on Windows the two do not match
   if (!exists(dir)) return undefined;
-  return { projectId, dir, prompt: sessionStartPrompt(projectId, workspaceRepo) };
+  return { projectId, dir, prompt: kickoffPrompt(projectId, { workspaceRepo }) };
 }
 
 /**
@@ -230,6 +430,8 @@ export interface LaunchSpec {
   readonly promptToPaste?: string;
   /** True when the prompt travelled in `args` — so the caller can say governance happened. */
   readonly promptArgvUsed?: true;
+  /** How to reopen the session after a one-shot first message — see AgentCandidate.resume. */
+  readonly resume?: AgentCandidate["resume"];
   /**
    * The protocol text itself, ALWAYS — regardless of how it was delivered.
    *
@@ -256,14 +458,36 @@ export interface LaunchSpec {
  * Speak-first CLI agents get the `inject` prompt as their first message; an `ide` entry opens the
  * directory and detaches. Pure (env + catalog injected), so the mapping is tested without spawning.
  */
+
+/**
+ * The shell to open when `$SHELL` is not set — one that is actually on this machine (PRJ-121, 2026-09-22).
+ *
+ * This was a hardcoded `/bin/zsh`: macOS's default, and absent from the Rocky, Debian and Ubuntu images an
+ * adopter arrives on. `$SHELL` is unset more often than it looks — root in `docker run … bash`, CI, cloud
+ * shells, minimal containers — and there the DECLINE path had no exit: answer `n` to installing an agent and
+ * gov promised a shell, printed `could not launch '/bin/zsh'`, and dropped the person back out. Found on a
+ * walk as root; `su - tester` sets `$SHELL`, which is why the tester walk never saw it.
+ */
+export function fallbackShell(
+  exists: (p: string) => boolean = fs.existsSync,
+  platform: NodeJS.Platform = process.platform,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  // WINDOWS has neither (plan 04 T11): PowerShell 7 when it is there, else the console's own shell (%ComSpec%).
+  if (platform === "win32") return resolveWin32Command("pwsh", { env, isFile: exists }).path ?? envGet(env, "ComSpec") ?? "cmd.exe";
+  for (const s of ["/bin/bash", "/bin/sh"]) if (exists(s)) return s;
+  return "/bin/sh";   // POSIX guarantees it; if even this is missing, the error names a shell that should be there
+}
 export function agentLaunchSpec(
   agent: AgentKind,
   cwd: string,
   inject: string,
   env: NodeJS.ProcessEnv = process.env,
   catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+  exists: (p: string) => boolean = fs.existsSync,
+  platform: NodeJS.Platform = process.platform,
 ): LaunchSpec | null {
-  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false, promptText: inject };
+  if (agent === "shell") return { cmd: env.SHELL || fallbackShell(exists, platform, env), args: [], detached: false, promptText: inject };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
   //
@@ -283,7 +507,7 @@ export function agentLaunchSpec(
   // after a clean install. An entry that has not been checked launches BARE: the agent still
   // starts in the project, and its harness file is what governs the session anyway.
   return c.promptArgv
-    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject }
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject, ...(c.resume ? { resume: c.resume } : {}) }
     : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject, promptText: inject };
 }
 
@@ -298,6 +522,34 @@ export const AGENT_FLAG_ALIASES: Readonly<Record<string, AgentKind>> = {
   "cursor-gui": "cursor-gui",
   shell: "shell",
 };
+
+/**
+ * GOV-FRM-461: gov launches only an agent the organization authorized. The lines refusing `agent`, or null when it
+ * may be launched.
+ *
+ * `authorized` is governance.yaml's `authorized_agents` as {@link ../config/approved-agents.js} reads it: `null` when the
+ * org has not decided (the framework's own list then stands in, as it does for the menu — and the refusal says so),
+ * `[]` for structure-only (refused before this is asked). A shell is never an agent. `cursor-gui` is Cursor run as
+ * an IDE: one approval, two ways to run it.
+ *
+ * It existed only on the MENU path: the menu offers approved agents alone, but `--agent=<id>` (and `$GOV_AGENT`,
+ * which resolves into it) went straight to the launch, so the one path a script takes skipped the org's decision.
+ */
+export function unauthorizedAgentLines(agent: string, authorized: readonly { readonly id: string }[] | null): readonly string[] | null {
+  if (agent === "shell") return null;
+  const kind = AGENT_FLAG_ALIASES[agent] ?? agent;
+  const id = kind === "cursor-gui" ? "cursor" : kind;
+  const approved = approvedAgents(authorized ? authorized.map((a) => a.id) : null);
+  if (approved.ids.includes(id)) return null;
+  const list = approved.ids.length ? approved.ids.join(", ") : "none";
+  return [
+    `  \`--agent=${agent}\` names an agent your organization has not authorized, so gov will not launch it.`,
+    approved.usingDefaults
+      ? `  Your organization has not chosen its agents yet (authorized_agents in policies/governance.yaml), so the framework's list applies: ${list}.`
+      : `  authorized_agents in policies/governance.yaml lists: ${list}.`,
+    `  Launch one of those with \`--agent=<id>\` (or \`--agent=shell\`), or ask your Policy Owner to authorize it: \`gov agent approve ${id}\`.`,
+  ];
+}
 
 /** A flag or `$GOV_AGENT` value → the catalog id (or special) to launch, or null if it names nothing. */
 export function agentKindFromFlag(named: string, catalog: readonly AgentCandidate[] = AGENT_CATALOG): AgentKind | null {
@@ -340,41 +592,93 @@ export function resolveAgent(
   return { ok: false, reason: `more than one agent is installed (${found.map((a) => a.cmd).join(", ")}) — say which: --agent <${found.map((a) => a.id).join("|")}>, or set $GOV_AGENT.` };
 }
 
-/** My projects = open boards whose anchor issue lists me as an assignee (owner). */
-export function myProjects(deps: WorkFlowDeps): WorkProject[] {
-  if (!deps.me) return [];
+/** A board, with the two facts the picker splits its levels on: is it seeded at all, and is it MINE? */
+export interface Candidate extends WorkProject {
+  /** An anchor issue exists → somebody has started this project. */
+  readonly anchored: boolean;
+  /** The anchor issue names me as an assignee. Being assigned IS the access (design §3.2). */
+  readonly mine: boolean;
+}
+
+/**
+ * EVERY OPEN BOARD, NEWEST FIRST — the board list and the anchors, and NOT ONE ACCESS CHECK.
+ *
+ * Two `gh` calls however many boards the org has: `gh project list` once, the anchor search once. That
+ * is the whole cost of knowing which projects exist, which are seeded, and which are yours.
+ *
+ * The expensive question — "may I write this board?" — is deliberately absent. It costs a call PER
+ * BOARD, it is only needed for boards nobody has started (being assigned already answers it for the
+ * rest), and on the org this design came from ~100 of ~100 boards were unstarted, so asking it up
+ * front was a 100-call preamble to showing a person the project they open every morning. It is asked
+ * in {@link unstartedPage}, for the page being shown, and by the write gate on the project actually
+ * picked — the two places where the answer changes what gov does.
+ */
+export function candidateProjects(deps: WorkFlowDeps): Candidate[] {
   const ownerField = deps.config.ownerField ?? "organization";
-  const out: WorkProject[] = [];
   // Fetch every anchor in ONE gh call when the port supports it (63 boards → 1 round-trip, not 63);
   // fall back to per-board find() for lightweight doubles that don't implement findAll.
   const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
+  const out: Candidate[] = [];
   for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
     if (b.closed) continue;
     const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    if (!a || !a.assignees.includes(deps.me)) continue;
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
+    out.push({
+      boardNumber: b.number, title: b.title, url: b.url,
+      status: a ? deriveStatus(!b.closed, a.labels) : NOT_STARTED,
+      projectId: id.ok ? id.projectId : `PRJ-${b.number}`,
+      anchored: !!a,
+      mine: !!a && !!deps.me && a.assignees.includes(deps.me),
+    });
   }
-  return out;
+  return out.sort((x, y) => y.boardNumber - x.boardNumber);
+}
+
+/** My projects = open boards whose anchor issue lists me as an assignee (owner). Two calls, no access checks. */
+export function myProjects(deps: WorkFlowDeps): WorkProject[] {
+  if (!deps.me) return [];
+  return candidateProjects(deps).filter((c) => c.mine);
+}
+
+/**
+ * Open boards with NO anchor — nobody has seeded them, anywhere, ever. Not access-checked here.
+ *
+ * Kept separate from the check so a `/text` search can narrow the list BEFORE gov pays a call per
+ * board (design §3.4: a search must save calls, not just screen space).
+ */
+export function unstartedBoards(deps: WorkFlowDeps): WorkProject[] {
+  if (!deps.me) return [];      // seeding assigns somebody; with no login there is nobody to assign
+  return candidateProjects(deps).filter((c) => !c.anchored);
+}
+
+/**
+ * ONE FULL PAGE OF BOARDS YOU COULD START — `limit` of them, checking write access only as far as it
+ * takes to fill the page.
+ *
+ * Two mistakes are avoided at once here, and they pull against each other:
+ *
+ *   · checking every board is a ~100-call wait on a large org (design §3.3 → check per page);
+ *   · checking exactly `limit` boards and showing the survivors is how this list came to paginate
+ *     11, then 1, then 7 (a walk, 2026-09-22) — the page size belonged to what was SHOWN, and the
+ *     filter ran after it.
+ *
+ * So the scan stops at the first of "the page is full" and "there are no more boards", `nextOffset`
+ * is the board to resume from, and `more` says whether any remain. The arithmetic is `fillPage`'s,
+ * tested on its own with a list long enough to page three times.
+ */
+export function unstartedPage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; nextOffset: number; more: boolean; total: number } {
+  const boards = unstartedBoards(deps);
+  const page = fillPage(boards, (b) => deps.canWriteBoard(b.boardNumber), limit, offset);
+  return { items: page.items, nextOffset: page.nextOffset, more: page.more, total: boards.length };
 }
 
 /** Seedable boards = open boards I can WRITE but that have NO anchor yet (never seeded). Offered in Work so a
  *  freshly-created GitHub board (e.g. #106) can be STARTED, not only picked once already seeded. Picking one
- *  runs the not-seeded → `seed` path. (Cost: `canWriteBoard` per un-anchored board — batch if it gets slow.) */
+ *  runs the not-seeded → `seed` path. (Cost: `canWriteBoard` per un-anchored board — the picker pays it a
+ *  page at a time; this whole-list form is for callers that need the count.) */
 export function seedableBoards(deps: WorkFlowDeps): WorkProject[] {
-  if (!deps.me) return [];
-  const ownerField = deps.config.ownerField ?? "organization";
-  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
-  const out: WorkProject[] = [];
-  for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
-    if (b.closed) continue;
-    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    if (a) continue;                             // already seeded (has an anchor) → myProjects handles it
-    if (!deps.canWriteBoard(b.number)) continue; // only boards I can actually seed
-    const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
-  }
-  return out;
+  const boards = unstartedBoards(deps);
+  return fillPage(boards, (b) => deps.canWriteBoard(b.boardNumber), Math.max(1, boards.length), 0).items;
 }
 
 export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
@@ -400,105 +704,437 @@ export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceSta
   return "ready";
 }
 
-/** One page of STARTABLE projects, NEWEST board first: assigned projects (I'm an anchor owner) + seedable
- *  boards (writable, un-anchored → "not started"). Paginates over BOARDS and resolves the expensive per-board
- *  `canWriteBoard` ONLY for the page (like manageList) — a large org never means a long wait. `totalBoards`
- *  is the full non-closed count (for the "more" affordance). */
-export function startablePage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; totalBoards: number } {
-  if (!deps.me) return { items: [], totalBoards: 0 };
-  const ownerField = deps.config.ownerField ?? "organization";
-  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
-  const boards = deps.projects.listBoards(deps.config.githubOrg).filter((b) => !b.closed).sort((a, b) => b.number - a.number);
-  const items: WorkProject[] = [];
-  for (const b of boards.slice(offset, offset + limit)) {
-    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    const projectId = id.ok ? id.projectId : `PRJ-${b.number}`;
-    if (a && a.assignees.includes(deps.me)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId });
-    else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId });
-  }
-  return { items, totalBoards: boards.length };
+/**
+ * The board list and the anchors, fetched ONCE per flow. Every page (and every `m`) re-ran `gh project list`
+ * — 10–12 s on this org — and the org-wide anchor search. Nothing they return changes while a person reads a
+ * page, so the flow asks once and pages over the answer.
+ *
+ * `cached` answers "has GitHub already been asked?" WITHOUT asking it. The local list needs that: a
+ * project whose board has since closed is marked `(closed on GitHub)` only once GitHub has been
+ * consulted for some other reason, and never by making a call of its own (design §3.1).
+ */
+function withBoardCache(deps: WorkFlowDeps): { deps: WorkFlowDeps; cached: () => ReturnType<Projects["listBoards"]> | null } {
+  const boards = new Map<string, ReturnType<Projects["listBoards"]>>();
+  const anchors = new Map<string, ReturnType<NonNullable<WorkFlowDeps["anchor"]["findAll"]>>>();
+  const projects: Projects = {
+    ...deps.projects,
+    listBoards: (owner) => {
+      if (!boards.has(owner)) {
+        const got = deps.projects.listBoards(owner);
+        if (deps.projects.lastFailure?.()) return got;          // never cache a failure — the next ask retries
+        boards.set(owner, got);
+      }
+      return boards.get(owner)!;
+    },
+    ...(deps.projects.lastFailure ? { lastFailure: () => deps.projects.lastFailure!() } : {}),
+  };
+  const findAll = deps.anchor.findAll;
+  const anchor = findAll
+    ? { ...deps.anchor, findAll: (org: string, repo: string) => {
+        const k = `${org}/${repo}`;
+        if (!anchors.has(k)) anchors.set(k, findAll.call(deps.anchor, org, repo));
+        return anchors.get(k)!;
+      } }
+    : deps.anchor;
+  return {
+    deps: { ...deps, projects, anchor } as WorkFlowDeps,
+    cached: () => boards.get(deps.config.githubOrg) ?? null,
+  };
 }
 
 // `ensureRootProtocol` (imported above) lives in a leaf lifecycle module so BOTH `seed` and this Work flow use
 // it (no cli→lifecycle cycle). Re-exported so existing importers/tests keep resolving it here.
-export { ensureRootProtocol };
+export { ensureRootProtocol, mirrorWarnings };
 
-export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
+/** A folder's row: the branch it is on and when it was last used — the two things that tell one apart. */
+export function localRow(l: LocalProject, nowMs: number, closedOnGitHub = false): PickerRow {
+  const bits = [l.branch, lastUsedLabel(l.lastUsedMs, nowMs)].filter(Boolean);
+  if (!l.cloned) bits.push("needs cloning");
+  if (closedOnGitHub) bits.push("closed on GitHub");
+  return { projectId: l.projectId, note: bits.length ? bits.join(" · ") : "on this machine" };
+}
+
+/** A board's row: its lifecycle status, or `not started` for one nobody has seeded. */
+export const boardRow = (p: WorkProject): PickerRow => ({ projectId: p.projectId, note: `(${p.status})` });
+
+/**
+ * Which local folders belong to a board that is closed (or gone) on GitHub — `null` boards means GOV HAS NOT
+ * ASKED, and then nothing is marked.
+ *
+ * The local list is the zero-call list, and a `(closed on GitHub)` mark it had to make a call to earn would
+ * quietly cost exactly what that list exists to avoid (design §3.1). So the mark appears only when the board
+ * list happens to be in hand already — the person pressed `g` earlier, or a pattern was resolved — and its
+ * absence means "not known", never "open".
+ */
+export function markClosedOnGitHub(local: readonly LocalProject[], boards: readonly BoardSummary[] | null): ReadonlySet<string> {
+  const out = new Set<string>();
+  if (!boards) return out;
+  for (const l of local) {
+    if (l.boardNumber === null) continue;
+    const b = boards.find((x) => x.number === l.boardNumber);
+    if (!b || b.closed) out.add(l.projectId);
+  }
+  return out;
+}
+
+type Picked = { readonly kind: "picked"; readonly project: WorkProject; readonly local: boolean };
+type Done = { readonly kind: "done"; readonly code: number };
+
+/**
+ * THE PICKER, DRIVEN — local first, then yours, then what you could start, with `/text` at every level.
+ *
+ * The shape of the levels, the ranking, the paging and the search-first decision are all in
+ * `project-picker.ts` and tested without a terminal. What is here is the IO: when to call GitHub (as late
+ * as possible, and never for the local list), what to do when it will not answer, and what a keystroke
+ * does to the level stack.
+ *
+ * `local: true` on the result means the pick came from a folder that is already cloned here: nothing
+ * org-visible follows, so the caller skips even the one write-access check (design §5 promises a project
+ * already on this machine opens for NO GitHub calls).
+ */
+async function pickProject(
+  deps: WorkFlowDeps, set: PickerSettings, cachedBoards: () => readonly BoardSummary[] | null, nowMs: number,
+): Promise<Picked | Done> {
   const { print } = deps;
-  const PAGE = 15;
+  const localAll = set.localFirst
+    ? orderLocal(scanLocalProjects(deps.fs, deps.config.agentWorkRoot, deps.config.workspaceRepo), set.localOrder)
+    : [];
+  // NOTHING TO START WHERE NOTHING CAN BE STARTED (F16). Said once, up front, so the lists below are read knowing it.
+  const seedBlocked = deps.seedBlocked?.() ?? null;
+  if (seedBlocked) for (const line of seedBlocked) print(line);
+
+  // GITHUB IS ASKED WHEN A LEVEL NEEDS IT, AND ONCE. `withBoardCache` keeps the answer; this keeps the
+  // failure, so a rate limit is reported where it happened instead of being retried on every keystroke.
+  let candidates: Candidate[] | null = null;
+  const loadCandidates = (): Candidate[] | { readonly failure: string } => {
+    if (candidates) return candidates;
+    print("  ⏳ Asking GitHub for the org's boards and who is assigned…");
+    deps.projects.listBoards(deps.config.githubOrg);
+    const failure = deps.projects.lastFailure?.() ?? null;
+    if (failure) return { failure };
+    candidates = candidateProjects(deps);
+    return candidates;
+  };
+
+  /** Opening a folder that is already cloned costs nothing; one that is half-made needs `join`, and `join`
+   *  needs the BOARD URL (#206) — the one thing only GitHub can supply. */
+  const openLocal = async (l: LocalProject): Promise<Picked | null> => {
+    if (l.cloned) {
+      return { kind: "picked", local: true, project: { boardNumber: l.boardNumber ?? 0, title: l.projectId, url: "", status: "on this machine", projectId: l.projectId } };
+    }
+    const c = loadCandidates();
+    if ("failure" in c) {
+      for (const line of githubUnreachableLines(c.failure, localAll.length)) print(line);
+      print(`  So '${l.projectId}' cannot be finished right now — its folder has no workspace clone yet.`);
+      return null;
+    }
+    const board = c.find((x) => x.projectId === l.projectId || (l.boardNumber !== null && x.boardNumber === l.boardNumber));
+    if (!board) {
+      print(`  '${l.projectId}' has a folder here, but no open board on GitHub — nothing to clone into it.`);
+      print("  Ask an owner whether that project was closed, or remove the folder.");
+      return null;
+    }
+    return { kind: "picked", local: false, project: board };
+  };
+
+  // WHERE YOU ARE IS A STACK, as it is in the menu (`361fe04`): `g`/`s` push a level, `0` pops one, and
+  // popping the last one leaves Work. A filter belongs to the level it was typed at and nowhere else.
+  const stack: PickerLevel[] = [localAll.length ? "local" : "mine"];
+  let query: string | null = null;
+  let offset = 0;
+  /** `m` past the search-first prompt: "or m to page through them" — the list, on request. */
+  let listing = false;
+  const fresh = (): void => { query = null; offset = 0; listing = false; };
+  const go = (to: PickerLevel): void => { stack.push(to); fresh(); };
+  const pop = (): void => { stack.pop(); fresh(); };
+  const nothingForYou = (): Done => {
+    print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
+    print(seedBlocked
+      ? "  Ask a project owner to assign you to a project already started; a new one waits for the upgrade above."
+      : "  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
+    return { kind: "done", code: 0 };
+  };
+
+  for (;;) {
+    const level = stack[stack.length - 1]!;
+    // Every arm below assigns all four, and TypeScript enforces it — there is no default worth having: a
+    // level that forgot its rows, or its pick action, must not compile into one that quietly offers nothing.
+    let rows: PickerRow[];
+    /** Row `n` on screen — or, when the prompt led with search and listed nothing, the nth entry of the level. */
+    let pickAt: (n: number) => Promise<Picked | null>;
+    let view: LevelView;
+    let nextOffset: number;
+
+    if (level === "local") {
+      const filtered = query === null ? localAll : rankProjects(localAll, query);
+      const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+      const page = pageOf(filtered, set.pageSize, offset);
+      const closed = markClosedOnGitHub(page.items, cachedBoards());
+      rows = searchFirst ? [] : page.items.map((l) => localRow(l, nowMs, closed.has(l.projectId)));
+      nextOffset = page.nextOffset;
+      pickAt = async (n) => {
+        const l = filtered[offset + n - 1];
+        return l ? await openLocal(l) : null;
+      };
+      view = {
+        level, rows, total: page.total, page: page.page, pages: page.pages,
+        more: searchFirst ? page.total > 0 : page.more, query, searchFirst,
+        keys: { more: searchFirst ? page.total > 0 : page.more, mine: true, startable: true },
+      };
+    } else {
+      const c = loadCandidates();
+      if ("failure" in c) {
+        // A THROTTLED OR UNREACHABLE GITHUB IS NOT "NO PROJECTS", AND MUST NOT BE A HANG OR A STACK TRACE.
+        // Say which it is, then fall back to the list that needs no calls at all — the folders already here.
+        // That fallback IS the feature: the design's motivation was "GitHub may throttle on a large number
+        // of requests", and the useful answer to a throttle is the work you already have on disk.
+        for (const line of githubUnreachableLines(c.failure, localAll.length)) print(line);
+        log("info", "GitHub would not list the org's boards", "gov-work:cli:work-flow", "pickProject",
+          { failure: c.failure, rateLimited: isRateLimited(c.failure), localProjects: localAll.length });
+        if (!localAll.length) return { kind: "done", code: 1 };
+        stack.length = 0; stack.push("local"); fresh();
+        continue;
+      }
+      const mineAll = c.filter((x) => x.mine);
+      const unstartedAll = deps.me && !seedBlocked ? c.filter((x) => !x.anchored) : [];
+
+      if (level === "mine" && !mineAll.length) {
+        // Being assigned to nothing is a joiner's ordinary state, not an error. Descend rather than print an
+        // empty list and ask for a keystroke with only one sensible value.
+        if (!unstartedAll.length) {
+          if (!localAll.length) return nothingForYou();
+          print(`  Nothing on GitHub is assigned to you${deps.me ? ` (${deps.me})` : ""}, and every open board already has a project.`);
+          pop();
+          if (!stack.length) return { kind: "done", code: 0 };
+          continue;
+        }
+        print(`  Nothing on GitHub is assigned to you yet${deps.me ? ` (${deps.me})` : ""} — these are the boards you could start.`);
+        stack[stack.length - 1] = "startable"; fresh();
+        continue;
+      }
+      if (level === "startable" && !unstartedAll.length) {
+        print("  Every open board already has a project — there is nothing to start.");
+        pop();
+        if (!stack.length) return mineAll.length || localAll.length ? { kind: "done", code: 0 } : nothingForYou();
+        continue;
+      }
+
+      if (level === "mine") {
+        const filtered = query === null ? mineAll : rankProjects(mineAll, query);
+        const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+        const page = pageOf(filtered, set.pageSize, offset);
+        rows = searchFirst ? [] : page.items.map(boardRow);
+        nextOffset = page.nextOffset;
+        pickAt = async (n) => {
+          const p = filtered[offset + n - 1];
+          return p ? { kind: "picked", local: false, project: p } : null;
+        };
+        view = {
+          level, rows, total: page.total, page: page.page, pages: page.pages,
+          more: searchFirst ? page.total > 0 : page.more, query, searchFirst,
+          keys: { more: searchFirst ? page.total > 0 : page.more, startable: unstartedAll.length > 0 },
+        };
+      } else {
+        // YOU COULD START — the one list whose eligibility costs a `gh` call PER BOARD. So the filter runs
+        // first (design §3.4: a search must save calls, not just screen space), the check runs only as far as
+        // it takes to fill the page (§3.3), and while the prompt is leading with search it does not run at
+        // all — paying fifteen calls to render rows nobody has asked for is the cost this level exists to cap.
+        const filtered = query === null ? unstartedAll : rankProjects(unstartedAll, query);
+        const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+        const writable = (b: WorkProject): boolean => deps.canWriteBoard(b.boardNumber);
+        const page = searchFirst ? { items: [] as WorkProject[], nextOffset: 0, more: filtered.length > 0, scanned: 0 } : fillPage(filtered, writable, set.pageSize, offset);
+        // NOTHING WRITABLE, AND NOTHING LEFT TO SCAN — a level with no rows and no `m` is not a place to
+        // stand. It used to be: the old loop printed "(nothing startable on this page)" and asked again, so a
+        // person (or a test double) answering the same thing twice was in a loop with no exit but ctrl-C.
+        if (!searchFirst && !page.items.length && !page.more && filtered.length > 0) {
+          print(`  ${filtered.length === 1 ? "The one board nobody has started is not one" : `None of the ${filtered.length} boards nobody has started are ones`} you can write.`);
+          print("  Ask an owner for write access on the board you need (`gov manage`), then retry.");
+          pop();
+          if (!stack.length) return mineAll.length || localAll.length ? { kind: "done", code: 0 } : nothingForYou();
+          continue;
+        }
+        rows = page.items.map(boardRow);
+        nextOffset = page.nextOffset;
+        pickAt = async (n) => {
+          // The nth board FROM THIS PAGE'S START that gov may write — the same sequence the rows came from,
+          // extended by one page's worth when nothing was listed.
+          const seq = page.items.length >= n ? page.items : fillPage(filtered, writable, Math.max(n, set.pageSize), offset).items;
+          const p = seq[n - 1];
+          return p ? { kind: "picked", local: false, project: p } : null;
+        };
+        // `pages` stays 1 on purpose: gov cannot know how many of these boards it may write without asking,
+        // so it prints no page count it would have to guess at. `more` is the honest half of the same fact.
+        view = { level, rows, total: filtered.length, page: 1, pages: 1, more: page.more, query, searchFirst, keys: { more: page.more } };
+      }
+    }
+
+    // THE PAGE, AS THE PERSON SEES IT. Pages of 11, then 1, then 7 were reported from a walk before anybody
+    // could say what the flow had done; this is that fact, on the record — now with the level and the filter.
+    log("info", "offered a page of projects", "gov-work:cli:work-flow", "pickProject",
+      { level, query, shown: rows.length, total: view.total, offset, nextOffset, more: view.more, searchFirst: view.searchFirst });
+
+    for (const line of formatLevel(view)) print(line);
+    const answer = resolvePickerInput(await deps.prompt("  Choose: "), view.keys);
+    if (answer.kind === "back") {
+      pop();
+      if (!stack.length) return { kind: "done", code: 0 };
+      continue;
+    }
+    if (answer.kind === "more") { if (view.searchFirst) listing = true; else offset = nextOffset; continue; }
+    if (answer.kind === "search") { query = answer.query; offset = 0; listing = false; continue; }
+    if (answer.kind === "clear") { fresh(); continue; }
+    if (answer.kind === "level") { go(answer.to); continue; }
+    if (answer.kind === "pick") {
+      const got = await pickAt(answer.n);
+      if (!got) { print("  unknown choice"); continue; }
+      // A NUMBER ALWAYS SELECTS — including at a level that led with search and listed nothing. What it must
+      // not do is commit UNSEEN to an act other people will see: seeding creates branches, an anchor issue and
+      // an assignment, and consent given to a row nobody has read is not consent. So an unlisted pick names
+      // what it resolved to, and asks when the answer is org-visible.
+      if (view.searchFirst) {
+        print(`  ${answer.n}) ${got.project.projectId}  (${got.project.status})`);
+        if (got.project.status === NOT_STARTED) {
+          const yes = (await deps.prompt("  Nobody has started that one — seeding creates branches, an anchor issue and assigns you. Go ahead? (y/N) ")).trim().toLowerCase();
+          if (!/^y(es)?$/.test(yes)) { print("  Left alone."); continue; }
+        }
+      }
+      return got;
+    }
+    print("  unknown choice");
+  }
+}
+
+export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
+  const { deps, cached } = withBoardCache(rawDeps);
+  const { print } = deps;
+  const set = pickerSettings(opts);
   const interactive = opts.interactive ?? true;
   print("");
   print("  Work — start / continue a project");
 
   // ── project, by pattern ──────────────────────────────────────────────────────────────────────────
-  // Scans the same paginated source the menu uses, then filters. One match proceeds; several ask (or, with
-  // no TTY, list them and stop — a script must not be given a project it did not name); none is an error
-  // that shows what WAS available, because "no match" without the candidate list is a dead end.
+  // Resolved from the board list and the anchors — two calls, no per-board access checks. One match proceeds;
+  // several ask (or, with no TTY, list them and stop — a script must not be given a project it did not name);
+  // none is an error that shows what WAS available, because "no match" without the candidate list is a dead end.
   let picked: WorkProject | null = null;
-  if (opts.projectPattern) {
-    const all: WorkProject[] = [];
-    for (let off = 0; ; off += PAGE) {
-      const { items, totalBoards } = startablePage(deps, PAGE, off);
-      all.push(...items);
-      if (off + PAGE >= totalBoards) break;
+  /** Did the pick come from a folder already cloned here? Then nothing org-visible follows — see the write gate. */
+  let fromLocal = false;
+  // ── the project you are standing in ──────────────────────────────────────────────────────────────
+  // The menu promises "Continue the current project" in PROJECT context; the flow used to list every project
+  // (a walk, 2026-09-22). Resolved from the board list gov fetches anyway — no extra call. If the board is
+  // gone or closed, fall through to the list rather than guess.
+  if (!opts.projectPattern && opts.currentProject) {
+    const n = boardNumberFromProjectId(opts.currentProject);
+    const b = n === null ? undefined : deps.projects.listBoards(deps.config.githubOrg).find((x) => x.number === n && !x.closed);
+    if (b) {
+      const a = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo)?.get(b.number)
+        ?? deps.anchor.find({ owner: deps.config.githubOrg, ownerField: deps.config.ownerField ?? "organization", number: b.number }, deps.config.workspaceRepo);
+      picked = { boardNumber: b.number, title: b.title, url: b.url, status: a ? deriveStatus(true, a.labels) : NOT_STARTED, projectId: opts.currentProject };
+      decide("project", opts.currentProject, "the project you are standing in", "gov-work:cli:work-flow", "runWorkFlow", { board: b.number });
+      print(`  Continuing ${opts.currentProject} — the project you are in.`);
+      print("  (Another one: `gov work --project=<pattern>`, or run gov from outside this project.)");
+    } else if (deps.projects.lastFailure?.() && deps.fs.pathExists(path.join(deps.config.agentWorkRoot, opts.currentProject, deps.config.workspaceRepo, ".git"))) {
+      // GITHUB WOULD NOT ANSWER, AND THE PROJECT IS RIGHT HERE. Continuing it needs no board — the folder is
+      // cloned and the branch is checked out — so a throttle must not push somebody out of the project they
+      // are standing in and into a list gov cannot fetch either. This is the design's motivation at its
+      // sharpest: the useful answer to "GitHub may throttle" is the work already on the disk.
+      const failure = deps.projects.lastFailure()!;
+      for (const line of githubUnreachableLines(failure, 1)) print(line);
+      picked = { boardNumber: boardNumberFromProjectId(opts.currentProject) ?? 0, title: opts.currentProject, url: "", status: "on this machine", projectId: opts.currentProject };
+      fromLocal = true;
+      decide("project", opts.currentProject, "standing in it, and GitHub would not answer", "gov-work:cli:work-flow", "runWorkFlow", { rateLimited: isRateLimited(failure) });
+      print(`  Continuing ${opts.currentProject} anyway — it is cloned here, so this needs no GitHub call.`);
     }
-    const hits = matchProjects(all, opts.projectPattern);
-    if (hits.length === 0) {
-      print(`  No project matches '${opts.projectPattern}'.`);
-      if (all.length) print(`  Available: ${all.slice(0, 10).map((i) => i.projectId).join(", ")}${all.length > 10 ? ", …" : ""}`);
-      return 1;
+  }
+  if (picked) {
+    // resolved above — skip the pattern and the list
+  } else if (opts.projectPattern) {
+    // EVERY OPEN BOARD IS A CANDIDATE, AND NOT ONE ACCESS CHECK IS PAID TO FIND OUT (design §4).
+    //
+    // This used to page through `startablePage` to exhaustion, which resolved `canWriteBoard` for every
+    // un-anchored board in the org — ~100 calls on the org this design came from — to answer a question about
+    // ONE named project. The write gate below asks about the project actually chosen, which is the only board
+    // whose answer changes anything.
+    const all: WorkProject[] = candidateProjects(deps);
+    const failure = deps.projects.lastFailure?.() ?? null;
+    if (failure) {
+      // A pattern that matched nothing because GitHub said nothing is not "no such project" — the remedy for
+      // a rate limit is a minute, and for an empty org it is a board. A local folder the pattern names is
+      // still openable with no calls at all, so say so rather than stopping at a wall.
+      const localHits = matchProjects(orderLocal(scanLocalProjects(deps.fs, deps.config.agentWorkRoot, deps.config.workspaceRepo), set.localOrder), opts.projectPattern);
+      for (const line of githubUnreachableLines(failure, localHits.length)) print(line);
+      if (localHits.length === 1 && localHits[0]!.cloned) {
+        picked = { boardNumber: localHits[0]!.boardNumber ?? 0, title: localHits[0]!.projectId, url: "", status: "on this machine", projectId: localHits[0]!.projectId };
+        fromLocal = true;
+        decide("project", picked.projectId, `--project=${opts.projectPattern} matched one folder on this machine while GitHub was unreachable`, "gov-work:cli:work-flow", "runWorkFlow", { rateLimited: isRateLimited(failure) });
+        print(`  '${picked.projectId}' is already cloned here, so gov can open it without GitHub.`);
+      } else {
+        if (localHits.length > 1) print(`  On this machine: ${localHits.map((l) => l.projectId).join(", ")} — name one exactly.`);
+        return 1;
+      }
     }
-    if (hits.length === 1) picked = hits[0]!;
-    else if (!interactive) {
-      print(`  '${opts.projectPattern}' matches ${hits.length} projects: ${hits.map((i) => i.projectId).join(", ")}`);
-      print("  Narrow the pattern — with no terminal there is nobody to ask.");
-      return 2;
-    } else {
-      print("");
-      print(`  '${opts.projectPattern}' matches ${hits.length} projects:`);
-      hits.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
-      const sel = (await deps.prompt("  Choose: ")).trim();
-      const idx = Number(sel) - 1;
-      picked = Number.isInteger(idx) && idx >= 0 && idx < hits.length ? hits[idx]! : null;
-      if (!picked) { print("  unknown choice"); return 2; }
+    // `picked` is set only when GitHub was unreachable and the pattern named a folder that is here; then there
+    // is nothing to match against, and the work goes on with what the disk knows.
+    if (!picked) {
+      // The id regex first — that is what `--project` has always meant — and the picker's `/text` ranking as a
+      // FALLBACK, so the command line can match a board by its title too (design §3.4: one idea of "matches").
+      // Only ever additive: an invocation that resolved to one project before still resolves to that one.
+      const byId = matchProjects(all, opts.projectPattern);
+      const hits = byId.length ? byId : rankProjects(all, opts.projectPattern);
+      if (hits.length === 0) {
+        print(`  No project matches '${opts.projectPattern}'.`);
+        if (all.length) print(`  Available: ${all.slice(0, 10).map((i) => i.projectId).join(", ")}${all.length > 10 ? ", …" : ""}`);
+        return 1;
+      }
+      if (hits.length === 1) { picked = hits[0]!; decide("project", picked.projectId, `--project=${opts.projectPattern} matched one`, "gov-work:cli:work-flow", "runWorkFlow", { candidates: all.length }); }
+      else if (!interactive) {
+        print(`  '${opts.projectPattern}' matches ${hits.length} projects: ${hits.map((i) => i.projectId).join(", ")}`);
+        print("  Narrow the pattern — with no terminal there is nobody to ask.");
+        return 2;
+      } else {
+        print("");
+        print(`  '${opts.projectPattern}' matches ${hits.length} projects:`);
+        hits.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
+        const sel = (await deps.prompt("  Choose: ")).trim();
+        const idx = Number(sel) - 1;
+        picked = Number.isInteger(idx) && idx >= 0 && idx < hits.length ? hits[idx]! : null;
+        if (!picked) { print("  unknown choice"); return 2; }
+      }
     }
   } else if (!interactive) {
     print("  No --project=<pattern>, and no terminal to choose in.");
     print("  Name one:  gov work --project=<regex> --agent=<claude|cursor|cursor-gui|shell>");
     return 2;
   }
-  // Paginate over BOARDS (newest first), probing per-board access ONLY for the visible page → no long wait on
-  // a large org. Print a working indicator each page (synchronous gh blocks the loop).
+  // THE PICKER: on this machine, then yours on GitHub, then what you could start — with `/text` at each
+  // level and a number that always selects. Its lists, ranking and arithmetic are `project-picker.ts`'s.
   let p: WorkProject | null = picked;
-  let offset = 0;
-  while (!p) {
-    print("  ⏳ Finding your projects — assigned + boards you can start…");
-    const { items, totalBoards } = startablePage(deps, PAGE, offset);
-    const more = offset + PAGE < totalBoards;
-    if (items.length === 0 && offset === 0 && !more) {
-      print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
-      print("  Create a GitHub Project board (or get assigned via Admin ▸ manage), then retry.");
-      return 0;
-    }
-    print("");
-    print("  Select a project (assigned, or 'not started' = seed it now) — newest first:");
-    if (items.length === 0) print("     (nothing startable on this page)");
-    items.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
-    if (more) print("     m) more");
-    print("     0) back");
-    const sel = (await deps.prompt("  Choose: ")).trim().toLowerCase();
-    if (sel === "0" || sel === "") return 0;
-    if (sel === "m" && more) { offset += PAGE; continue; }
-    const idx = Number(sel) - 1;
-    p = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : null;
-    if (!p) print("  unknown choice");
+  if (!p) {
+    const chosen = await pickProject(deps, set, cached, Date.now());
+    if (chosen.kind === "done") return chosen.code;
+    p = chosen.project;
+    fromLocal = chosen.local;
   }
 
-  if (!deps.canWriteBoard(p.boardNumber)) {
+  // THE WRITE GATE — asked for every project EXCEPT one that is already cloned on this machine.
+  //
+  // Write access to the board is the authorization (there is no `project.yaml`), and everything that needs it
+  // is org-visible: seeding branches and an anchor issue, joining, and later `gov task`/`gov merge`, each of
+  // which checks for itself. Opening a folder that is already here does none of that — it starts an agent in a
+  // directory — and the design's §5 promises that path costs ZERO GitHub calls. Spending one here to re-ask a
+  // question nothing acts on would break exactly the promise the local list exists to keep.
+  if (!fromLocal && !deps.canWriteBoard(p.boardNumber)) {
     print(`  You don't have write access to '${p.title}' (its GitHub Project board).`);
     print("  Ask an owner to grant access (`gov manage`), then retry.");
     return 1;
+  }
+  // SKIPPED IS NOT THE SAME AS PASSED, and the difference has to be visible (2026-09-28). The zero-call promise
+  // above is worth keeping, but authorization IS board write access (build-specification.md §1.5) and an access that was revoked
+  // since the clone would go unnoticed here. What catches it is the agent's own session-start check (GOV-FRM-114) —
+  // which is agentic, so it persuades rather than proves. Saying so costs nothing, tells the developer which
+  // check is actually standing between them and unauthorized work, and stops a silent skip reading as a pass.
+  if (fromLocal) {
+    print("  (opened from this machine — gov did not re-check your board access; your agent verifies it at session start)");
   }
 
   const projectDir = path.join(deps.config.agentWorkRoot, p.projectId);   // <project> — all repos live under it
@@ -512,11 +1148,21 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
       print(`  Set it up first:  gov work --project=${p.projectId}`);
       return 1;
     }
-    deps.printPrompt?.(sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+    deps.printPrompt?.(kickoffPrompt(p.projectId, deps.config));
     return 0;
   }
 
+  // SEEDING FROM SCRATCH HAS NO "LAST TIME" (Policy Owner, 2026-10-12): the org default is Enter, whatever an old
+  // record on this machine might say. Resuming a seeded project (cloned here, or joined now) opens what was used last.
+  const seededNow = state === "not-seeded";
   if (state === "not-seeded") {
+    // F16: checked before consent is asked — a yes to something that cannot happen is not worth asking for.
+    const blocked = deps.seedBlocked?.() ?? null;
+    if (blocked) {
+      print(`  '${p.projectId}' has not been started yet, and it cannot be started here:`);
+      for (const line of blocked) print(line);
+      return 1;
+    }
     // SEEDING IS ORG-VISIBLE — branches in every repo, an anchor issue, an assignment. Choosing a
     // `(not started)` entry from the menu IS consent; a regex that happened to match one is not. So a
     // pattern-selected project asks first, and with no terminal it refuses and names the flag.
@@ -574,95 +1220,263 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
     if (code !== 0) return code;
   }
 
-  ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);   // so an agent launched at <project> runs session-start
+  // So an agent launched at <project> — OR inside any of its code-repo clones — runs session-start.
+  // The warnings are printed, not discarded: a source gov could not read means a stale file an agent is
+  // about to be governed by, and the only thing missing from that failure was somebody being told (PRJ-121).
+  const mirror = ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo,
+    { git: deps.git ?? (() => null), defaultBranch: deps.config.defaultBranch ?? "main" });
+  for (const line of mirrorWarnings(mirror)) print(line);
+  // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
+  const snap = deps.snapshotGovernance?.(projectDir) ?? null;
+  const kickoff = (): string => kickoffPrompt(p.projectId, deps.config, snap);
+  // A GOVERNED SESSION IS EVIDENCE (spec 02 §3.1): a `session` record when the agent starts and when it ends —
+  // written only if the paid module runs; dropped otherwise. The quiet notice, when evidence was wanted, is its own
+  // line under the manifest (deps.evidenceNotice).
+  const launch = withSessionEvidence(deps.launch, { project: p.projectId, env: process.env }, (kind) => (kind === "shell" ? undefined : kind));
+  const notice = deps.evidenceNotice?.();
   print("");
+  if (notice) print(`  ${notice}`);
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
-  let agent: AgentKind | null = opts.agent ?? null;
-  if (!agent && !interactive) {
-    print("  No --agent=<claude|cursor|cursor-gui|shell>, and no terminal to choose in.");
-    print(`  The project is ready at ${projectDir} — name an agent, or use --print-prompt to drive your own.`);
-    return 2;
+  if (opts.noLaunch) {
+    decide("launch", "none", "--no-launch: the project is set up and nothing is started", "gov-work:cli:work-flow", "runWorkFlow", { project: p.projectId });
+    print("  (--no-launch: nothing started. Work there with `gov task <issue-url>` and `gov merge <issue-url>`.)");
+    return 0;
   }
-  if (!agent) {
-    // OFFER WHAT EXISTS, AND ONLY WHAT IS APPROVED (#195/#196). The old menu was four
-    // fixed lines — offered whole to a machine with none of them installed, and led
-    // by a tool the policy this same install had just seeded lists as prohibited.
-    const statuses = agentStatuses(AGENT_CATALOG, deps.hasTool ?? (() => false), deps.env ?? {});
-    const approvedList = deps.approvedAgents?.() ?? null;
-    const approved = approvedAgents(approvedList ? approvedList.map((a) => a.id) : null);
-    const offer = [...offerable(statuses, approved.ids)];
-    if (approved.ids.includes("cursor") && (deps.hasTool?.("cursor") ?? false)) {
-      offer.push({ candidate: CURSOR_GUI, installed: true, credentialPresent: null });
-    }
 
-    if (!offer.length) {
-      // NOTHING INSTALLED IS THE JOINER'S ORDINARY CASE, not an edge one — a new
-      // machine, a new person, a container. The adopter already chose a default for
-      // exactly this moment (#196, Q3), so the useful thing is to OFFER it rather
-      // than print a list and step aside. Printing a list was the old behaviour and
-      // it left the person who most needs help holding a command to retype.
-      const def = defaultAgent(approvedList);
-      const defName = def ? AGENT_CATALOG.find((a) => a.id === def)?.tool ?? def : null;
-
-      if (def && defName && deps.installAgent) {
-        print("");
-        print(`  No AI agent is installed here yet. Your organization's default is ${defName}.`);
-        print("");
-        const yes = (await deps.prompt(`  ${paint(`Install ${defName} now?`, "bold", deps.color ?? false)} (Y/n) `)).trim().toLowerCase();
-        if (!/^n(o)?$/.test(yes)) {
-          if (await deps.installAgent(def, deps.ask)) {
-            // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
-            // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
-            // aider was told its agent had started and handed a shell prompt.
-            print(`  ✓ ${defName} is ready. Starting it in ${projectDir}…`);
-            return await deps.launch(def, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
-          }
-          // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
-          // waiting on a key stops here instead of being announced as started. The project is made
-          // and the shell is a real place to work from; the claim is what had to go.
-          print(`  ${defName} is not ready yet — the lines above say what it still needs.`);
-          print(`  The project is ready at ${projectDir}.`);
-          print("");
-          print(`  Opening a shell there. Type 'exit' to come back.`);
-          return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
-        }
-      }
-
-      for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
+  // ── an organization that runs no AI agents ───────────────────────────────────────────────────
+  //
+  // STRUCTURE-ONLY IS A COMPLETE WAY TO USE gov (Policy Owner, 2026-09-28). Everything above this
+  // line is the fixed process — the board, the branches, the clone, the project directory — and it
+  // is finished. What follows is entirely agentic, and for an org that recorded
+  // `authorized_agents: none` it was the menu's dead primary action: `approvedAgents()` returned an
+  // empty list, `approvedAgents([])` read that as "has not decided", and gov offered the whole
+  // framework catalogue to install. The org had decided; gov argued with the decision.
+  //
+  // EXPLAIN, DO NOT JUST SKIP. Silence here is indistinguishable from gov being broken, so the
+  // decision, the file it lives in and the command that reverses it are all named — and then the
+  // project is opened in a shell, which is the whole point of the fixed process.
+  const authorized = deps.approvedAgents?.() ?? null;
+  if (authorized !== null && authorized.length === 0) {
+    print("");
+    for (const line of structureOnlyLines()) print(line);
+    // AN EXPLICIT `--agent` IS REFUSED, NOT QUIETLY TURNED INTO A SHELL. Substituting one and
+    // reporting success is the fallback-indistinguishable-from-success shape this flow keeps
+    // removing (#199); a script that asked for an agent must hear that it cannot have one.
+    if (opts.agent && opts.agent !== "shell") {
       print("");
-      print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-      return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+      print(`  So \`--agent=${opts.agent}\` cannot be honoured here.`);
+      print(`  Use \`--agent=shell\` to work in the project, or run \`${TURN_AGENTS_ON}\` first.`);
+      return 2;
     }
+    print("");
+    print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+    return exitOf(await launch("shell", projectDir, kickoff()));
+  }
 
-    // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9). Three layers already existed;
-    // the mistake would be inventing a fourth memory. Asked only when neither the
-    // organization nor the person has an answer, which for most people is once.
-    const decided = chooseAgent(approvedList, deps.agentPreference?.() ?? null, offer.map((o) => o.candidate.id));
-    for (const line of choiceExplanation(decided, (id) => AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id)) print(line);
-
-    if (decided.id) {
-      const picked = offer.find((o) => o.candidate.id === decided.id)?.candidate;
-      // Object identity, not id: CURSOR_GUI shares the id "cursor" with the CLI entry — one approval,
-      // two ways to run it (#196, Q8) — so only the instance says which was offered.
-      if (picked) agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
+  // An agent named on the command line is checked against the org's decision like one picked from the menu (GOV-FRM-461).
+  if (opts.agent) {
+    const refusal = unauthorizedAgentLines(opts.agent, authorized);
+    if (refusal) {
+      print("");
+      for (const line of refusal) print(line);
+      log("warn", "refused to launch an agent the organization has not authorized", "gov-work:cli:work-flow", "runWorkFlow",
+        { agent: opts.agent, authorized: authorized?.map((a) => a.id) ?? null });
+      return 2;
     }
+  }
 
-    if (!agent) {
-      print("  Start an agent in it now?");
-      for (const line of menuLines(offer)) print(line);
-      const choice = (await deps.prompt("  Choose: ")).trim();
-      const n = Number(choice);
-      if (n >= 1 && n <= offer.length) {
-        const picked = offer[n - 1]!.candidate;
-        agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
-      } else if (n === offer.length + 1) {
-        agent = "shell";
-      } else {
-        agent = null;
+  // ── which agent ──────────────────────────────────────────────────────────────────────────────────
+  //
+  // A LIST ONLY WHEN THERE IS A CHOICE, AND ENTER IS WHAT YOU USED LAST TIME (Policy Owner, 2026-10-12). The picker
+  // is shown only when the org approves more than one agent; one approved and installed is opened with a line that
+  // says which and why. Enter is the agent this person last opened on THIS project (recorded locally, per project and
+  // per developer — last-agent.ts), else the org default: always for a project seeded just now, and whenever last
+  // time's agent is no longer approved or installed. The developer-preference default (`agent.default`) is gone.
+  //
+  // EVERY APPROVED AGENT IS A CHOICE (Policy Owner, 2026-10-08). svm-geneva approved IBM Bob (default), OpenAI Codex
+  // and Claude Code; only Bob was installed, and this flow said "Using IBM Bob — the only approved agent installed
+  // here" and launched it. An approved agent that is not installed is not "not an option" — it is an option that
+  // costs an install, and that is the person's to weigh. So an organization's list is shown whole, every time
+  // (`work.agent.ask`, default `always`), Enter takes the default, and an uninstalled choice is offered the install.
+  //
+  // WHEN AN AGENT'S ACCOUNT STOPS IT (F24), the launch says so instead of returning a code, and the list comes back
+  // without that agent — so the person continues with another rather than circling one nobody here can fix.
+  const statuses = agentStatuses(AGENT_CATALOG, deps.hasTool ?? (() => false), deps.env ?? {});
+  const approvedList = authorized;
+  const orgList = approvedList && approvedList.length ? approvedList : null;
+  const approved = approvedAgents(approvedList ? approvedList.map((a) => a.id) : null);
+  const lastUsed = seededNow ? null : readLastAgent(deps.fs, deps.config.agentWorkRoot, deps.me, p.projectId);
+  const toolName = (id: string): string => (id === "cursor-gui" ? CURSOR_GUI.tool : AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id);
+  const cursorGui = approved.ids.includes("cursor") && (deps.hasTool?.("cursor") ?? false);
+  const offer = [...offerable(statuses, approved.ids)];
+  if (cursorGui) offer.push({ candidate: CURSOR_GUI, installed: true, credentialPresent: null });
+  const blocked: string[] = [];
+  const justInstalled = new Set<string>();
+  /** A silent choice as a launch kind: last time's Cursor editor stays the editor when it is still here. */
+  const launchOf = (d: ChoiceResult): AgentKind =>
+    d.source === "last-used" && lastUsed === "cursor-gui" && cursorGui && d.id === approvedIdOf(lastUsed) ? "cursor-gui" : kindOf(offer, d.id!);
+
+  /** Launch; an account failure is said plainly and remembered, so the list can leave that agent out. */
+  const start = async (kind: AgentKind): Promise<number | "blocked"> => {
+    // Remembered as soon as it is chosen, so next time on this project Enter is this one (a shell is not an agent).
+    if (kind !== "shell") writeLastAgent(deps.fs, deps.config.agentWorkRoot, deps.me, p.projectId, kind);
+    print(`  Launching ${kind === "cursor-gui" ? "Cursor (GUI)" : kind} in ${projectDir}…`);
+    const r = await launch(kind, projectDir, kickoff());
+    if (typeof r === "number") return r;
+    print("");
+    print(`  ${accountFailureLine(kind === "cursor-gui" ? "cursor" : kind, r)}`);
+    log("warn", "the agent's account stopped it", "gov-work:cli:work-flow", "runWorkFlow", { agent: kind, reason: r.reason });
+    blocked.push(kind);
+    return "blocked";
+  };
+
+  const label = `${/^(PRJ-\d+)/i.exec(p.projectId)?.[1] ?? p.projectId} (approved by ${deps.config.orgName || deps.config.githubOrg})`;
+
+  /** The picker: every approved agent, less any whose account stopped it. Bounded — it never loops on a stream. */
+  const picker = async (list: readonly { readonly id: string; readonly default?: boolean }[]): Promise<number> => {
+    let misses = 0;
+    for (;;) {
+      const st = statuses.map((s) => (justInstalled.has(s.candidate.id) ? { ...s, installed: true } : s));
+      const rows = pickerRows(list, st, lastUsed, blocked, cursorGui);
+      if (!rows.some((r) => r.state !== "unlaunchable")) {
+        print("");
+        print(blocked.length ? "  No other approved agent to offer here." : "  None of your organization's approved agents can be started from gov.");
+        print(`  The project is ready at ${projectDir}. Start an agent there yourself, or: gov work --agent shell`);
+        return 1;
       }
+      if (misses >= 3) {
+        print("  No agent chosen. Any approved agent is one command away:  gov agent install <id>");
+        print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+        return exitOf(await launch("shell", projectDir, kickoff()));
+      }
+      const def = pickerDefault(rows, lastUsed, defaultAgent(list));
+      print("");
+      for (const line of pickerLines(rows, label)) print(line);
+      const i = resolvePickerAnswer(await deps.prompt(pickerPrompt(rows, def)), rows, def);
+      if (i === null) { misses++; print(`  ✗ Choose a number from 1 to ${rows.length}.`); continue; }
+      const row = rows[i]!;
+      if (row.state === "unlaunchable") { misses++; print(`  gov cannot start ${row.name} — use it outside gov, or choose another.`); continue; }
+      if (row.state === "manual") { misses++; print(`  gov cannot install ${row.name} itself — install it from ${row.url ?? "the vendor's site"}, then run gov work again.`); continue; }
+      if (row.state === "installable") {
+        if (!deps.installAgent) { misses++; print(`  Install it with:  gov agent install ${row.id}`); continue; }
+        const yes = (await deps.prompt(`  Install ${row.name} now? [Y/n] : `)).trim();
+        if (/^n(o)?$/i.test(yes)) { misses++; continue; }
+        if (!(await deps.installAgent(row.id, deps.ask))) {
+          // INSTALLED IS NOT READY (#200): the lines above say what it still needs. Back to the list.
+          misses++;
+          print(`  ${row.name} is not ready yet — the lines above say what it still needs.`);
+          continue;
+        }
+        justInstalled.add(row.id);
+        print(`  ✓ ${row.name} is ready.`);
+      }
+      decide("agent", row.launch, "asked", "gov-work:cli:work-flow", "runWorkFlow", { offered: rows.map((r) => r.launch), blocked });
+      const r = await start(row.launch);
+      if (r !== "blocked") return r;
+      misses = 0;
+    }
+  };
+
+  /** After a launch: a number is the answer; an account failure goes back to the list when there is one to show. */
+  const after = async (r: number | "blocked"): Promise<number> => {
+    if (r !== "blocked") return r;
+    if (orgList && interactive) return picker(orgList);
+    print(`  The project is ready at ${projectDir}. Choose another approved agent with --agent=<id>.`);
+    return 1;
+  };
+
+  // NAMED ON THE COMMAND LINE: launched as asked (it was checked against the policy above).
+  if (opts.agent) return after(await start(opts.agent));
+
+  // NO TERMINAL: NO QUESTION, NEVER A HANG. The default is used and named; with none, the flag that decides it is.
+  if (!interactive) {
+    const decided = chooseAgent(approvedList, lastUsed, offer.map((o) => o.candidate.id));
+    decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow", { offered: offer.map((o) => o.candidate.id), interactive: false });
+    if (!decided.id) {
+      print("  No --agent=<claude|cursor|cursor-gui|shell>, and no terminal to choose in.");
+      print(`  The project is ready at ${projectDir} — name an agent, or use --print-prompt to drive your own.`);
+      return 2;
+    }
+    for (const line of choiceExplanation(decided, toolName)) print(line);
+    print(`  No terminal to ask in, so gov used ${toolName(decided.id)} without asking. Name another with --agent=<id>.`);
+    return after(await start(launchOf(decided)));
+  }
+
+  if (orgList) {
+    // `work.agent.ask: never` — today's silent pick, still said out loud, with the way back to being asked.
+    if (opts.agentAsk === "never") {
+      const decided = chooseAgent(orgList, lastUsed, offer.map((o) => o.candidate.id));
+      decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow", { offered: offer.map((o) => o.candidate.id), ask: "never" });
+      for (const line of choiceExplanation(decided, toolName)) print(line);
+      if (decided.id) {
+        print("  (Not asked, because work.agent.ask is never. To choose each time:  gov preferences set work.agent.ask always)");
+        return after(await start(launchOf(decided)));
+      }
+    }
+    // ONE APPROVED AGENT, AND IT IS HERE: there is nothing to choose between (Policy Owner, 2026-10-12 — the list
+    // is shown only when the org approves MORE than one). It opens without a prompt, and one line says which and why.
+    // Cursor's CLI and editor are one approval: last time's form if it is here, else the CLI, else the editor.
+    // One approved but NOT installed still goes to the list, because installing it is the person's to agree to.
+    if (orgList.length === 1) {
+      const only = orgList[0]!.id;
+      const here = offer.filter((o) => o.candidate.id === only).map((o) => (o.candidate === CURSOR_GUI ? "cursor-gui" : o.candidate.id));
+      if (here.length) {
+        const kind = lastUsed && here.includes(lastUsed) ? lastUsed : here[0]!;
+        print(`  Opening ${toolName(kind)} — the only agent your organization approves.`);
+        decide("agent", kind, "only-one", "gov-work:cli:work-flow", "runWorkFlow", { offered: here });
+        return after(await start(kind));
+      }
+    }
+    return picker(orgList);
+  }
+
+  // ── an organization that has not decided: the framework's list, as before ──────────────────────────
+  if (!offer.length) {
+    for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
+    print("");
+    print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+    return exitOf(await launch("shell", projectDir, kickoff()));
+  }
+
+  // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9), over the framework's list.
+  const decided = chooseAgent(approvedList, lastUsed, offer.map((o) => o.candidate.id));
+  decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow",
+    { offered: offer.map((o) => o.candidate.id), lastUsed, ...(decided.ignoredLastUsed ? { ignoredLastUsed: decided.ignoredLastUsed } : {}) });
+  for (const line of choiceExplanation(decided, toolName)) print(line);
+  let agent: AgentKind | null = decided.id ? launchOf(decided) : null;
+
+  if (!agent) {
+    print("  Start an agent in it now?");
+    for (const line of menuLines(offer)) print(line);
+    const choice = (await deps.prompt("  Choose: ")).trim();
+    const n = Number(choice);
+    if (n >= 1 && n <= offer.length) {
+      const picked = offer[n - 1]!.candidate;
+      agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
+    } else if (n === offer.length + 1) {
+      agent = "shell";
     }
   }
   if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
-  print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
-  return await deps.launch(agent, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+  return after(await start(agent));
+}
+
+/** What a launch returns: an exit code, or — when the agent's ACCOUNT stopped it — why (F24). */
+export interface AgentBlocked {
+  readonly blocked: "account";
+  /** Plain words, "its …": "its account's free trial has expired". */
+  readonly reason: string;
+}
+export type LaunchResult = number | AgentBlocked;
+
+/** A launch result as an exit code, for the launches (a shell) where nothing else follows. */
+const exitOf = (r: LaunchResult): number => (typeof r === "number" ? r : 1);
+
+/**
+ * The launch kind for a chosen id. Object identity, not id: CURSOR_GUI shares the id "cursor" with the CLI entry —
+ * one approval, two ways to run it (#196, Q8) — so only the offered instance says which.
+ */
+function kindOf(offer: readonly { readonly candidate: AgentCandidate }[], id: string): AgentKind {
+  const picked = offer.find((o) => o.candidate.id === id)?.candidate;
+  return picked === CURSOR_GUI ? "cursor-gui" : id;
 }

@@ -1,6 +1,6 @@
 # publish/content/MANIFEST.yaml
 #
-# Classifies every file the framework CONTENT ships. Read by `gov setup` on initial install
+# Classifies every file the framework CONTENT ships. Read by setup (the first-run flow's adopt step) on initial install
 # and by `gov upgrade` on subsequent syncs.
 #
 # ── Modes ─────────────────────────────────────────────────────────────────────────────────
@@ -15,11 +15,17 @@
 #                      install. Not a conflict: there is nothing to decide, so reporting one
 #                      every upgrade would only train people to ignore conflict output.
 #                      ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
-#                      seed-once file. If it must, the file belongs in overlay-schema
-#                      (structured data) or should ship as a reference the org copies from.
-#   overlay-schema   — MERGE. Framework owns the shape, org owns the values: add keys the
-#                      template introduces, comment out keys it removes, never modify a value
-#                      the organization provided.
+#                      seed-once file. If it must, it ships a SCHEMA beside it (scaffold-auto)
+#                      that gov checks the org's file against — org-config.yaml and
+#                      framework/common/reference/org-config.schema.yaml — or a reference the org copies from.
+#   seed-new         — A STARTER FOR NEW ORGS (PRJ-121 intent 01, §3.2). Setup creates it like
+#                      seed-once; `gov upgrade` NEVER plans it — not create, not update, not conflict —
+#                      so an org that adopted before it shipped is not handed it, and one that has it
+#                      keeps its copy. `gov upgrade`'s dry run lists a missing one as "starter for new orgs".
+#                      NOTE the first rule above does not hold for this mode on an upgrade.
+#   (overlay-schema, the key-by-key MERGE org-config.yaml used to get, is gone — org-config split,
+#    Policy Owner 2026-10-06. Two writers of one file emptied an org's values once (Tier 0 #5); the
+#    framework now writes only the schema, and the org only the values.)
 #   scaffold-prompt  — CONFLICT: flag it, skip it, let a human merge. Only for files where
 #                      BOTH sides genuinely evolve. Requires a baseline to be meaningful.
 #
@@ -47,14 +53,16 @@ files:
   # ── meta ────────────────────────────────────────────────────────────────────────────────
   - { src: VERSION, dst: VERSION, mode: scaffold-auto }
 
-  # org-config: the ONE precedent for "framework owns the shape, org owns the values".
-  # Owner handles left this file under Decision 13 — roles live in the policy only.
-  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+  # org-config: who the organization IS — identity and infrastructure only. Seeded once and then the
+  # org's; the framework owns its SHAPE, published as framework/common/reference/org-config.schema.yaml (below),
+  # which `gov doctor` checks it against. How the org GOVERNS left it for policies/governance.yaml.
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }
+  - { src: framework/common/reference/org-config.schema.yaml, dst: framework/common/reference/org-config.schema.yaml, mode: scaffold-auto }
 
   # CODEOWNERS is GENERATED from the policy's roles block (Decision 13), not copied. It is
   # deliberately absent from this manifest: a shipped template carried 7 unresolved tokens
   # (<POLICY_OWNER_GITHUB> …) which GitHub cannot resolve, so NO rule applied and
-  # governance/policies/ was unprotected in every adopter repo.
+  # the framework's own folder was unprotected in every adopter repo.
 
   # README describes the ORG, so the org owns it after the first install.
   - { src: README.md, dst: README.md, mode: seed-once }
@@ -63,7 +71,7 @@ files:
   #
   # Framework-owned and RENDERED from agent/session-protocol.md, so scaffold-auto throughout:
   # Part A of every one of these is the C01 digest, copied verbatim by the renderer. An org
-  # editing a render would lose it at the next re-render anyway, and POL-428's guarantee is
+  # editing a render would lose it at the next re-render anyway, and the harness guarantee is
   # that every agent carries the same rules.
   #
   # gov copies these to the root of whatever directory an agent runs in. They are NOT at the
@@ -92,74 +100,94 @@ files:
   # .cursor/rules/session-start-gate.mdc. They never fired: every launch uses the project
   # directory as cwd, and the harness mirror never carried them, so they sat in the governance
   # worktree where no agent looks. Enforcement in appearance only — and giving two of nine
-  # approved agents a gate the rest cannot have would bias agent choice (POL-430).
+  # approved agents a gate the rest cannot have would bias agent choice.
 
-  # ── governance/ — framework doctrine (Decision 10) ──────────────────────────────────────
+  # ── framework/ — THE FRAMEWORK'S, OVERWRITTEN ON EVERY UPGRADE (Policy Owner, 2026-09-23) ───────────────
   #
-  # Split from knowledge/ because storage follows ACCOUNTABILITY (POL-401). Framework doctrine
-  # and org knowledge have different accountable parties. The old layout named the adopter's
-  # Policy Owner as approver for files that are overwritten on upgrade — authority they do not
-  # have, which POL-402 calls false authority.
-  - { src: governance/policies/org-ai-agent-governance-policy.md,   dst: governance/policies/org-ai-agent-governance-policy.md,   mode: scaffold-auto }
-  - { src: governance/policies/agentic-development-policy.md,       dst: governance/policies/agentic-development-policy.md,       mode: scaffold-auto }
-  - { src: governance/policies/agentic-development-procedures.md,   dst: governance/policies/agentic-development-procedures.md,   mode: scaffold-auto }
-  - { src: governance/policies/knowledge-organization-standard.md,  dst: governance/policies/knowledge-organization-standard.md,  mode: scaffold-auto }
-  - { src: governance/policies/README.md,                           dst: governance/policies/README.md,                           mode: scaffold-auto }
-
-  # llm-governance.md is the ONLY shipped file gov WRITES INTO — `withApprovedAgents` rewrites
-  # its ```yaml approved_agents fence when an org approves agents. So the org's copy always
-  # differs from the shipped one by design, which made scaffold-prompt report a permanent false
-  # conflict, and --include-conflicts would have overwritten the org's approved-agent list with
-  # an empty template. Any file gov writes into must be seed-once or overlay-schema.
-  - { src: governance/policies/llm-governance.md, dst: governance/policies/llm-governance.md, mode: seed-once }
-
-  # data-classification.md and roles.md are DELETED (Decisions 12, 13). Both were defined
-  # twice: the four tiers at §7.6 of the policy (POL-139..145) and again in
-  # data-classification.md; roles at §3.1-3.3 and again in roles.md, which POL-166 then
-  # declared authoritative. Two documents, one fact — POL-402.
-
-  - { src: governance/policies/exceptions/architecture/TEMPLATE.md,   dst: governance/policies/exceptions/architecture/TEMPLATE.md,   mode: scaffold-auto }
-  - { src: governance/policies/exceptions/infrastructure/TEMPLATE.md, dst: governance/policies/exceptions/infrastructure/TEMPLATE.md, mode: scaffold-auto }
-  - { src: governance/policies/exceptions/legal/TEMPLATE.md,          dst: governance/policies/exceptions/legal/TEMPLATE.md,          mode: scaffold-auto }
-  - { src: governance/policies/exceptions/policy/TEMPLATE.md,         dst: governance/policies/exceptions/policy/TEMPLATE.md,         mode: scaffold-auto }
-
-  # guidance/ holds templates gov READS — todo-template.md is rendered into every project's
-  # knowledge/todo.md, so it is a code dependency and framework-owned.
-  - { src: governance/guidance/, dst: governance/guidance/, mode: scaffold-auto }
-
-  - { src: governance/infrastructure/cicd-spec.md,                  dst: governance/infrastructure/cicd-spec.md,                  mode: scaffold-auto }
-  - { src: governance/infrastructure/knowledge-publication-spec.md, dst: governance/infrastructure/knowledge-publication-spec.md, mode: scaffold-auto }
-  - { src: governance/infrastructure/README.md,                     dst: governance/infrastructure/README.md,                     mode: scaffold-auto }
-  - { src: governance/procedures/knowledge-harvest.md,              dst: governance/procedures/knowledge-harvest.md,              mode: scaffold-auto }
-
-  # ── governance/{use-cases,specs,paths}/ — docs/ dissolved (Decision 11) ─────────────────
+  # `governance/` split in two. What the framework decides — how gov and an agent work — lives here and is
+  # replaced wholesale on upgrade; what the ORGANIZATION decides lives in `policies/` below, seeded once and
+  # then theirs. The old layout mixed them in one 1023-line file, so an org that edited a decision of its own
+  # lost the edit at the next upgrade, and an org that did not was bound by Svayam's choices.
+  # THE PHASE TREE (PRJ-121 intent 01, spec §2, 2026-10-12): the framework is split by phase — `common/` for what every
+  # phase shares, `build/` for building software — with one `rules/` store at its root. `deploy/` and `run/` arrive with
+  # their own specifications (gov-cicd, gov-infra). src = dst on every row: the content tree IS the org's tree.
   #
-  # Organised by TASK, not by audience. Persona belongs in paths/, which per POL-410 carries a
-  # consultation order across domains — LINKS ONLY, never content, so a persona document cannot
-  # become a second copy of a fact (POL-402).
-  # Task documents. The two guides were 466 and 317 lines and each mixed "what a project is"
-  # with "what to type" — one read once, the other consulted repeatedly. Split by TASK, and
-  # verified for it: no heading appears in two documents (POL-402), and the only sections of the
-  # originals not carried over are their three navigation sections, which `paths/` replaces.
-  - { src: governance/use-cases/setting-up-your-machine.md,      dst: governance/use-cases/setting-up-your-machine.md,      mode: scaffold-auto }
-  - { src: governance/use-cases/working-on-a-project.md,         dst: governance/use-cases/working-on-a-project.md,         mode: scaffold-auto }
-  - { src: governance/use-cases/running-parallel-tasks.md,       dst: governance/use-cases/running-parallel-tasks.md,       mode: scaffold-auto }
-  - { src: governance/use-cases/closing-a-project.md,            dst: governance/use-cases/closing-a-project.md,            mode: scaffold-auto }
-  - { src: governance/use-cases/proposing-knowledge.md,          dst: governance/use-cases/proposing-knowledge.md,          mode: scaffold-auto }
-  - { src: governance/use-cases/upgrading-the-framework.md,      dst: governance/use-cases/upgrading-the-framework.md,      mode: scaffold-auto }
-  - { src: governance/use-cases/configuring-agent-harnesses.md,  dst: governance/use-cases/configuring-agent-harnesses.md,  mode: scaffold-auto }
+  # THE SPECIFICATION (rule-model Q23, 2026-10-06): the source every framework rule row cites by section and sha, so it
+  # must arrive with framework/rules/.
+  - { src: framework/framework-specification.md,              dst: framework/framework-specification.md,              mode: scaffold-auto }
+  - { src: framework/build/build-specification.md,            dst: framework/build/build-specification.md,            mode: scaffold-auto }
+  # THE FRAMEWORK'S RULES (GOV-FRM-444, P3 cutover 2026-10-06): its rule rows, its catalog of resources, events,
+  # tools and actions, and the POL → GOV aliases that resolve an old citation. One writer: `gov upgrade`.
+  # `framework/rules/W2-classification.md` is a working paper of the migration and is deliberately NOT shipped.
+  - { src: framework/rules/rules.yaml,                        dst: framework/rules/rules.yaml,                        mode: scaffold-auto }
+  - { src: framework/rules/checks-catalog.yaml,               dst: framework/rules/checks-catalog.yaml,               mode: scaffold-auto }
+  - { src: framework/rules/pol-aliases.yaml,                  dst: framework/rules/pol-aliases.yaml,                  mode: scaffold-auto }
+  # The published shape of a rule store (JSON Schema 2020-12, PRJ-121 intent 05 Q10), held to validateRuleStore by
+  # test/rules/rule-row-schema-parity.test.ts.
+  - { src: framework/rules/rule-row.schema.yaml,              dst: framework/rules/rule-row.schema.yaml,              mode: scaffold-auto }
+  # The audit index, regenerated by `gov rules build` in every workspace. Shipped so a fresh adopter has one
+  # before their first build, and scaffold-auto because their own build replaces it.
+  - { src: agent/harness/rule-map.md,                         dst: agent/harness/rule-map.md,                         mode: scaffold-auto }
+  # common/ — what every phase shares: reference (the org-config schema, the command reference, how a governance repo
+  # is operated — a SPEC, so not under policies/), the guides every person needs, and the one exception form.
+  - { src: framework/common/reference/gov-command-reference.md,  dst: framework/common/reference/gov-command-reference.md,  mode: scaffold-auto }
+  - { src: framework/common/reference/org_gov_repo_operations.md, dst: framework/common/reference/org_gov_repo_operations.md, mode: scaffold-auto }
+  - { src: framework/common/guides/,                          dst: framework/common/guides/,                          mode: scaffold-auto }
+  - { src: framework/common/templates/,                       dst: framework/common/templates/,                       mode: scaffold-auto }
+  # build/ — building software: the developer's guides, and the templates gov READS (todo-template is rendered into
+  # every project) or a person copies (the validate workflow).
+  - { src: framework/build/guides/,                           dst: framework/build/guides/,                           mode: scaffold-auto }
+  - { src: framework/build/templates/,                        dst: framework/build/templates/,                        mode: scaffold-auto }
+  # THE APPROVER CHECK — framework/build/templates/workflows/approver-check.yml — ships through the directory row above.
+  #
+  # framework-specification.md §7.3 says the framework ships the workflow and the list is the organization's; this
+  # is the file that claim is about. `gov repo protect apply` READS it from here and installs it into a
+  # repository's `.github/workflows/`. It had its own row as well (2026-09-29), for visibility; that made the
+  # upgrade plan list it twice (sandbox finding, 2026-10-07). This comment keeps it visible; a test keeps each
+  # destination planned once. scaffold-auto: an organization that renames the check tells gov (`--check <name>`)
+  # rather than forking the workflow.
 
-  # Reference — consulted, not read through.
-  - { src: governance/specs/concepts.md,                dst: governance/specs/concepts.md,                mode: scaffold-auto }
-  - { src: governance/specs/gov-command-reference.md,    dst: governance/specs/gov-command-reference.md,    mode: scaffold-auto }
-
-  # Persona entry points. LINKS ONLY, never content (POL-410) — so a persona document cannot
-  # become a second copy of a fact. This is where "I am a joiner" belongs, not in the tree.
-  - { src: governance/paths/, dst: governance/paths/, mode: scaffold-auto }
+  # ── policies/ — THE ORGANIZATION'S, SEEDED ONCE AND THEN THEIRS ────────────────────────────────────────
+  #
+  # Shipped as a STARTER the org curates. seed-once, so an upgrade never touches what they wrote — the same
+  # reasoning that made llm-governance.md seed-once, applied to every decision that is theirs.
+  # gov's validators enforce what the org's standard DECLARES; if the org removes it they warn and continue
+  # (Policy Owner, 2026-09-23).
+  # THE ORGANIZATION'S OWN DEVELOPMENT POLICY, with worked example clauses (PRJ-121, 2026-09-26). An adopter
+  # learns the notation from a policy that uses it, not from a specification of it — so this ships with real
+  # clauses (comments, tests, licence header, approved technologies) at levels they are expected to change or
+  # delete. `approved-technologies.md` is the LIST the approved-technology check reads, so it ships too: a check pointing
+  # at a file that does not exist fails every pull request on day one.
+  - { src: policies/org-policy.md,                      dst: policies/org-policy.md,                      mode: seed-once }
+  - { src: policies/build/approved-technologies.md,     dst: policies/build/approved-technologies.md,     mode: seed-once }
+  # The build phase's policy: §2-§3 of the old org-policy.md (spec 01 §3.2). A starter for NEW orgs only — an org
+  # that adopted before it shipped keeps those sections in its own org-policy.md, and gov upgrade never hands it this.
+  - { src: policies/build/policy.md,                    dst: policies/build/policy.md,                    mode: seed-new }
+  # NOT SHIPPED since 2.0 (PRJ-121 §3.3, T4, T14, S3): knowledge-publication.md, knowledge-organization-standard.md
+  # and compliance-review.md. The knowledge tree, its publication and its review cadence are the organization's own;
+  # an org's existing copies are left exactly where they are.
+  # common/ — clauses every phase shares: who holds each role, what may never leave the org, the policy domains.
+  - { src: policies/common/data-classification.md,             dst: policies/common/data-classification.md,             mode: seed-once }
+  - { src: policies/common/authorized-representatives.md,      dst: policies/common/authorized-representatives.md,      mode: seed-once }
+  - { src: policies/common/policy-domains.md,                  dst: policies/common/policy-domains.md,                  mode: seed-once }
+  # THE ORGANIZATION'S GOVERNANCE CHOICES (org-config split, 2026-10-06): posture, Policy and Check Owner,
+  # authorized agents, the model approved for `gov rules propose`. A change needs the
+  # Policy Owner. An older org's values arrive here from org-config.yaml by the `org-config-split` move below.
+  - { src: policies/governance.yaml,                    dst: policies/governance.yaml,                    mode: seed-once }
+  # Who approves a change to each policy section (W2-Q8). Seeded empty — every section is the Policy Owner's —
+  # and from then on written by `gov rules propose` from the policies' own ownership sentences.
+  - { src: policies/ownership.yaml,                     dst: policies/ownership.yaml,                     mode: seed-once }
+  # THE ORGANIZATION'S RULE STORE (GOV-FRM-444): seeded EMPTY once, then written only by approved policy pull
+  # requests (`gov rules propose`). VERSION is the org's own policy version; CHANGELOG.md records each change.
+  # One store per owner (spec 01 §2): policies/rules/ mirrors framework/rules/.
+  - { src: policies/rules/rules.yaml,                   dst: policies/rules/rules.yaml,                   mode: seed-once }
+  - { src: policies/rules/checks-catalog.yaml,          dst: policies/rules/checks-catalog.yaml,          mode: seed-once }
+  - { src: policies/VERSION,                            dst: policies/VERSION,                            mode: seed-once }
+  - { src: policies/CHANGELOG.md,                       dst: policies/CHANGELOG.md,                       mode: seed-once }
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #
-  # No domains, no READMEs. POL-403 says a top-level domain exists IF AND ONLY IF a named Owner
+  # No domains, no READMEs. The Knowledge Organization Standard says a top-level domain exists IF AND ONLY IF a named Owner
   # role exists for it, and that the tree changes only when a domain and its owner role are
   # created — so the framework pre-creating eight domains, several with owners TBD, ran the
   # invariant backwards. It also committed every adopter to one taxonomy: an org organising by
@@ -191,12 +219,86 @@ files:
   # Resolved with the pattern seed-once's own limit already names: when the framework must keep
   # evolving a file's structure, ship it as a REFERENCE the org copies from rather than a file
   # the org edits in place. The workflow is the org's outright; the framework's current version
-  # ships beside it under governance/specs/ and is always up to date to diff against.
+  # ships beside it under framework/build/templates/ (the directory row above) and is always up to date to diff
+  # against. (A row once named a reference file that never existed, so it shipped nothing; a test now checks every
+  # src here exists.)
   - { src: .github/workflows/gov-validate.yml,       dst: .github/workflows/gov-validate.yml,       mode: seed-once }
-  - { src: governance/specs/gov-validate.reference.yml, dst: governance/specs/gov-validate.reference.yml, mode: scaffold-auto }
 
   # .gitignore: the org's, after the first install — they add their own build artefacts.
   - { src: .gitignore, dst: .gitignore, mode: seed-once }
 
   # ── projects/ ───────────────────────────────────────────────────────────────────────────
   - { src: projects/README.md, dst: projects/README.md, mode: scaffold-auto }
+
+# ── moves: THE LAYOUT CHANGED, AND AN ORG'S OWN FILES COME WITH IT (2026-09-23) ──────────────────────────
+#
+# Every relocation is a STRAIGHT MOVE: the org's file arrives at the new path byte for byte (Policy Owner).
+# Each runs once, recorded in the workspace. A path something is moving out of is not retired in the same run.
+#
+# `from:` names where a file WAS — the old layout. It must never be rewritten to the new path, or the move
+# matches nothing and the org's file is left behind (caught by test/maintain/upgrade-layout.test.ts, which
+# upgrades a workspace in the old shape and checks every one of the org's files arrives).
+moves:
+  - { from: governance/policies/exceptions/, to: policies/exceptions/, mode: move }
+  - { from: framework/policies/org_gov_repo_operations.md, to: framework/common/reference/org_gov_repo_operations.md, mode: move }
+  - { from: governance/policies/knowledge-organization-standard.md, to: policies/knowledge-organization-standard.md, mode: move }
+  - { from: governance/infrastructure/knowledge-publication-spec.md, to: policies/knowledge-publication.md, mode: move }
+  # The approved agents leave llm-governance.md — the one thing a move cannot express. They land in
+  # policies/governance.yaml, where the org-config split put them (the migration's name is its history).
+  - { from: governance/policies/llm-governance.md, to: policies/governance.yaml, mode: migrate, how: approved-agents-to-org-config }
+  # THE ORG-CONFIG SPLIT (Policy Owner, 2026-10-06), once and recorded: the governance choices leave
+  # org-config.yaml for policies/governance.yaml, the domain owners for the role list, your work root for
+  # your own machine; workspace_repo is renamed org_gov_repo. Refused — nothing written — if any value gov
+  # reads would be lost.
+  - { from: org-config.yaml, to: policies/governance.yaml, mode: migrate, how: org-config-split }
+  # THE FROZEN POLICY SNAPSHOTS (Policy Owner, 2026-10-07): policies/version/ becomes policies/history/. Beside the
+  # file policies/VERSION, a folder policies/version/ is the SAME name on a case-insensitive disk (macOS, Windows):
+  # a checkout keeps only one of the two, and `git commit -a` records the other as deleted. VERSION keeps its name.
+  - { from: policies/version/, to: policies/history/, mode: move }
+  # bridge: deleted in D01 (PRJ-121 intent 01, B05; spec §4.3 step 6) — FLAT 1.2.x → THE PHASE TREE. What gov 1.2.x
+  # seeded at the top of policies/ moves, byte for byte, to its §2 path. svm-geneva is the org these are for; 2.0.0
+  # ships with no moves at all. The root move record (.gov-upgrade-moves.json) is not a row: gov moves it itself, once
+  # (maintain/bridge/root-move-record.ts), because it is the record these rows are written to.
+  - { from: policies/rules.yaml, to: policies/rules/rules.yaml, mode: move }
+  - { from: policies/catalog.yaml, to: policies/rules/checks-catalog.yaml, mode: move }
+  - { from: policies/authorized-representatives.md, to: policies/common/authorized-representatives.md, mode: move }
+  - { from: policies/data-classification.md, to: policies/common/data-classification.md, mode: move }
+  - { from: policies/policy-domains.md, to: policies/common/policy-domains.md, mode: move }
+  - { from: policies/approved-technologies.md, to: policies/build/approved-technologies.md, mode: move }
+
+# ── generated: WHAT GOV WRITES, AND NEVER SHIPS OR RETIRES (PRJ-121 intent 01, §3.7, Q5) ────────────────────
+#
+# A file gov itself writes into the workspace. Never shipped (a row above that would ship one is dropped) and never
+# retired (no retire: entry or old-layout directory removes one).
+generated:
+  - framework/upgrade-moves.json   # the move record: written only by gov upgrade, inside the upgrade PR
+
+# ── retire: WHAT THIS RELEASE STOPPED SHIPPING (P3 cutover, 2026-10-06) ──────────────────────────────────────
+#
+# The framework's own files a release merged away. `gov upgrade` removes each one the workspace has — exact files,
+# or a directory ending `/`. Shipping wins: a path the manifest above also ships is never retired, and a test
+# fails if the two lists overlap. Never an organization's own file: those move (above) or stay.
+retire:
+  # THE PHASE TREE (PRJ-121 intent 01, spec 01 §3.1): the flat layout's framework folders and files, replaced by
+  # framework/common/ and framework/build/. Framework-owned only — the org's own files are never retired.
+  - framework/docs/
+  - framework/config/
+  - framework/procedures/
+  - framework/templates/
+  - framework/rules/catalog.yaml
+  - framework/rules/W2-classification.md
+  - framework/docs/specs/framework-specification.md
+  # Merged into framework/docs/specs/framework-specification.md (rule-model Q23). framework/policies/ is gone.
+  - framework/policies/framework-policy.md
+  - framework/policies/README.md
+  - framework/docs/specs/gov-behaviour.md
+  - framework/docs/specs/concepts.md
+  # Retired in P3 wave 2: each procedure was already in framework-specification.md or moved, in plain English,
+  # into the matching user guide under framework/docs/user-guides/. Its "Governs:" lines cited retired numbers.
+  - framework/procedures/agentic-development-procedures.md
+  # The POL numbering lock, retired with the old compiler: GOV ids are issued by gov and live in the rule rows.
+  # policies/.pol-lock.json was gov-generated too (never hand-written), so it goes with it.
+  - framework/policies/.pol-lock.json
+  - policies/.pol-lock.json
+  - framework/policies/.pol-lock.yaml
+  - policies/.pol-lock.yaml

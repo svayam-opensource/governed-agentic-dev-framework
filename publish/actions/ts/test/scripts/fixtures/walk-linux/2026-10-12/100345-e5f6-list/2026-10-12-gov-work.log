@@ -1,0 +1,8 @@
+2026-10-12T10:03:45.000Z info    gov-work:cli:bin                   start                  0    run started meta={ run: 'e5f6', argv: [ 'list' ], command: 'list', project: null, version: '2.0.0-rc.1', pid: 103, tty: true, node: 'v24.12.0' }
+2026-10-12T10:03:46.000Z info    gov-work:cli:bootstrap             phase                  0    phase first-run meta={ run: 'e5f6', phase: 'first-run' }
+2026-10-12T10:06:00.000Z info    gov-work:cli:main                  phase                  0    phase adopt-done meta={ run: 'e5f6', phase: 'adopt-done', org: 'walk-e2e-01' }
+2026-10-12T10:06:30.000Z info    gov-work:cli:bootstrap             phase                  0    phase review-offer meta={ run: 'e5f6', phase: 'review-offer', role: 'adopter' }
+2026-10-12T10:07:15.000Z info    gov-work:cli:main                  phase                  0    phase agent-ready meta={ run: 'e5f6', phase: 'agent-ready', agent: 'claude' }
+2026-10-12T10:07:20.000Z info    gov-work:cli:work-flow             runWorkFlow            0    chose agent meta={ run: 'e5f6', decision: 'agent', chose: 'claude', why: 'only-one' }
+2026-10-12T10:07:40.000Z info    gov-work:cli:main                  phase                  0    phase agent-launch meta={ run: 'e5f6', phase: 'agent-launch', agent: 'claude' }
+2026-10-12T10:07:40.010Z info    gov-work:cli:main                  launch                 0    launching the agent meta={ run: 'e5f6', agent: 'claude', cmd: 'claude' }

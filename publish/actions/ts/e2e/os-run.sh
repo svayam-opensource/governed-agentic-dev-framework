@@ -117,7 +117,9 @@ reset_machine() {
   clear_login_path_stubs
   rm -rf "$HOME/.local/share/gov" "$HOME/.local/bin/gov" "$HOME/.gov" "$HOME/.config/prj" 2>/dev/null
   for p in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
-    [ -f "$p" ] && sed -i '/gov-work bootstrap/,+1d' "$p" 2>/dev/null
+    # Both markers: the old bootstrap's, and install.sh's own. Without the second, a profile line
+    # from the previous scenario survived, and 93 could not tell "appended" from "already there".
+    [ -f "$p" ] && sed -i -e '/gov-work bootstrap/,+1d' -e '/# added by the gov installer/,+1d' "$p" 2>/dev/null
   done
   : > /work/agent.log
   export AGENT_DOUBLE_LOG=/work/agent.log

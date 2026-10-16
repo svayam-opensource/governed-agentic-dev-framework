@@ -1,0 +1,224 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * THE RULE ROW AND ITS REVISION HISTORY (rule-model-design.md Q5, Q8–Q11, Q19; 2026-10-06).
+ *
+ * Two stores share this schema: `framework/rules/rules.yaml` (written only by `gov upgrade`) and
+ * `policies/rules/rules.yaml` (written only by an approved org policy PR). Each has exactly one writer, so an upgrade can
+ * never touch an org row.
+ *
+ * A store is an APPEND-ONLY HISTORY. One row per revision; a change closes the current row at version X and opens a
+ * new one starting at X; the row with no `end` is in force; a rule is retired when its last row is closed with no
+ * successor. The id never goes away.
+ *
+ * The policy prose a row came from is never touched: the row carries the NORMALISED expectation the Policy Owner
+ * approved, the source section's sha (so a changed section marks its rows for re-review), and the cue and checks.
+ *
+ * THE PUBLISHED SHAPE is `framework/rules/rule-row.schema.yaml` (JSON Schema 2020-12; PRJ-121 intent 05, Q10). It and
+ * {@link validateRuleStore} must give the same verdict on every store: `test/rules/rule-row-schema-parity.test.ts`
+ * holds them together, so a change to a row's shape here is a change to the schema in the same commit. The cross-row
+ * rules (two-in-force, broken-chain, end-before-start) are this file's alone; the schema's description lists them.
+ *
+ * Pure: text in, rows and diagnostics out.
+ */
+import yaml from "js-yaml";
+import { parseGovId, FRAMEWORK_SCOPE } from "./gov-id.js";
+import type { CheckBinding } from "./catalog.js";
+
+export type Level = "C01" | "C02" | "C03";
+/** `everyone` = {agent, human}. `gov-client` is the framework's alone: only it makes promises about gov. */
+export type Actor = "gov-client" | "agent" | "human" | "everyone";
+const LEVELS: readonly string[] = ["C01", "C02", "C03"];
+const ACTORS: readonly string[] = ["gov-client", "agent", "human", "everyone"];
+
+/** When a revision took (or ceased to take) effect. Framework rows cite a framework release; org rows `policies/VERSION`. */
+export interface Stamp {
+  readonly version: string;
+  /** YYYY-MM-DD. */
+  readonly date: string;
+  /** The PR whose merge made it so. Absent only on framework rows stamped at release. */
+  readonly pr?: number;
+}
+
+export interface RuleRow {
+  readonly id: string;
+  readonly source: { readonly doc: string; readonly section: string; readonly sha: string };
+  /** `<Actor> <verb> <one observable action>`, LLM-normalised and owner-approved (Q9). The verb is NOT the level (Q10). */
+  readonly expectation: string;
+  readonly actor: readonly Actor[];
+  readonly level: Level;
+  readonly cue?: { readonly tier: "resident" | "on-demand"; readonly text: string };
+  readonly checks?: readonly CheckBinding[];
+  readonly start: Stamp;
+  readonly end: Stamp | null;
+  /** The interview that settled this revision (Q18). */
+  readonly qa?: readonly { readonly q: string; readonly a: string }[];
+}
+
+export type RowDiagnosticKind =
+  | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
+  | "bad-cue" | "bad-check" | "bad-qa"
+  | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
+  | "two-in-force" | "broken-chain" | "end-before-start"
+  | "on-demand-cue-unbound";
+
+/**
+ * Diagnostics that are WARNINGS: reported (`gov rules check`, `gov rules build`), never a refusal, so a store that
+ * already holds such a row still loads and builds.
+ *
+ *   on-demand-cue-unbound   an on-demand cue is keyed by its rule's check resource and event (Q19, cues/on-demand.ts);
+ *                           on a row with no check nothing can ever show it. Propose no longer writes one.
+ */
+export const ROW_WARNINGS: ReadonlySet<RowDiagnosticKind> = new Set<RowDiagnosticKind>(["on-demand-cue-unbound"]);
+
+export interface RowDiagnostic {
+  readonly kind: RowDiagnosticKind;
+  readonly id: string;
+  /** 0-based position in the store, so the message can be found. */
+  readonly index: number;
+  readonly message: string;
+}
+
+/**
+ * Parse a store. YAML timestamps and numbers are read as STRINGS where the schema says string, so `1.4.0` and
+ * `2026-10-06` round-trip exactly; a row that is not an object fails validation rather than parsing.
+ */
+export function parseRuleStore(text: string): RuleRow[] {
+  const doc = yaml.load(text, { schema: yaml.JSON_SCHEMA }) ?? [];
+  if (!Array.isArray(doc)) throw new Error("rule store: expected a YAML list of rows");
+  return doc.map((r) => normaliseStamps(r as Record<string, unknown>)) as unknown as RuleRow[];
+}
+
+/** JSON_SCHEMA keeps dates as strings; a bare `1.4` version would still arrive as a number, so stringify it. */
+function normaliseStamps(r: Record<string, unknown>): Record<string, unknown> {
+  const fix = (s: unknown): unknown => {
+    if (!s || typeof s !== "object") return s;
+    const o = s as Record<string, unknown>;
+    return { ...o, version: o.version === undefined ? undefined : String(o.version), date: o.date === undefined ? undefined : String(o.date) };
+  };
+  return { ...r, start: fix(r.start), end: r.end === undefined ? null : fix(r.end) };
+}
+
+/** Compare dotted numeric versions: negative, zero or positive. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+const VERSION = /^\d+\.\d+\.\d+$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const stampOk = (s: Stamp | null | undefined): boolean =>
+  !!s && VERSION.test(s.version) && DATE.test(s.date) && (s.pr === undefined || (Number.isInteger(s.pr) && s.pr > 0));
+
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const TIERS: readonly string[] = ["resident", "on-demand"];
+const ON_MISS: readonly string[] = ["fail", "warn"];
+
+/**
+ * THE SHAPES THE SCHEMA STATES (D18, Policy Owner 2026-10-13): what a check binding looks like as written — not whether
+ * its action is in the catalog, which `gov rules check` judges against the catalogs. Null = fine, else why not.
+ */
+function checkShapeProblem(c: unknown): string | null {
+  if (!isObj(c)) return "a check is a mapping with on and action";
+  if (!isObj(c.on) || !isStr(c.on.resource) || !isStr(c.on.event)) return "a check needs on: { resource, event }, both text";
+  if (!isStr(c.action)) return "a check needs an action (text)";
+  if (c.with !== undefined && !isObj(c.with)) return "a check's with is a mapping of parameters";
+  if (c.on_miss !== undefined && !ON_MISS.includes(c.on_miss as string)) return `on_miss is fail or warn, not "${String(c.on_miss)}"`;
+  return null;
+}
+
+/** The rows in force: the open row of each id. */
+export const inForce = (rows: readonly RuleRow[]): RuleRow[] => rows.filter((r) => r.end === null);
+
+/**
+ * Every way a store can be wrong. `scope` is the store's own: `FRM` for the framework's, the org slug for the org's.
+ * An empty result is a valid store.
+ */
+export function validateRuleStore(rows: readonly RuleRow[], store: { readonly scope: string }): RowDiagnostic[] {
+  const out: RowDiagnostic[] = [];
+  const isOrg = store.scope !== FRAMEWORK_SCOPE;
+  const byId = new Map<string, { row: RuleRow; index: number }[]>();
+
+  rows.forEach((r, index) => {
+    const d = (kind: RowDiagnosticKind, message: string) => out.push({ kind, id: String(r?.id ?? ""), index, message });
+    const g = parseGovId(String(r?.id ?? ""));
+    if (!g) { d("bad-id", `"${r?.id}" is not a GOV id (GOV-<scope>-NNN)`); return; }
+    // The framework store holds only FRM. The org store holds any OTHER scope: an id is frozen when issued (Q7), so
+    // after the org renames its slug its older ids keep the old one. One org's rules are loaded at a time (`gov org`).
+    if (isOrg ? g.scope === FRAMEWORK_SCOPE : g.scope !== FRAMEWORK_SCOPE) {
+      d("wrong-scope", `${r.id} does not belong in the ${isOrg ? "organization's" : "framework's"} store`);
+    }
+    // Each a non-empty STRING (D18): an unquoted `sha: 1234567` or `section: 3` reads as a number, which the schema refuses.
+    if (!isObj(r.source) || ![r.source.doc, r.source.section, r.source.sha].every((v) => isStr(v) && v !== "")) {
+      d("bad-source", `${r.id}: source needs doc, section and sha, each as text (quote a number-like section or sha)`);
+    }
+    if (typeof r.expectation !== "string" || r.expectation.trim() === "") d("bad-expectation", `${r.id}: the expectation is empty`);
+    if (!LEVELS.includes(r.level)) d("bad-level", `${r.id}: level "${r.level}" is not C01, C02 or C03`);
+
+    const actors = Array.isArray(r.actor) ? r.actor : [];
+    if (actors.length === 0 || actors.some((a) => !ACTORS.includes(a)) || new Set(actors).size !== actors.length) {
+      d("bad-actor", `${r.id}: actor must be a non-empty set of ${ACTORS.join(", ")}`);
+    } else if (actors.includes("everyone") && actors.some((a) => a === "agent" || a === "human")) {
+      // `everyone` already means agent and human; it combines only with gov-client, for a rule that binds all three
+      // (GOV-FRM-466, no force-push of a shared branch — W2-Q10).
+      d("bad-actor", `${r.id}: "everyone" already means agent and human — name it alone, or with gov-client`);
+    }
+    if (isOrg && actors.includes("gov-client")) d("gov-client-in-org", `${r.id}: only the framework makes promises about gov (actor gov-client)`);
+    // C02 is the level WITH an exception route, and a framework rule has none (fixed; exceptions are for org policy).
+    // So a framework rule is C01 or C03 (Policy Owner, W2-Q1, 2026-10-06).
+    if (!isOrg && r.level === "C02") d("c02-in-framework", `${r.id}: a framework rule cannot be C02 — nothing can grant it an exception; make it C01 or C03`);
+
+    const cue: unknown = r.cue;
+    if (cue !== undefined && (!isObj(cue) || !TIERS.includes(cue.tier as string) || !isStr(cue.text))) {
+      d("bad-cue", `${r.id}: a cue needs tier (resident or on-demand) and text`);
+    }
+    const checks: unknown = r.checks;
+    if (checks !== undefined) {
+      const why = Array.isArray(checks) ? checks.map(checkShapeProblem).find((x) => x !== null) : "checks is a list of bindings";
+      if (why) d("bad-check", `${r.id}: ${why}`);
+    }
+    const qa: unknown = r.qa;
+    if (qa !== undefined && !(Array.isArray(qa) && qa.every((e) => isObj(e) && isStr(e.q) && isStr(e.a)))) {
+      d("bad-qa", `${r.id}: qa is a list of { q, a }, each as text`);
+    }
+
+    if (r.cue?.tier === "resident") {
+      if (r.level !== "C01") d("resident-cue-not-c01", `${r.id}: a resident cue is only for a C01 rule — use tier on-demand`);
+      if (!actors.some((a) => a === "agent" || a === "everyone")) d("resident-cue-no-agent", `${r.id}: a resident cue is read by agents; no agent is bound by this rule`);
+    }
+    if (r.cue?.tier === "on-demand" && !(Array.isArray(r.checks) && r.checks.length > 0)) {
+      d("on-demand-cue-unbound", `${r.id}: an on-demand cue is shown when the rule's check fires, and this rule has no check — nothing can ever show it`);
+    }
+
+    if (!stampOk(r.start)) d("bad-stamp", `${r.id}: start needs version x.y.z and date YYYY-MM-DD`);
+    if (r.end !== null && !stampOk(r.end)) d("bad-stamp", `${r.id}: end needs version x.y.z and date YYYY-MM-DD, or null`);
+    if (r.end && stampOk(r.start) && stampOk(r.end) && compareVersions(r.end.version, r.start.version) < 0) {
+      d("end-before-start", `${r.id}: ends at ${r.end.version}, before it starts at ${r.start.version}`);
+    }
+    const list = byId.get(r.id) ?? [];
+    list.push({ row: r, index });
+    byId.set(r.id, list);
+  });
+
+  // The revision chain of each id: ordered by start, each closed row handing over to the next at one version.
+  for (const [id, list] of byId) {
+    if (list.some(({ row }) => !stampOk(row.start))) continue; // already reported; the chain cannot be judged
+    const chain = [...list].sort((a, b) => compareVersions(a.row.start.version, b.row.start.version));
+    const open = chain.filter(({ row }) => row.end === null);
+    if (open.length > 1) out.push({ kind: "two-in-force", id, index: open[1].index, message: `${id}: ${open.length} rows are in force — close all but the latest` });
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const cur = chain[i].row, next = chain[i + 1].row;
+      if (cur.end === null) {
+        if (open.length <= 1) out.push({ kind: "two-in-force", id, index: chain[i].index, message: `${id}: an earlier revision is still open` });
+      } else if (compareVersions(cur.end.version, next.start.version) !== 0) {
+        out.push({ kind: "broken-chain", id, index: chain[i + 1].index, message: `${id}: revision ending ${cur.end.version} is followed by one starting ${next.start.version} — they must meet` });
+      }
+    }
+  }
+  return out;
+}

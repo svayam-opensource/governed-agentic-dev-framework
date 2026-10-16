@@ -67,7 +67,7 @@ harnesses:
     seed_copy: true
     template: cursor-mdc
     template_extra:
-      description: "Agentic Development Framework — session-start protocol (POL-113..117)"
+      description: "Agentic Development Framework — session-start protocol (GOV-FRM-113..117)"
       globs: '["**/*"]'
       alwaysApply: true
     verify: "Cursor Settings → Rules — agent.mdc must show Always"

@@ -44,8 +44,8 @@ export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "REPORT
 
   // [R2] GOVERNANCE resolves from the REGISTRY and must not vary by cwd. Standing inside a project
   // workspace previously changed which repository a governance read used — so `deploy` could print
-  // "catalog: main — ratified knowledge (POL-086a)" while reading an in-flight project branch whose
-  // edits are, by POL-086b, proposals with no governing force. Falls through to the registry below.
+  // "catalog: main — ratified knowledge (GOV-FRM-456)" while reading an in-flight project branch whose
+  // edits are, by GOV-FRM-086, proposals with no governing force. Falls through to the registry below.
   if (cwdHit && (opClass === "PROJECT" || opClass === "REPORT")) {
     // Same org: operate on the cwd workspace (project clone or the home itself).
     // Identity is already confirmed — org was read straight from its org-config.
@@ -84,12 +84,41 @@ function walkForOrg(env: ResolveEnv): { org: string; home: string } | null {
  */
 function confirmHome(env: ResolveEnv, home: string, org: string): HomeCheckFailure | null {
   const cfg = env.govConfigAt(home);
-  if (cfg === null) return { why: "not-a-gov-repo" };
+  if (cfg === null) return env.diagnoseConfigAt?.(home) ?? { why: "not-a-gov-repo" };
   if (cfg.org !== org) return { why: "org-mismatch", found: cfg.org };
   if (cfg.govWorkspace !== null && !env.sameHome(cfg.govWorkspace, home)) {
     return { why: "not-canonical", found: cfg.govWorkspace };
   }
   return null;
+}
+
+/**
+ * WHY NO WORKSPACE RESOLVED, in the words that fit the machine (PRJ-121, 2026-09-22).
+ *
+ * The banner and doctor said "no organization set up on this machine yet" for EVERY failure — on a walk,
+ * with two orgs registered and the active one pointing at a folder that no longer existed. That sentence
+ * sends a person to the first-run flow, which is for a machine with nothing on it. Only "nothing is
+ * registered" earns it; every other failure has its own message, with the command that fixes it.
+ *
+ * `setUp: false` means the first-run case: nothing registered. Callers treat it as a warning, not a failure.
+ */
+export function workspaceStateMessage(
+  r: Extract<ResolveResult, { ok: false }>, registeredOrgs: readonly string[],
+): { readonly text: string; readonly setUp: boolean } {
+  if (r.reason === "no-active-org") {
+    if (registeredOrgs.length === 0) {
+      return { setUp: false, text: "no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's" };
+    }
+    return { setUp: true, text: `${registeredOrgs.length} organization(s) registered (${registeredOrgs.join(", ")}), none active — \`gov org use <github_org>\`, or menu → Admin → org` };
+  }
+  // The active org is broken (its folder gone, a mismatch). If ANOTHER org is registered, the quickest way out is
+  // to switch — say so, by name, rather than leaving only the repair of the broken one.
+  const active = "activeOrg" in r ? r.activeOrg : undefined;
+  const others = registeredOrgs.filter((o) => o !== active);
+  const switchHint = r.reason !== "not-in-a-project" && others.length
+    ? ` Or switch: \`gov org use ${others[0]}\`${others.length > 1 ? ` (registered: ${others.join(", ")})` : ""}.`
+    : "";
+  return { setUp: true, text: resolveFailureMessage(r) + switchHint };
 }
 
 /** Render a resolution failure as an actionable one-line CLI message. */
@@ -113,17 +142,46 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
     case "no-home":
       return (
         `Active org ${r.activeOrg} has no registered gov home. ` +
-        `Run \`gov org add ${r.activeOrg} <path-to-gov-repo>\`.`
+        `Run \`gov org add ${r.activeOrg} --home <path-to-gov-repo>\`.`
       );
     case "pointer-mismatch": {
       const base = `The registry points ${r.activeOrg} → ${r.home}, but `;
+      const configProblem = orgConfigProblem(r.home, r.detail);
+      if (configProblem) {
+        return base + configProblem + ` Or re-point it with \`gov org add ${r.activeOrg} --home <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
+      }
       const tail =
         r.detail.why === "not-a-gov-repo"
           ? "that path is not a gov repo (no org-config.yaml)."
           : r.detail.why === "org-mismatch"
             ? `its org-config says github_org=${r.detail.found}.`
             : `it is not a canonical gov home (its gov_workspace is ${r.detail.found}).`;
-      return base + tail + " Fix it with `gov org add`.";
+      // "Fix it with `gov org add`" alone was the wrong advice when the folder is simply GONE (a walk, 2026-09-22):
+      // re-pointing needs a path that may not exist. Offer both: re-point it, or drop it.
+      return base + tail + ` Re-point it with \`gov org add ${r.activeOrg} --home <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
     }
+  }
+}
+
+/**
+ * WHAT IS WRONG WITH A HOME'S org-config.yaml, AND THE FIX — one sentence per state (adoption walk #12, 2026-10-07).
+ * null for a failure that is not about the file. Shared by the resolver and `gov org add`.
+ */
+export function orgConfigProblem(home: string, d: HomeCheckFailure): string | null {
+  const file = `${home.replace(/[\\/]$/, "")}/org-config.yaml`;
+  switch (d.why) {
+    case "folder-missing":
+      return "that folder no longer exists.";
+    case "config-missing":
+      return `that folder has no org-config.yaml. If it was committed, restore it: \`git -C ${home} checkout -- org-config.yaml\`.`;
+    case "config-unreadable":
+      return `its org-config.yaml is there but could not be read (${d.found ?? "read error"}). Make it readable: \`chmod u+r ${file}\`.`;
+    case "config-invalid":
+      return d.keys?.length
+        ? `its org-config.yaml is there but not in the shape gov reads: ${d.keys.join(", ")} ${d.keys.length === 1 ? "is" : "are"} empty or missing. ` +
+          `If an upgrade blanked it, restore the filled version from history (\`git -C ${home} log -p -- org-config.yaml\`, then \`git -C ${home} checkout <commit> -- org-config.yaml\`); otherwise fill ${d.keys.length === 1 ? "it" : "them"} in.`
+        : `its org-config.yaml is there but is not valid YAML (${d.found ?? "parse error"}). Fix the file, or restore it from history: \`git -C ${home} log -p -- org-config.yaml\`.`;
+    default:
+      return null;
   }
 }

@@ -5,11 +5,13 @@
  * any failure unwinds. The HOME workspace stays on the default branch throughout;
  * all project-branch work happens in the per-project worktree.
  *
- *   A   home stub commit on the default branch (local; pushed in D)
+ *   —   fetch the remote's default branch (#180) — the project branch is cut from it, local `main` untouched
  *   B   gov worktree (project branch) + carry identity
  *   B.1 scaffold projects/<id>/ content (project.yaml/agent.md/todo.md/tool files)
  *   C   code-repo worktrees (setupCodeRepoWorktree)
- *   D   push project branch + home default; best-effort anchor issue
+ *   D   push the project branch; best-effort anchor issue
+ *
+ * (Phase A — a stub commit pushed to the default branch — is gone; see the note where it used to run.)
  */
 import * as path from "node:path";
 import { Transaction, type RollbackFailure } from "./transaction.js";
@@ -17,11 +19,13 @@ import { type Board, validateBoard, boardValidationMessage } from "./board.js";
 import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
-import { ensureRootProtocol } from "./root-protocol.js";
+import { ensureRootProtocol, mirrorWarnings } from "./root-protocol.js";
+import type { GitRead } from "../cli/policy-gate-io.js";
 import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
 import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
 import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
 import { renderAgentMd, renderTodoMd } from "./content.js";
+import { TODO_TEMPLATE_PATH } from "../maintain/framework-currency.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
 import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
@@ -67,6 +71,11 @@ export interface SeedDeps {
   readonly fs: Fs;
   readonly anchor: AnchorCreator;
   readonly cloneRepo: (url: string, dest: string) => void;
+  /**
+   * `git -C <repo> <args>` → stdout, or null. The harness is mirrored from the DEFAULT branch through it
+   * (GOV-FRM-456); absent, the mirror reports it could not read the branch rather than read the worktree.
+   */
+  readonly git?: GitRead;
   readonly log?: (msg: string) => void;
   /**
    * Whether this adopter can push to a repo, and whether they have a fork of it
@@ -115,21 +124,6 @@ export type SeedResult =
        */
       readonly suggestOverrides?: readonly { readonly from: string; readonly to: string }[];
     };
-
-function gitkeepStub(i: {
-  projectId: string;
-  branch: string;
-  boardNumber: number;
-  defaultBranch: string;
-}): string {
-  return `# Active project — full content lives on branch '${i.branch}'.
-#
-# This folder is a stub on ${i.defaultBranch}. The project is registered on GitHub
-# (Project #${i.boardNumber} + its 'anchor' issue) — GitHub is the SOLE source of
-# truth (no project.yaml / registry.yaml, SDD-012). The authored content
-# (agent.md, knowledge/) lives on branch '${i.branch}'.
-`;
-}
 
 /**
  * What a previous failed seed left behind for this board, and what gov may do about it (#230).
@@ -289,6 +283,32 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   }
   const adoptIn = new Set(reused);
 
+  // ── THE DEFAULT BRANCH, AS THE REMOTE HAS IT NOW (gadf#180, ruling Q3) ──────
+  //
+  // Phase B used to cut the project branch from the gov home's LOCAL default branch, with no fetch. A home whose
+  // `main` was behind the remote — the normal state of a mirror nobody has pulled this week — gave the project a
+  // branch based on old policy, and nothing said so: every agent on the project was then governed by rules the
+  // organization had already replaced.
+  //
+  // Fetched here, before the first write, for the same reason as the preflight above: if it cannot be read, that
+  // is knowable now, and stopping now leaves nothing to roll back. The branch is cut from the FETCHED SHA, not
+  // from `<remote>/<default>` by name: a ref read twice can answer twice, and a sha cannot. The developer's local
+  // default branch is not moved — they may be standing on it with work of their own (Q3, option b).
+  const policyBase = deps.vcs.fetchDefault(config.govHome, remote, config.defaultBranch);
+  if (policyBase === null) {
+    return {
+      ok: false,
+      code: 1,
+      reason: "preflight-failed",
+      message:
+        `Cannot seed ${projectId} — nothing has been created:\n` +
+        `  could not fetch ${remote}/${config.defaultBranch} into ${config.govHome}.\n` +
+        "  gov cuts the project branch from the remote's CURRENT default branch, never from a local copy that may be\n" +
+        "  behind it. Check your network and your access to the governance repo, then run the same command again.",
+    };
+  }
+  log(`Policy base: ${remote}/${config.defaultBranch} at ${policyBase.slice(0, 12)}`);
+
   const tx = new Transaction();
 
   // The one file that makes this directory a governance workspace. Recorded before
@@ -298,40 +318,37 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   const orgConfigWasThere = deps.fs.pathExists(orgConfigPath);
 
   try {
-    // ── Phase A: home stub commit (local; pushed in D) ────────────────────────
-    log(`Phase A: home stub projects/${projectId}/`);
-    const preSha = deps.vcs.headSha(config.govHome);
-    // UNDO WITHOUT `reset --hard`, and without `clean` (#191).
+    // ── Phase A IS GONE: seed no longer writes to the default branch ───────────
     //
-    // Both were pointed at `config.govHome` — the resolved workspace itself, not a
-    // scratch copy — and they are the two git commands that destroy work rather
-    // than move pointers. A seed that failed in Phase C therefore left an adopter
-    // with a workspace that no longer resolved: `org-config.yaml` is written by
-    // `gov setup` and committed by the human, so between those two moments it is an
-    // untracked file sitting in the blast radius.
+    // It used to commit `projects/<id>/.gitkeep` to the gov home and push it straight to the default branch. Two
+    // things were wrong with that (Policy Owner, 2026-09-30):
     //
-    // The invariant: undoing a PROJECT may touch `projects/<id>/` and that project's
-    // worktrees. It may not touch anything that makes the workspace resolvable.
+    //   1. IT CANNOT WORK UNDER `governance_posture: hard`. That posture exists to make the default branch
+    //      require a pull request, and GitHub then rejects the push — whoever is entitled to make it. So the
+    //      posture the framework offers was incompatible with the verb that starts every project, and the only
+    //      record of that was a comment in `cleanup.ts`.
+    //   2. THE STUB HELD NOTHING. Its entire content was a comment saying the real content lives on the project
+    //      branch and that "GitHub is the SOLE source of truth (no project.yaml / registry.yaml)". Every fact in
+    //      it is derivable from the board, and nothing ever read it for information — `leftover.ts` and
+    //      `cleanup.ts` only ever tested that the PATH existed. A file whose own text says it is not the source
+    //      of truth, written to the one branch that must not be written to, for the benefit of no reader.
     //
-    // `reset --mixed` un-commits and unstages while leaving every file on disk; the
-    // one path this phase created is then removed by name. Nothing else is reachable.
-    tx.onRollback("reset home", () => {
-      deps.vcs.resetKeepingFiles(config.govHome, preSha);
-      deps.fs.rm(paths.homeStub);
-    });
-    deps.fs.writeFile(
-      path.join(paths.homeStub, ".gitkeep"),
-      gitkeepStub({ projectId, branch, boardNumber: ref.number, defaultBranch: config.defaultBranch }),
-    );
-    deps.vcs.addPath(config.govHome, `projects/${projectId}/.gitkeep`);
-    deps.vcs.commit(config.govHome, `seed: scaffold project folder for ${projectId} (GitHub #${ref.number})`);
+    // `detectLeftovers` still LOOKS for a home stub, and must: adopters who seeded before today have one on their
+    // default branch, and `gov seed --clean` is how they remove it. Detection of a legacy artifact outlives its
+    // creation — deleting the check would orphan every stub already out there.
+    //
+    // The rollback that undid this phase is gone with it. It was the delicate one: `reset --mixed` rather than
+    // `--hard`, because `--hard` was pointed at the resolved workspace and an uncommitted `org-config.yaml` sat
+    // in the blast radius (#191). Nothing to undo is better than undoing carefully.
 
     // ── Phase B: gov worktree on the project branch ───────────────────────────
     log("Phase B: gov worktree");
-    tx.step("mkdir workRoot", () => deps.fs.mkdirp(paths.projectWorkRoot), () => deps.fs.rm(paths.projectWorkRoot));
+    // Labels are what a failed seed reports as created / rolled back / left behind (#180): a place a person can
+    // look, not a phase name only the code knows.
+    tx.step(`work root ${paths.projectWorkRoot}`, () => deps.fs.mkdirp(paths.projectWorkRoot), () => deps.fs.rm(paths.projectWorkRoot));
     tx.step(
-      "gov worktree",
-      () => deps.vcs.worktreeAdd(config.govHome, branch, orgGovClone, config.defaultBranch),
+      `worktree ${orgGovClone}`,
+      () => deps.vcs.worktreeAdd(config.govHome, branch, orgGovClone, policyBase),
       () => {
         deps.vcs.worktreeRemove(config.govHome, orgGovClone);
         deps.vcs.branchDelete(config.govHome, branch);
@@ -361,20 +378,30 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     //
     // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
     // RETIRE_PATHS and was never shipped — the template has always lived at
-    // `knowledge/guidance/`, and now at `governance/guidance/`. So the read returned null, the
+    // `knowledge/guidance/`, and now at `framework/build/templates/`. So the read returned null, the
     // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
     // while the session-start protocol tells every agent to read one and surface its `## Open`
-    // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
-    // quietest way to lose a C01 obligation.
+    // items. A missing file behind a null-check is the quietest way to lose an obligation.
+    //
+    // THIS COMMENT USED TO CITE TWO POLICY NUMBERS AS REQUIRING IT. THEY DID NOT EXIST (2026-09-30):
+    // neither appeared in any policy document in this repository, ever (framework/rules/pol-aliases.yaml
+    // records the one that was cited, and why it resolves to nothing). So the refusal below was justified by a
+    // citation to a rule nobody wrote, which is worse than an uncited refusal: a reader goes
+    // looking for the clause, cannot find it, and cannot tell whether the requirement is real.
+    //
+    // The requirement itself is defensible on its own terms and is stated that way now: the
+    // session-start protocol tells every agent to read `knowledge/todo.md` and surface its open
+    // items, so seeding a project without one hands every agent an instruction it cannot follow.
+    // Whether that should be a POLICY CLAUSE an organization can see, or specified behaviour, is
+    // an open question for the Policy Owner — see `undocumented-fixed-logic.md`.
     //
     // Not optional any more: without the template the project has no todo list, so say so.
-    const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "governance", "guidance", "todo-template.md"),
-    );
+    const todoTemplate = deps.fs.readFile(path.join(orgGovClone, ...TODO_TEMPLATE_PATH.split("/")));
     if (todoTemplate === null) {
       throw new Error(
-        "seed: governance/guidance/todo-template.md is missing from the governance repo — a "
-        + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
+        `seed: ${TODO_TEMPLATE_PATH} is missing from the governance repo — a `
+        + "project cannot be seeded without a todo list, because the session-start protocol tells "
+        + "every agent to read one. Run `gov upgrade`.",
       );
     }
     deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
@@ -412,20 +439,22 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // ── Phase D: push ─────────────────────────────────────────────────────────
     log("Phase D: push");
     tx.step(
-      "push gov branch",
+      `push ${orgGovClone}`,
       () => deps.vcs.push(orgGovClone, remote, branch, { setUpstream: true }),
       () => deps.vcs.pushDelete(orgGovClone, remote, branch),
     );
-    // The home default-branch push (the stub commit) is not compensated — the
-    // default branch cannot be deleted, and it is shared.
-    deps.vcs.push(config.govHome, remote, config.defaultBranch);
 
     // ── Anchor issue (best-effort; not transactional) ─────────────────────────
     // RECORD THE BASE BRANCH, because close cannot work it out later (merge-chain.ts explains why).
     // One base per project: if the repos disagree there is no single order for close to merge in, so
     // nothing is recorded and close falls back loudly rather than picking one of them.
     const declaredBases = [...new Set(codeRepoUrls.map((u) => input.repoBases?.[u] ?? config.defaultCodeBranch))];
-    const anchorRef = deps.anchor.createAnchorIssue({
+    // AN ANCHOR THAT ALREADY EXISTS IS REUSED (plan 03 L06): `gov project` creates the board WITH its anchor, labelled
+    // and assigned, and `gov project --seed` hands straight to here. Creating another would give the board two
+    // anchors, and `find` would pick one of them. A re-seed after a failed run meets the same case.
+    const existingAnchor = deps.anchor.find(ref, config.workspaceRepo);
+    if (existingAnchor) log(`board #${ref.number} already has an anchor issue — reusing ${existingAnchor.url}`);
+    const anchorRef = existingAnchor ? `${ref.owner}/${config.workspaceRepo}#${existingAnchor.number}` : deps.anchor.createAnchorIssue({
       boardNumber: ref.number,
       title: board.title,
       owner: ref.owner,
@@ -439,7 +468,14 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // file to the paths those agents read. (It used to also drop a Claude-only SessionStart hook; removed
     // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
     // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
-    ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
+    // AND into each code-repo worktree Phase C just created, because a developer opens ONE repo in an IDE far
+    // more often than the project directory, and most vendors read only the root they were opened at (PRJ-121).
+    // The report is logged rather than dropped: a source gov could not read leaves whatever was already at the
+    // destination in place, which is a stale file an agent will be governed by with nothing said (PRJ-121).
+    for (const line of mirrorWarnings(ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo,
+      { git: deps.git ?? (() => null), defaultBranch: config.defaultBranch }))) {
+      log(line.trim());
+    }
 
     // NAME THE BOARD WHAT GOV CALLS IT (Policy Owner, 2026-09-15).
     //
@@ -462,7 +498,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
       if (wanted !== board.title) {
         // Never fatal: the title is a convenience for people reading GitHub, and the project id
         // lives in the branch and the directory regardless.
-        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { boardRenamed = false; }
+        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { /* a board that refuses the rename is not fatal: the seed goes on, and the caller reports `boardRenamed` */ boardRenamed = false; }
         log(boardRenamed
           ? `board #${ref.number} renamed to "${wanted}"`
           : `board #${ref.number} left as "${board.title}" — gov could not rename it (needs the \`project\` scope)`);
@@ -471,6 +507,9 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef, boardRenamed };
   } catch (error) {
     const rollbackFailures = tx.rollback();
+    // WHAT STATE IT LEFT BEHIND (#180). The cause first, then one line: what this run made, what it unmade, and
+    // what it could not — so the reader knows whether a re-run is safe without opening the log.
+    const accounting = tx.summary();
     // A rollback that leaves the workspace unresolvable is a bigger event than the
     // failure that triggered it, and it used to be silent: the reader was told the
     // seed failed, and found out about the workspace on their next command, phrased
@@ -483,8 +522,8 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         "  now report 'no gov workspace resolved' even though the workspace is registered.\n" +
         "  Restore it with:  git -C " + config.govHome + " checkout -- org-config.yaml\n" +
         "  or, if it was never committed:  cd " + config.govHome + " && gov setup\n" +
-        "  Please report this — a project's rollback must never un-configure the org."
-      : (error as Error).message;
+        "  Please report this — a project's rollback must never un-configure the org.\n\n" + accounting
+      : `${(error as Error).message}\n\n${accounting}`;
     return {
       ok: false,
       code: 1,

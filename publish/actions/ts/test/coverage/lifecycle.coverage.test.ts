@@ -23,6 +23,7 @@ import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import { px, pxDeep } from "../helpers/paths.js";
 
 // ── Shared constants (derived id/branch must match the fake board title) ────────
@@ -55,7 +56,7 @@ function fakeVcs(): Vcs {
     currentBranch: () => PBRANCH, isAncestor: () => false, isClean: () => true,
     remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
     worktreeAdd: noop, worktreeAddExisting: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
-    fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
+    fetch: noop, fetchDefault: () => "remote-sha", setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
 
@@ -79,7 +80,9 @@ const fs: Fs = {
   readFile: (p: string) => (p.endsWith("todo-template.md") ? TODO_TEMPLATE : null),
   mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
 };
-const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
+const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null } as unknown as Issues;
+// The board writes (gadf#225) — succeed unless a test says otherwise.
+const workTracker: BoardWriter = { setState: () => ({ ok: true }), closeProject: () => ({ ok: true }) };
 // `find` is part of AnchorCreator and close now calls it to read the recorded base branch. The
 // double used to omit it behind a cast, which typechecked and then threw at runtime — so it is
 // implemented here rather than guarded against in close.
@@ -89,12 +92,14 @@ const anchor: AnchorCreator = {
   find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: null }),
   setAssignee: () => true,
 } as unknown as AnchorCreator;
-const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
+const pulls: Pulls = { create: () => "pr", state: () => null };
 
 function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
     config: CONFIG, home: GOV_CLONE, today: "2026-07-03",
-    seededBy: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, anchor, pulls,
+    // See dispatch.test.ts: without `login` every mutating verb refuses, because gov cannot tell whether the
+    // rules changed. These tests are about the verbs, so the fixture knows who it is.
+    seededBy: "svayam-rkant", login: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, workTracker, anchor, pulls,
     projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
   };
 }
@@ -111,6 +116,8 @@ function spyAnchor() {
   const a = {
     createAnchorIssue: (p: { assigneeLogin?: string | null }) => { calls.push(p.assigneeLogin); return "r#1"; },
     setState: () => true,
+    // No anchor yet: seed reuses one that exists (plan 03 L06), so a spy on creation needs a board without one.
+    find: () => null,
   } as unknown as AnchorCreator;
   return { anchor: a, calls };
 }
@@ -135,7 +142,8 @@ describe("lifecycle coverage — seed", () => {
   });
 
   it("happy path → exit 0 with exact lines", () => {
-    const r = run(["seed", BOARD_URL], { vcs: seedVcs() });
+    // A board with no anchor yet (the shared double's `find` answers close's question, "this board's anchor").
+    const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: { ...anchor, find: () => null } });
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} seeded on ${PBRANCH}`,
@@ -150,9 +158,27 @@ describe("lifecycle coverage — seed", () => {
     expect(px(r.lines[0])).to.equal(`Project ${PID} seeded on ${PBRANCH}`);
   });
 
-  it("--login absent → anchor assigneeLogin is null (no ctx.login)", () => {
+  it("--login absent → anchor assigneeLogin falls back to ctx.login", () => {
+    // The shared fixture now carries a login, because without one `route` refuses every mutating verb — gov
+    // cannot tell whether the rules changed (Policy Owner, 2026-09-30). So "no --login flag" no longer means
+    // "no login at all", and this asserts the fallback rather than the null.
     const s = spyAnchor();
     const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: s.anchor });
+    expect(r.code).to.equal(0);
+    expect(s.calls).to.deep.equal(["svayam-rkant"]);
+  });
+
+  it("no login at all → seed still runs, because `seed` is NOT a gated verb", () => {
+    // I wrote this expecting a refusal, and it is worth keeping as the correction. The rules-pending gate covers a
+    // DENY-LIST — `task`, `merge`, `close`, `knowledge propose|submit|archive` — and `seed` is not on it. So a
+    // project can be STARTED while the rules are pending, and the anchor records a null assignee because there is
+    // no login to record.
+    //
+    // Whether that deny-list membership is right is a separate open question: `seed`, `join`, `add-repo`, `issue`,
+    // `onboard`, `cancel` and `sync` all mutate and none of them refuse, while the specification's wording
+    // ("read-only verbs keep working") implies they are read-only. See `fixed-logic-sweep-findings.md`.
+    const s = spyAnchor();
+    const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: s.anchor, login: undefined });
     expect(r.code).to.equal(0);
     expect(s.calls).to.deep.equal([null]);
   });
@@ -251,7 +277,10 @@ describe("lifecycle coverage — seed", () => {
     const boom = seedVcs({ commit: () => { throw new Error("boom"); } });
     const r = run(["seed", BOARD_URL], { vcs: boom });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("boom");
+    // The cause first; then what the run created and undid (#180).
+    const [cause, , accounting] = px(r.lines[0]).split("\n");
+    expect(cause).to.equal("boom");
+    expect(accounting).to.match(/^created: .*; rolled back: .*; left behind: nothing$/);
   });
 });
 
@@ -293,7 +322,7 @@ describe("lifecycle coverage — join", () => {
     expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["join", BOARD_URL], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized to join GitHub Project #43.");
@@ -316,6 +345,7 @@ describe("lifecycle coverage — task", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
+      "  board: #9 Status → In progress",
     ]);
   });
 
@@ -333,6 +363,7 @@ describe("lifecycle coverage — task", () => {
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
       `  skipped (not cloned): ${APP_DIR}`,
+      "  board: #9 Status → In progress",
     ]);
   });
 
@@ -382,7 +413,7 @@ describe("lifecycle coverage — task", () => {
     expect(px(r.lines[0])).to.equal(`Issue ${ISSUE9} is closed — cannot start a task on it.`);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["task", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -411,6 +442,7 @@ describe("lifecycle coverage — merge", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Merged ${PBRANCH}.ISSUE-9 → ${PBRANCH}`,
       "  closed issue(s): 1",
+      "  board: #9 Status → Done",
     ]);
   });
 
@@ -445,7 +477,7 @@ describe("lifecycle coverage — merge", () => {
     expect(px(r.lines[0])).to.equal(`'random-branch' is neither an issue URL nor a '${PBRANCH}.ISSUE-…' branch.`);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["merge", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -458,9 +490,9 @@ describe("lifecycle coverage — merge", () => {
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
-    const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), isClean: () => false } });
+    const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), isClean: () => false, dirtyPaths: () => ["CLAUDE.md", "src/main.ts"] } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE}: src/main.ts — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
@@ -475,7 +507,8 @@ describe("lifecycle coverage — merge", () => {
 // ════════════════════════════════════════════════════════════════════════════
 describe("lifecycle coverage — sync", () => {
   it("happy path → exit 0 with exact lines", () => {
-    const r = run(["sync"]);
+    // The default branch resolves and carries no rendered harness — read there, never from the worktree (GOV-FRM-456).
+    const r = run(["sync"], { git: (_repo, args) => (args[0] === "rev-parse" ? "abc1234" : args[0] === "ls-tree" ? "" : null) });
     expect(r.code).to.equal(0);
     // A SYNC IS THE MOMENT GOVERNANCE CAN CHANGE, so it is also the moment the mirrored copies
     // every agent reads must be re-placed, and the moment the person needs the one sentence
@@ -485,7 +518,13 @@ describe("lifecycle coverage — sync", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Synced ${PBRANCH}`,
       "  1 repo(s) up to date",
-      "  session-start protocol re-placed at /awr/PRJ-43-governance-common-project",
+      // A SYNC REPORTS WHAT IT DID (2026-09-28). This line was unconditional, so a structure-only org was told
+      // the protocol had been re-placed when nothing was written, and an un-upgraded workspace was told the same
+      // while all nine sources were missing. This fixture has no rendered harness, so the warning is the point.
+      "  session-start protocol re-placed in 1 directory",
+      "  ! 9 harness file(s) could not be refreshed — the default branch has no rendered copy of them.",
+      "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
+      "    9 absent: AGENTS.md, CLAUDE.md, and 7 more — no rendered source at the default branch.",
       "",
       "Governance may have changed. Paste this into your running session:",
       "  Re-read the session-start protocol from disk; it has changed. Then continue.",
@@ -498,16 +537,16 @@ describe("lifecycle coverage — sync", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["sync"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
-    const r = run(["sync"], { vcs: { ...fakeVcs(), isClean: () => false } });
+    const r = run(["sync"], { vcs: { ...fakeVcs(), isClean: () => false, dirtyPaths: () => ["CLAUDE.md", "src/main.ts"] } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE}: src/main.ts — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
@@ -549,7 +588,7 @@ describe("lifecycle coverage — add-repo", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["add-repo", APP_URL], { vcs: addVcs("dev"), authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -607,7 +646,7 @@ describe("lifecycle coverage — pause", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["pause"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -633,7 +672,7 @@ describe("lifecycle coverage — resume", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["resume"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -643,7 +682,7 @@ describe("lifecycle coverage — resume", () => {
 describe("lifecycle coverage — cancel", () => {
   it("happy path → exit 0 (status cancelled) and closes the board", () => {
     let closed = 0;
-    const r = run(["cancel"], { issues: { ...issues, closeBoard: () => { closed++; } } });
+    const r = run(["cancel"], { workTracker: { ...workTracker, closeProject: () => { closed++; return { ok: true }; } } });
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal(["Project #43 → cancelled"]);
     expect(closed).to.equal(1);
@@ -661,7 +700,7 @@ describe("lifecycle coverage — cancel", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["cancel"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -686,7 +725,7 @@ describe("lifecycle coverage — close", () => {
     pathExists: () => true,
     readFile: (p: string) => (p.endsWith("knowledge-close.md") ? MANIFEST : null),
     mkdirp: () => {}, writeFile: () => {}, rm: () => {},
-    readdir: () => ["compliance.md", "knowledge-close.md"],
+    readdir: () => ["decisions.md", "knowledge-close.md"],
   });
 
   it("happy path → exit 0 with exact lines (PR url reported)", () => {
@@ -694,14 +733,17 @@ describe("lifecycle coverage — close", () => {
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} closed`,
-      "  PR: pr",
+      "  PR: pr — a human merges this; re-run `gov close` afterwards to archive the branch",
     ]);
   });
 
-  it("happy path with a null PR url → reports (merged)", () => {
-    const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, merge: () => "merged" } });
+  it("a PR that could not be OPENED says so, and never claims a merge", () => {
+    // This used to print "PR: (merged)" for a null url — asserting a merge that nobody had performed, which was
+    // the output half of the `--admin` defect. The project IS closed; the proposal simply is not open yet.
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, state: () => null } });
     expect(r.code).to.equal(0);
-    expect(r.lines[1]).to.equal("  PR: (merged)");
+    expect(r.lines.join(" ")).to.not.contain("merged");
+    expect(r.lines[1]).to.contain("could not be opened");
   });
 
   // ── WHERE close LANDS THE BRANCH, and where it learned that from ─────────────
@@ -756,14 +798,18 @@ describe("lifecycle coverage — close", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: knowledge gate fails → exit 1 with failure detail lines", () => {
-    const r = run(["close"]); // default fs → empty knowledge/
+  it("error: the pre-close conditions fail → exit 1 with failure detail lines", () => {
+    // The gate is STRUCTURAL now (2026-09-27): an absent knowledge/ blocks close, because close promotes that
+    // directory. An empty or undocumented one does not — that is the organization's policy to state, with a
+    // `when=verb:close` check, not the framework's to hardcode.
+    const r = run(["close"], { fs: { ...fs, pathExists: (p: string) => !px(p).endsWith("/knowledge") } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("Pre-close knowledge gate failed.");
-    expect(r.lines).to.include("knowledge/ is empty — document project learnings first.");
+    expect(px(r.lines[0])).to.equal("Pre-close conditions not met.");
+expect(r.lines.join(" "), "the message names the directory and how to get one").to.match(/knowledge\/ does not exist/);
+    expect(r.lines.join(" "), "and never points a human at an agent protocol").to.not.match(/Protocol/);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["close"], { fs: closeFs(), authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized to close GitHub Project #43.");
@@ -800,9 +846,70 @@ describe("lifecycle coverage — close", () => {
     expect(r.lines).to.include("validator X failed");
   });
 
-  it("error: the close PR cannot be merged → exit 1 (pr-merge-failed)", () => {
-    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", merge: () => "failed" } });
+  it("a close PR still OPEN → exit 1, and nothing is touched", () => {
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", state: () => "open" } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("Could not merge the close PR (pr). Merge it manually, then re-run.");
+    expect(px(r.lines[0])).to.contain("still open");
+    expect(px(r.lines[0]), "and it says the board is done, so nobody hunts for more work").to.contain("board is already closed");
+  });
+
+  it("a close PR a person MERGED → exit 0, archived, and it says so", () => {
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", state: () => "merged" } });
+    expect(r.code).to.equal(0);
+    expect(px(r.lines[0])).to.contain("merged and archived");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Spec promises over the same fixture (W9, rule model): the verbs a structure-only organization still needs, and
+//  where a project's state is kept.
+// ════════════════════════════════════════════════════════════════════════════
+describe("lifecycle coverage — spec promises", () => {
+  const seedVcs = (): Vcs => ({ ...fakeVcs(), remoteBranchExists: () => false });
+  /** The happy path of every lifecycle verb that launches no agent. */
+  const verbs: ReadonlyArray<readonly [string, string[], Partial<CliContext>]> = [
+    ["seed", ["seed", BOARD_URL], { vcs: seedVcs() }],
+    ["join", ["join", BOARD_URL], {}],
+    ["task", ["task", ISSUE9], {}],
+    ["merge", ["merge", ISSUE9], {}],
+    ["sync", ["sync"], {}],
+    ["pause", ["pause"], {}],
+    ["resume", ["resume"], {}],
+    ["cancel", ["cancel"], {}],
+  ];
+  /** The fixture's fs, except that every org-config.yaml records the structure-only decision. */
+  const structureOnly: Fs = {
+    ...fs,
+    readFile: (p: string) => (p.endsWith("org-config.yaml") ? "authorized_agents: none\n" : fs.readFile(p)),
+  };
+
+  it("GOV-FRM-446 every lifecycle verb that launches no agent runs as normal when authorized_agents is none", () => {
+    const refused: string[] = [];
+    for (const [name, argv, over] of verbs) {
+      const normal = run(argv, over);
+      expect(normal.code, `${name} must pass on the plain fixture before it can say anything`).to.equal(0);
+      const r = run(argv, { ...over, fs: structureOnly });
+      if (r.code !== 0) refused.push(`${name} → exit ${r.code}: ${r.lines.join(" / ")}`);
+    }
+    expect(refused, "a structure-only organization adopted gov for exactly these verbs").to.deep.equal([]);
+  });
+
+  it("GOV-FRM-451 pause, resume and cancel change the project's state on the board alone — not one file written", () => {
+    for (const verb of ["pause", "resume", "cancel"]) {
+      const writes: string[] = [];
+      const r = run([verb], { fs: { ...fs, writeFile: (p: string) => { writes.push(px(p)); } } });
+      expect(r.code, verb).to.equal(0);
+      expect(writes, `${verb} wrote a file — state belongs on the board`).to.deep.equal([]);
+    }
+  });
+
+  it("GOV-FRM-451 seed, task and merge write no state file — no project.yaml, registry.yaml or status file", () => {
+    const STATE_FILE = /(^|\/)(project|registry|status|state)\.(ya?ml|json)$/;
+    for (const [name, argv, over] of verbs.filter(([n]) => ["seed", "task", "merge"].includes(n))) {
+      const writes: string[] = [];
+      const r = run(argv, { ...over, fs: { ...fs, writeFile: (p: string) => { writes.push(px(p)); } } });
+      expect(r.code, name).to.equal(0);
+      expect(writes.filter((w) => STATE_FILE.test(w)), `${name} wrote project state to a file`).to.deep.equal([]);
+    }
   });
 });

@@ -49,6 +49,10 @@ chmod +x "$STUBS/gh" "$STUBS/curl"
 stub_on_login_path "$STUBS/gh"   gh
 stub_on_login_path "$STUBS/curl" curl
 export PATH="$STUBS:$PATH"
+# AND THE DOWNLOAD gov MAKES ITSELF. Since #205 gov fetches the vendor script in Node rather than through
+# `curl | bash`, so the `curl` double is served to it by a preload (e2e/stub/vendor-fetch.mjs). NODE_OPTIONS
+# survives the login shell — /etc/profile resets PATH, not this.
+export NODE_OPTIONS="--import /src/publish/actions/ts/e2e/stub/vendor-fetch.mjs" GOV_E2E_VENDOR_CURL="$STUBS/curl"
 # THE STUB IS IN EFFECT, PROVED RATHER THAN ASSUMED — in the same kind of shell that will run
 # the install. Without this the whole fragment can quietly test the vendor's servers instead.
 in_a_new_login_shell 'curl -fsSL https://bob.ibm.com/download/bobshell.sh | grep -q agent-double' \
@@ -59,7 +63,8 @@ export GH_STUB_LOGIN=acme GH_STUB_LOG=/work/gh.log
 
 # A governance workspace with ibm-bob approved, registered the way a joiner's would be.
 WS="$HOME/.gov/acme/gov_repo"; mkdir -p "$WS/governance/policies" "$WS/agent"
-printf 'org_name: "Acme Ltd"\norg_short_name: "Acme"\norg_slug: "ACME"\norg_slug_lower: "acme"\ngithub_org: "acme"\nworkspace_repo: "acme-gov"\ndefault_branch: "main"\ndefault_code_branch: "dev"\nagent_work_root: "%s/.gov/acme/projects"\npolicy_owner_email: "owner@example.test"\n' "$HOME" > "$WS/org-config.yaml"
+printf 'org_name: "Acme Ltd"\norg_short_name: "Acme"\norg_slug: "ACME"\ngithub_org: "acme"\norg_gov_repo: "acme-gov"\ndefault_branch: "main"\ndefault_code_branch: "dev"\n' > "$WS/org-config.yaml"
+mkdir -p "$WS/policies" && printf 'policy_owner:\n  email: "owner@example.test"\n' > "$WS/policies/governance.yaml"
 printf '# llm governance\n\n```yaml\napproved_agents:\n  - id: ibm-bob\n    default: true\n```\n' > "$WS/governance/policies/llm-governance.md"
 printf '# protocol\n' > "$WS/agent/session-protocol.md"
 printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n' > "$HOME/.gitconfig"
@@ -78,6 +83,9 @@ info "the install itself — gov's own code, not a re-implementation of it"
 drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
+< y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
 < y
 > $
 C

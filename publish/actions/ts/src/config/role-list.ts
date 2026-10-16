@@ -1,0 +1,214 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * THE ORG'S ROLE LIST (W2-Q5, rule-model P3, 2026-10-06).
+ *
+ * The framework defines TWO roles — the Policy Owner and the Check Owner — and their holders live in
+ * `policies/governance.yaml`. Every other role is the organization's: it decides which roles exist, who holds each, and which
+ * `knowledge/` folders each one owns. Until now four of them (Legal, Infrastructure, System Architecture, Data
+ * Architecture) were hard-coded in `codeowners.ts` with their holders in `*_owner_github` keys — the framework
+ * deciding something the policy says is the org's.
+ *
+ * WHERE IT LIVES. A small table in `policies/common/authorized-representatives.md`, the seed-once document an org already
+ * owns and already reads to learn who approves what. Humans read the prose around it; gov reads only the table:
+ *
+ *   | Role        | GitHub handle | Owns                |
+ *   |-------------|---------------|---------------------|
+ *   | Data Owner  | @dana         | `knowledge/data/`   |
+ *
+ * The table is found by its header (Role · GitHub handle · Owns), never by its position, so an org can move it or
+ * write around it freely. A table inside a code fence is an example and is skipped.
+ *
+ * THREE ANSWERS KEPT APART, as everywhere a policy file is read:
+ *   no table        → `found: false`. NOT "the org defines no roles": the caller falls back (below).
+ *   a vacant role   → `holder: null`. A state, not a fault — the Policy Owner holds it (GOV-SVM-033).
+ *   a row gov cannot route (bad handle, unresolved token, folder outside `knowledge/`) → a problem, said row by
+ *                     row; the rest of the table still loads, and the unroutable part reads as vacant.
+ *
+ * NO FALLBACK (org-config split, 2026-10-06). The old `*_owner_github` keys in org-config.yaml are retired; the
+ * `org-config-split` upgrade migration carries their handles into this table, once. With no table, the org defines
+ * no roles of its own and the Policy Owner owns every folder — and `gov doctor` says so.
+ *
+ * Pure: text in, values out. The callers (store-io at a git ref, doctor from the worktree, setup) do the reading.
+ */
+/** Where the role list lives, repo-relative. */
+export const ROLE_LIST_PATH = "policies/common/authorized-representatives.md";
+
+/** The framework's own two roles. Never in the org's table — their holders are in policies/governance.yaml. */
+export const POLICY_OWNER_ROLE = "Policy Owner";
+export const CHECK_OWNER_ROLE = "Check Owner";
+const FRAMEWORK_ROLES = new Set([POLICY_OWNER_ROLE.toLowerCase(), CHECK_OWNER_ROLE.toLowerCase()]);
+
+/** One role the org defines. */
+export interface RoleHolder {
+  readonly role: string;
+  /** `@login` (or `@org/team`), or null when the role is vacant. */
+  readonly holder: string | null;
+  /** Repo-relative `knowledge/` folders, each ending in `/`. Empty when the role owns no folder. */
+  readonly owns: readonly string[];
+}
+
+export type RoleListParse =
+  | { readonly found: false }
+  | { readonly found: true; readonly roles: readonly RoleHolder[]; readonly problems: readonly string[] };
+
+/** GitHub's login shape (1–39, alnum and single hyphens), or `org/team`. */
+const HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9._-]+)?$/;
+const VACANT = new Set(["", "-", "—", "–", "vacant", "(vacant)", "none", "tbd"]);
+
+const cells = (line: string): string[] =>
+  line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+const isSeparator = (line: string): boolean => /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$/.test(line.trim());
+const isHeader = (c: readonly string[]): boolean => {
+  const [a, b, d] = c.map((x) => x.toLowerCase().replace(/[*_`]/g, "").trim());
+  return c.length >= 3 && a === "role" && (b ?? "").startsWith("github") && (d ?? "").startsWith("owns");
+};
+const unquote = (s: string): string => s.replace(/`/g, "").trim();
+
+/** `@x` / `x` → `@x`; vacancy → null; a cell gov cannot use → an error string. */
+function parseHolder(raw: string): string | null | { error: string } {
+  const v = unquote(raw);
+  if (VACANT.has(v.toLowerCase())) return null;
+  if (/<[A-Za-z_]+>/.test(v)) return { error: `still carries the unresolved token ${/<[A-Za-z_]+>/.exec(v)![0]}` };
+  const h = v.replace(/^@+/, "");
+  if (!HANDLE.test(h)) return { error: `"${v}" is not a GitHub handle` };
+  return `@${h}`;
+}
+
+/** Parse the role table out of the document. */
+export function parseRoleList(markdown: string): RoleListParse {
+  const lines = markdown.split(/\r?\n/);
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced || !line.trim().startsWith("|") || !isHeader(cells(line))) continue;
+    if (!isSeparator(lines[i + 1] ?? "")) continue;
+    const rows: string[][] = [];
+    for (let j = i + 2; j < lines.length && lines[j]!.trim().startsWith("|"); j++) rows.push(cells(lines[j]!));
+    return { found: true, ...readRows(rows) };
+  }
+  return { found: false };
+}
+
+function readRows(rows: readonly string[][]): { roles: RoleHolder[]; problems: string[] } {
+  const roles: RoleHolder[] = [];
+  const problems: string[] = [];
+  const seenRole = new Set<string>();
+  const folderOwner = new Map<string, string>();
+  for (const c of rows) {
+    const role = unquote(c[0] ?? "");
+    if (!role) { problems.push("a row with no role name was skipped"); continue; }
+    if (FRAMEWORK_ROLES.has(role.toLowerCase())) {
+      problems.push(`${role} is a framework role — its holder is set in policies/governance.yaml, so this row is ignored`);
+      continue;
+    }
+    if (seenRole.has(role.toLowerCase())) { problems.push(`${role} is listed twice — the first row is used`); continue; }
+    seenRole.add(role.toLowerCase());
+
+    const h = parseHolder(c[1] ?? "");
+    let holder: string | null = null;
+    if (h !== null && typeof h === "object") problems.push(`${role}: the handle ${h.error} — read as vacant`);
+    else holder = h;
+
+    const owns: string[] = [];
+    for (const raw of unquote(c[2] ?? "").split(",").map((s) => s.trim())) {
+      if (VACANT.has(raw.toLowerCase())) continue;
+      const folder = `${raw.replace(/^\/+/, "").replace(/\/+$/, "")}/`;
+      if (/[*?[\]]|(^|\/)\.\.?(\/|$)/.test(folder)) { problems.push(`${role}: ${raw} is a pattern, not a folder — skipped`); continue; }
+      if (folder === "knowledge/") { problems.push(`${role}: knowledge/ itself belongs to the Policy Owner — name a folder inside it`); continue; }
+      if (!folder.startsWith("knowledge/")) { problems.push(`${role}: ${raw} is not under knowledge/ — a role owns knowledge folders; policy sections are owned by sentence (ownership.yaml)`); continue; }
+      const prior = folderOwner.get(folder);
+      if (prior !== undefined) { problems.push(`${role}: ${folder} is already owned by ${prior} — skipped`); continue; }
+      folderOwner.set(folder, role);
+      owns.push(folder);
+    }
+    roles.push({ role, holder, owns });
+  }
+  return { roles, problems };
+}
+
+/**
+ * The holder tokens the shipped role list carries, and the pre-split org-config key that named each one. Setup fills
+ * them from its answers; an upgrade from these keys when the org-config still holds them (F19).
+ */
+export const ROLE_HOLDER_TOKENS: Readonly<Record<string, string>> = {
+  LEGAL_OWNER_GITHUB: "legal_owner_github",
+  INFRA_OWNER_GITHUB: "infra_owner_github",
+  SYSTEM_ARCH_OWNER_GITHUB: "system_arch_owner_github",
+  DATA_ARCH_OWNER_GITHUB: "data_arch_owner_github",
+};
+
+/** The documented empty form a seeded holder cell takes when gov knows nobody for it (§4 of the role list). */
+export const VACANT_HOLDER = "vacant";
+
+export interface SettledRoleList {
+  readonly text: string;
+  /** Roles whose token cell gov filled with a handle it knew. */
+  readonly filled: readonly string[];
+  /** Roles whose token cell gov wrote as `vacant`. */
+  readonly vacated: readonly string[];
+}
+
+/**
+ * A SEEDED ROLE LIST NEVER CARRIES A RAW TOKEN (F19, svm-geneva re-walk 2026-10-07). `gov upgrade` seeded the list with
+ * `<LEGAL_OWNER_GITHUB>`… still in it, and doctor read four roles as vacant with an "unresolved token" warning each —
+ * a fault reported against the org for a file the framework wrote.
+ *
+ * Every holder cell of the role table that is exactly one `<TOKEN>` is settled: to the handle `known(token)` gives,
+ * else to `vacant`. FILL-EMPTY-ONLY (GOV-FRM-445): any other cell — a handle, or the org's own `vacant` — is the
+ * org's and is left byte for byte. A table inside a code fence is an example and is not touched.
+ */
+export function settleRoleListTokens(markdown: string, known: (token: string) => string | null): SettledRoleList {
+  const eol = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const lines = markdown.split(/\r?\n/);
+  const filled: string[] = [];
+  const vacated: string[] = [];
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced || !line.trim().startsWith("|") || !isHeader(cells(line)) || !isSeparator(lines[i + 1] ?? "")) continue;
+    for (let j = i + 2; j < lines.length && lines[j]!.trim().startsWith("|"); j++) {
+      const m = /^(\s*\|[^|]*\|)([^|]*)(\|.*)$/.exec(lines[j]!);
+      const tok = m ? /^\s*`?<([A-Za-z_]+)>`?\s*$/.exec(m[2]!) : null;
+      if (!m || !tok) continue;
+      const role = unquote(cells(lines[j]!)[0] ?? "");
+      const handle = known(tok[1]!);
+      const h = handle === null ? null : parseHolder(handle);
+      const value = typeof h === "string" ? h : VACANT_HOLDER;
+      (value === VACANT_HOLDER ? vacated : filled).push(role);
+      lines[j] = `${m[1]} ${value} ${m[3]}`;
+    }
+    break;   // the first role table is the list (parseRoleList reads the same one)
+  }
+  return { text: lines.join(eol), filled, vacated };
+}
+
+export interface ResolvedRoles {
+  /** The document has a role table. Without one the org defines no roles of its own. */
+  readonly found: boolean;
+  readonly roles: readonly RoleHolder[];
+  readonly problems: readonly string[];
+}
+
+/** The org's roles, from the table in the role list. No table (or no document) → none. */
+export function resolveRoles(roleListText: string | null | undefined): ResolvedRoles {
+  const parsed = roleListText ? parseRoleList(roleListText) : ({ found: false } as const);
+  return parsed.found ? { found: true, roles: parsed.roles, problems: parsed.problems } : { found: false, roles: [], problems: [] };
+}
+
+/**
+ * Role → handle, the shape `RuleSet.roles` carries. The Policy Owner and Check Owner ALWAYS come from governance.yaml
+ * (a vacant Check Owner reads as the Policy Owner, GOV-FRM-033); every org role is present by name, a vacant one as
+ * `""` — so a check routes it to the Policy Owner, and propose still knows the role exists.
+ */
+export function roleHandles(owners: { readonly policyOwner?: string | null; readonly checkOwner?: string | null }, roles: readonly RoleHolder[]): Record<string, string> {
+  const policyOwner = (owners.policyOwner ?? "").trim();
+  const checkOwner = (owners.checkOwner ?? "").trim() || policyOwner;
+  const out: Record<string, string> = {};
+  if (policyOwner) out[POLICY_OWNER_ROLE] = policyOwner;
+  if (checkOwner) out[CHECK_OWNER_ROLE] = checkOwner;
+  for (const r of roles) if (!(r.role in out)) out[r.role] = r.holder ?? "";
+  return out;
+}

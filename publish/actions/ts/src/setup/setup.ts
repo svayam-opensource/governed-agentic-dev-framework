@@ -2,32 +2,33 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * `gov setup` (port of setup.sh) — the one-time workspace BOOTSTRAP: gather org
- * identity, generate `org-config.yaml` (the single source of truth), and point
- * `origin` at the org repo. Runs in the cloned framework repo, BEFORE resolution
+ * identity, generate `org-config.yaml` (who the organization is) and `policies/governance.yaml` (how it governs —
+ * the org-config split, 2026-10-06), and point `origin` at the org repo. Runs in the cloned framework repo, BEFORE resolution
  * (it's what makes a gov workspace exist). This module is the pure core (render +
  * defaults + URL parse); the interactive prompts + effects live in setup-run.ts.
  */
 
-/** Every field written to org-config.yaml. */
+/** Every field setup decides: org-config.yaml's, and the governance choices it writes to policies/governance.yaml. */
 export interface OrgConfigValues {
   readonly orgName: string;
   readonly orgShortName: string;
   readonly orgSlug: string;
-  readonly orgSlugLower: string;
   readonly orgRepoUrl: string;
   readonly githubOrg: string;
   readonly workspaceRepo: string;
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
-  readonly agentWorkRoot: string;
   readonly govWorkspace: string;
+  /** policies/governance.yaml from here down to `governancePosture`. */
   readonly policyOwnerEmail: string;
   readonly policyOwnerGithub: string;
-  readonly legalOwnerGithub: string;
-  readonly infraOwnerGithub: string;
-  readonly systemArchOwnerGithub: string;
-  readonly dataArchOwnerGithub: string;
-  readonly policyEffectiveDate: string;
+  /**
+   * The Check Owner — the framework's second built-in role, reviewing the code of the org's check actions
+   * (`policies/actions/`). Defaults to the Policy Owner; setup refuses to finish with it empty (rule-model P1).
+   */
+  readonly checkOwnerGithub: string;
+  /** `governance_posture`: `soft` (the default, W2-Q6) or `hard`, chosen at setup past a confirmation. */
+  readonly governancePosture: string;
   /** OpenBao/Vault address for gov creds→Vault + attest (optional; empty if not using Vault). */
   readonly vaultAddr: string;
   /** IAM broker OIDC base for `gov auth login` (optional). */
@@ -47,6 +48,44 @@ export interface OrgConfigValues {
    */
   readonly accessTtlSec: string;
 }
+
+import { parseGovernance, renderGovernance, setGovernanceScalar } from "../config/governance.js";
+import { contentLayoutOf } from "../maintain/upgrade-sync.js";
+
+/**
+ * MUST THE UPGRADE RUN BEFORE SETUP? (adoption walk #4 + #14, 2026-10-07 — data loss). The reason, or null.
+ *
+ * Setup writes org-config.yaml in the CURRENT, identity-only shape and the governance answers to
+ * policies/governance.yaml. On a repo the upgrade has not carried across, that rewrite deletes values only the
+ * upgrade's org-config split knows where to put — the domain role holders, a work root, the publication choice — and
+ * the seed that follows finds no framework/ tree. So setup asks nothing until the upgrade has run, when:
+ *
+ *   - the repo is on the OLD layout (`governance/policies/`, no framework/ tree), or
+ *   - org-config.yaml still holds a key setup cannot carry and policies/governance.yaml does not exist yet.
+ *
+ * An org-config that predates the split with only the keys setup itself carries (the owners, the posture, the
+ * agents) stays setup's to handle — it reads them as defaults and writes them where they now live.
+ */
+export function setupNeedsUpgrade(exists: (rel: string) => boolean, orgConfigText: string | null, governanceText: string | null): string | null {
+  if (contentLayoutOf(exists) === "governance") {
+    return "this governance repository is on the old layout (governance/), and setup writes only the current one (policies/, framework/)";
+  }
+  // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1)
+  if (contentLayoutOf(exists) === "layout-1.0") {
+    return "this governance repository is on the 1.0 layout (knowledge/policies/), and setup writes only the current one (policies/, framework/)";
+  }
+  if (governanceText === null && orgConfigText) {
+    const held = UPGRADE_CARRIES.filter((k) => new RegExp(`^${k}\\s*:\\s*"?[^"\\s#]`, "m").test(orgConfigText));
+    if (held.length) return `org-config.yaml still holds ${held.join(", ")} — values only the upgrade carries to where they live now`;
+  }
+  return null;
+}
+
+/** org-config keys from before the split that setup neither asks nor writes — the upgrade's split carries them. */
+const UPGRADE_CARRIES = [
+  "legal_owner_github", "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
+  "agent_work_root", "authorized_approvers",
+] as const;
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
 export function parseOriginOwnerRepo(url: string): { owner: string; repo: string } | null {
@@ -75,7 +114,7 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
 
   const origin = parseOriginOwnerRepo(ctx.originUrl);
   const orgSlug = pick("orgSlug", "");
-  const orgSlugLower = orgSlug.toLowerCase();
+  const orgSlugLower = orgSlug.toLowerCase();       // derived, never written (org_slug_lower is retired)
   const policyOwnerGithub = pick("policyOwnerGithub", ctx.ghUser ? `@${ctx.ghUser}` : "");
 
   return {
@@ -87,13 +126,13 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     orgName: pick("orgName", origin?.owner ?? ""),
     orgShortName: pick("orgShortName", ""),
     orgSlug,
-    orgSlugLower,
     orgRepoUrl: pick("orgRepoUrl", ctx.originUrl),
     githubOrg: pick("githubOrg", origin?.owner ?? ""),
     workspaceRepo: pick("workspaceRepo", origin?.repo ?? ""),
     defaultBranch: pick("defaultBranch", "main"),
     defaultCodeBranch: pick("defaultCodeBranch", "dev"),
-    // `~/.gov/<slug>/…`, NOT `~/.<slug>/…`.
+    // `~/.gov/<slug>/…`, NOT `~/.<slug>/…`. (The work root beside it is no longer written anywhere: it is each
+    // person's own, defaulting to ~/.gov/<slug>/projects — config/org-config.ts `defaultWorkRoot`.)
     //
     // `create.ts` has always PUT them at `~/.gov/<slug>/gov_repo` and
     // `~/.gov/<slug>/projects` (the workspace-resolution contract, R9/R10), while
@@ -106,15 +145,11 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     // possible on one machine: every org's home is a sibling under it, next to the
     // `workspaces` registry that maps between them. `~/.<slug>/` scattered them
     // across the home directory with nothing to enumerate.
-    agentWorkRoot: pick("agentWorkRoot", `~/.gov/${orgSlugLower}/projects`),
     govWorkspace: pick("govWorkspace", `~/.gov/${orgSlugLower}/gov_repo`),
     policyOwnerEmail: pick("policyOwnerEmail", ctx.gitEmail ?? ""),
     policyOwnerGithub,
-    legalOwnerGithub: pick("legalOwnerGithub", policyOwnerGithub),
-    infraOwnerGithub: pick("infraOwnerGithub", policyOwnerGithub),
-    systemArchOwnerGithub: pick("systemArchOwnerGithub", policyOwnerGithub),
-    dataArchOwnerGithub: pick("dataArchOwnerGithub", policyOwnerGithub),
-    policyEffectiveDate: pick("policyEffectiveDate", ctx.today),
+    checkOwnerGithub: pick("checkOwnerGithub", policyOwnerGithub),
+    governancePosture: pick("governancePosture", "soft"),
     vaultAddr: pick("vaultAddr", ""),
     oidcBase: pick("oidcBase", ""),
     jenkinsUrl: pick("jenkinsUrl", ""),
@@ -126,14 +161,18 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
   };
 }
 
-/** Render org-config.yaml (byte-compatible with setup.sh's template). */
+/**
+ * Render org-config.yaml — who the organization IS, and nothing else. Its keys, what each means and which are
+ * required are the framework's (framework/common/reference/org-config.schema.yaml); the values are the org's.
+ */
 export function renderOrgConfig(v: OrgConfigValues): string {
-  return `# Governed Agentic Development Framework — Organization Configuration
+  return `# Organization configuration — who this organization is, and the infrastructure it uses.
 #
-# Single source of truth for this organization's identity, defaults, and roles.
-# The gov-work CLI and agents read these values at runtime — no placeholder
-# substitution — so this file is the only thing that diverges from the upstream
-# framework template. Re-run \`gov setup\` to update; avoid editing by hand.
+# The values are yours; the list of keys and what each one means is the framework's, in
+# framework/common/reference/org-config.schema.yaml, and \`gov doctor\` checks this file against it.
+# How the organization GOVERNS — its posture, its Policy and Check Owners, the agents it
+# authorizes — is in policies/governance.yaml, where a change needs the Policy Owner.
+# The first-run flow (adopt) fills it in; to change a value, edit it here by pull request.
 
 # Full legal name of your organization
 org_name: "${v.orgName}"
@@ -141,29 +180,23 @@ org_name: "${v.orgName}"
 # Short display name (used in headings and prose)
 org_short_name: "${v.orgShortName}"
 
-# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
+# Two to six capital letters naming your organization (e.g. ACME). Not FRM, which is the framework's.
 org_slug: "${v.orgSlug}"
 
-# Lowercase derivation of org_slug — used for filesystem paths. Auto-derived.
-org_slug_lower: "${v.orgSlugLower}"
-
-# Full URL of this workspace repository. 'origin' will be set to this.
+# Full URL of this governance repository. 'origin' will be set to this.
 org_repo_url: "${v.orgRepoUrl}"
 
 # GitHub organization or username (derived from org_repo_url)
 github_org: "${v.githubOrg}"
 
-# Name of this workspace repository (derived from org_repo_url)
-workspace_repo: "${v.workspaceRepo}"
+# Name of this governance repository (derived from org_repo_url)
+org_gov_repo: "${v.workspaceRepo}"
 
-# Default branch name for this workspace repo
+# Default branch name for this governance repo
 default_branch: "${v.defaultBranch}"
 
 # Default base branch for code repositories (used by seed)
 default_code_branch: "${v.defaultCodeBranch}"
-
-# Per-project workspaces are created under this path.
-agent_work_root: "${v.agentWorkRoot}"
 
 # Where the WORK happens, when that is not where the issue lives (#194).
 # A board may link an issue in a repository this org can read but not write — the
@@ -174,20 +207,6 @@ agent_work_root: "${v.agentWorkRoot}"
 #   genevaers/Workbench: svm-geneva/Workbench
 #
 # Declared, never guessed: gov will not choose where your code is pushed.
-
-
-# Policy Owner details (initial holder of all policy roles at launch)
-policy_owner_email: "${v.policyOwnerEmail}"
-policy_owner_github: "${v.policyOwnerGithub}"
-
-# Other role GitHub handles (update as roles are formally assigned)
-legal_owner_github: "${v.legalOwnerGithub}"
-infra_owner_github: "${v.infraOwnerGithub}"
-system_arch_owner_github: "${v.systemArchOwnerGithub}"
-data_arch_owner_github: "${v.dataArchOwnerGithub}"
-
-# Effective date of the policy (YYYY-MM-DD)
-policy_effective_date: "${v.policyEffectiveDate}"
 
 # Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
 gov_account: "${v.govAccount}"
@@ -219,11 +238,64 @@ services:
 #    See knowledge/architecture/system/specs/token-lifetime-standard.md §3.4.
 session:
   access_ttl_sec: ${v.accessTtlSec || "300"}
+
+# ── Platforms. Which platform gov talks to for each kind of work: the work tracker (boards, issues), the
+#    code host (change requests, reviews, required checks) and CI identity. Leave it out and gov uses
+#    GitHub for all three — the only platform it has today. \`gov doctor\` fails on a name it does not have.
+#
+# adapters:
+#   work_tracker: github
+#   vcs: github
+#   ci_identity: github
 `;
 }
 
-/** Read the scalar fields from an existing org-config.yaml (for re-run defaults). */
-export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
+/** The values the framework's shipped org-config.example.yaml is rendered from — nothing filled in (a test holds it). */
+export const TEMPLATE_ORG_CONFIG_VALUES: OrgConfigValues = {
+  orgName: "", orgShortName: "", orgSlug: "", orgRepoUrl: "", githubOrg: "", workspaceRepo: "",
+  defaultBranch: "main", defaultCodeBranch: "dev", govWorkspace: "",
+  policyOwnerEmail: "", policyOwnerGithub: "", checkOwnerGithub: "", governancePosture: "soft",
+  vaultAddr: "", oidcBase: "", jenkinsUrl: "", npmRegistry: "", dockerRegistry: "", govAccount: "", accessTtlSec: "300",
+};
+
+/** Render policies/governance.yaml from setup's answers. The agents are recorded afterwards (`withAuthorizedAgents`). */
+export function renderSetupGovernance(v: OrgConfigValues): string {
+  return renderGovernance({
+    governancePosture: v.governancePosture, policyOwnerEmail: v.policyOwnerEmail, policyOwnerGithub: v.policyOwnerGithub,
+    checkOwnerGithub: v.checkOwnerGithub, defaultAgent: "",
+  });
+}
+
+/**
+ * SETUP'S ANSWERS, WRITTEN INTO AN EXISTING governance.yaml BY TARGETED EDIT (GOV-FRM-445). The file is the org's:
+ * setup changes only the keys it owns — governance_posture, policy_owner.email/.github, check_owner.github — and only
+ * where its answer differs from what the file says. Every other byte (comments, the models block, keys gov does not
+ * read) is kept. An empty answer never blanks a value the file has. Pure.
+ */
+export function withSetupGovernance(existing: string, v: OrgConfigValues): string {
+  const g = parseGovernance(existing);
+  const bare = (h: string): string => h.replace(/^@+/, "").trim().toLowerCase();
+  let text = existing;
+  const owned: Array<[readonly string[], string, string, boolean]> = [
+    [["governance_posture"], v.governancePosture, g.posture.raw, false],
+    [["policy_owner", "email"], v.policyOwnerEmail, g.policyOwner.email, false],
+    [["policy_owner", "github"], v.policyOwnerGithub, g.policyOwner.github, true],
+    [["check_owner", "github"], v.checkOwnerGithub, g.checkOwner.github, true],
+  ];
+  for (const [at, want, have, isHandle] of owned) {
+    if (!want.trim()) continue;
+    if (isHandle ? bare(want) === bare(have) : want === have) continue;
+    text = setGovernanceScalar(text, at, want);
+  }
+  return text;
+}
+
+/**
+ * Read the fields from an existing org-config.yaml — and policies/governance.yaml, when given — for re-run defaults.
+ * An org-config that predates the split still carries the governance keys; they are read from it when
+ * governance.yaml does not say, so a re-run offers what the org already chose.
+ */
+export function readExistingOrgConfig(text: string, governanceText: string | null = null): Partial<OrgConfigValues> {
   const scalar = (key: string): string | undefined => {
     const m = text.match(new RegExp(`^${key}:\\s*"?([^"\\n]*)"?\\s*$`, "m"));
     return m ? m[1].trim() : undefined;
@@ -234,16 +306,26 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
   };
   const map: Array<[keyof OrgConfigValues, string]> = [
     ["orgName", "org_name"], ["orgShortName", "org_short_name"], ["orgSlug", "org_slug"],
-    ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "workspace_repo"],
+    ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "org_gov_repo"], ["workspaceRepo", "workspace_repo"],
     ["defaultBranch", "default_branch"], ["defaultCodeBranch", "default_code_branch"],
-    ["agentWorkRoot", "agent_work_root"], ["govWorkspace", "gov_workspace"],
-    ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"],
-    ["policyEffectiveDate", "policy_effective_date"], ["govAccount", "gov_account"],
+    ["govWorkspace", "gov_workspace"],
+    ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"], ["checkOwnerGithub", "check_owner_github"],
+    ["governancePosture", "governance_posture"],
+    ["govAccount", "gov_account"],
   ];
   const out: Partial<Record<keyof OrgConfigValues, string>> = {};
+  if (governanceText !== null) {
+    const g = parseGovernance(governanceText);
+    const fromGov: Array<[keyof OrgConfigValues, string]> = [
+      ["policyOwnerEmail", g.policyOwner.email], ["policyOwnerGithub", g.policyOwner.github],
+      ["checkOwnerGithub", g.checkOwner.github], ["governancePosture", g.posture.raw],
+    ];
+    for (const [k, v] of fromGov) if (v) out[k] = v;
+  }
   for (const [k, y] of map) {
     const val = scalar(y);
-    if (val !== undefined && val !== "") out[k] = val;
+    // First name wins, so `org_gov_repo` is preferred over the `workspace_repo` it replaced (org-config.ts reads the same way).
+    if (val !== undefined && val !== "" && out[k] === undefined) out[k] = val;
   }
   // services: block (preferred) with vault_addr as a legacy fallback for vaultAddr.
   // `session:` is read with the same indented matcher as `services:` — it is a nested block, and the

@@ -46,6 +46,16 @@ describe("prj-work Phase 2 — anchor issue creator", () => {
     expect(anchor.createAnchorIssue(params)).to.equal(null);
   });
 
+  it("find(): board #1 is not board #12's anchor — the number is matched whole (seed reuses what find returns)", () => {
+    const list = JSON.stringify([
+      { url: "https://github.com/O/r/issues/12", number: 12, body: "Anchor issue for the project on GitHub Project #12 — *A*.", labels: [], assignees: [] },
+      { url: "https://github.com/O/r/issues/3", number: 3, body: "Anchor issue for the project on GitHub Project #1 — *B*.", labels: [], assignees: [] },
+    ]);
+    const anchor = createGhAnchor(() => list);
+    expect(anchor.find({ owner: "O", ownerField: "organization", number: 1 }, "r")?.number).to.equal(3);
+    expect(anchor.find({ owner: "O", ownerField: "organization", number: 2 }, "r")).to.equal(null);
+  });
+
   it("body names the board number and title", () => {
     expect(anchorIssueBody(43, "X")).to.include("GitHub Project #43").and.to.include("*X*");
   });

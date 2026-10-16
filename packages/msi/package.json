@@ -1,0 +1,17 @@
+{
+  "name": "@svayam/gov-msi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The Windows door: a per-user MSI of gov with its own Node 24 (PRJ-121 plan 04 T13). Built by gov-cicd's gov-msi unit on a GitHub-hosted Windows job; signed on gov-cicd's side. See README.md.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "build:msi": "node scripts/build.mjs",
+    "sign": "node scripts/sign.mjs",
+    "winget": "node scripts/winget.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

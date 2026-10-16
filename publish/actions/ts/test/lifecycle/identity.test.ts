@@ -69,7 +69,7 @@ describe("prj-work Phase 2 — project identity (SDD Part B, seed)", () => {
   });
 
   describe("deriveProjectIdentity", () => {
-    it("derives the real PRJ-43 identity from its board URL + title", () => {
+    it("GOV-FRM-453 derives the real PRJ-43 identity from its board URL + title", () => {
       // Cross-checks the live project.yaml: id + branch + board 43.
       expect(
         deriveProjectIdentity({

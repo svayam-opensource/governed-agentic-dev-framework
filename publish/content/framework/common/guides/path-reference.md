@@ -1,0 +1,58 @@
+---
+domain: governance
+layer: path
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Path — Reference
+
+Consulted, not read through. Use this when you know what you want and need the exact form of it.
+
+**Links only, never content (Knowledge Organization Standard §5).**
+
+## The tool
+
+- [gov command reference](../reference/gov-command-reference.md) — every verb, and who runs it
+- [Starting a project: `gov project`](../reference/gov-command-reference.md#gov-project) — the board and its anchor issue in
+  one command; `--seed` goes on to [`gov seed`](../reference/gov-command-reference.md#gov-seed). How it fits:
+  [Working on a project §2](../../build/guides/working-on-a-project.md#2-start-the-project)
+- [The glossary](../../framework-specification.md#glossary) — the vocabulary
+
+## The rules
+
+- [How the framework works](../../framework-specification.md) — and `agent/harness/rule-map.md`, every rule by GOV id;
+  `gov rules show <id>` prints one (a retired POL number resolves to the rule that carries it now)
+- [Working on a project](../../build/guides/working-on-a-project.md) — and the other user guides beside it, for each thing you do
+
+## Writing a check action
+
+For the Check Owner, and for anyone who writes a check your organization's own rules call.
+
+- [Writing your own check action](../../framework-specification.md#95-checks) — the folder, `action.yaml`, what the
+  script is given, what its exit code means, what keeps it safe, and why a GitHub Action check runs in CI only
+- [Your catalog additions](../../../policies/rules/checks-catalog.yaml) — where a new action is listed
+
+## Evidence
+
+- [Evidence and auditor reports](evidence-and-auditor-reports.md) — verifying the signed evidence record, which
+  is free and works offline (for auditors, and after a subscription ends)
+
+## Compliance packs (with a subscription)
+
+Adopted with `gov pack add <id>`, which opens a policy pull request; never written in place.
+
+- `policies/common/packs/<id>.md` — the pack's policy text, once your organization adopts it
+- `policies/packs/<id>.yaml` — which of your rules evidence each of the pack's controls
+- [Evidence, and the seam to a paid module](../../framework-specification.md#124-evidence-and-the-seam-to-a-paid-module)
+
+## Infrastructure
+
+- [CI/CD spec](../reference/org_gov_repo_operations.md)
+- [gov-validate workflow reference](../../build/templates/gov-validate.reference.yml) — the framework's
+  current CI workflow, shipped to diff against your own
+
+## Templates
+
+- [Guidance templates](../../build/templates/) — todo, preferences, repo agent, compliance, project impact

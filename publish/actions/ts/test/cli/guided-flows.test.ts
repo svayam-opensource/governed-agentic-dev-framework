@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { harnessAtDefault } from "../helpers/harness-at-default.js";
+import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, unauthorizedAgentLines, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
@@ -169,6 +170,42 @@ describe("gov-work — guided Work flow", () => {
     expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false, promptText: "GO" });
   });
 
+  // PRJ-121, 2026-09-22 — found on a walk as root in `docker run … bash`, where $SHELL is unset. The fallback was
+  // a hardcoded /bin/zsh (macOS's), absent from every Linux image an adopter arrives on, so declining the agent
+  // printed `could not launch '/bin/zsh'` and left the person with no agent AND no shell.
+  it("with no $SHELL, opens a shell that is actually on the machine — never zsh by assumption", () => {
+    const on = (...present: string[]) => (p: string) => present.includes(p);
+    const noShell = {} as NodeJS.ProcessEnv;
+    // A Rocky/Debian/Ubuntu image: bash, no zsh. (Linux, whatever this test runs on — Windows has its own rule.)
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/bash", "/bin/sh"), "linux")!.cmd).to.equal("/bin/bash");
+    // A minimal image with only POSIX sh.
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/sh"), "linux")!.cmd).to.equal("/bin/sh");
+    // zsh is never chosen on assumption, even where it exists — bash comes first when $SHELL says nothing.
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/zsh", "/bin/bash", "/bin/sh"), "linux")!.cmd).to.equal("/bin/bash");
+    // Windows: PowerShell 7 when it is on PATH, else the console's own shell.
+    expect(agentLaunchSpec("shell", "/p", "GO", { ComSpec: "C:\\Windows\\system32\\cmd.exe" } as NodeJS.ProcessEnv, undefined, () => false, "win32")!.cmd).to.equal("C:\\Windows\\system32\\cmd.exe");
+  });
+
+  // PRJ-121, 2026-09-22 — `bob -p` is ONE-SHOT: on a walk it answered the protocol, printed its Task ID and exited,
+  // leaving a manifest that said "Awaiting: your direction" to a shell. `bob chat --resume <id>` reopens it with
+  // the history (verified on the walk). The pattern is tested against the line exactly as Bob printed it.
+  it("IBM Bob: the protocol goes by -p, and the session comes back by resume, with the id Bob printed", () => {
+    const spec = agentLaunchSpec("ibm-bob", "/p", "GO")!;
+    expect(spec.args).to.deep.equal(["-p", "GO"]);
+    expect(spec.resume!.argv).to.deep.equal(["chat", "--resume", "{taskId}"]);
+    expect(spec.resume!.pickerArgv, "no id → Bob's own task list, never a guess").to.deep.equal(["chat", "--resume"]);
+    const fromTheWalk = "Assistant Messages:      1\nTool Calls:              18\nTask ID:                 7cf32c9e9c54ac18f1519a07d741c94b\n";
+    expect(spec.resume!.taskIdPattern.exec(fromTheWalk)?.[1]).to.equal("7cf32c9e9c54ac18f1519a07d741c94b");
+  });
+
+  it("an agent whose first message does NOT end the session gets no resume step", () => {
+    expect(agentLaunchSpec("claude-code", "/p", "GO")!.resume).to.equal(undefined);
+  });
+
+  it("a $SHELL that is set still wins — the person's own shell, unchanged", () => {
+    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/usr/bin/zsh" } as NodeJS.ProcessEnv, undefined, () => false)!.cmd).to.equal("/usr/bin/zsh");
+  });
+
   it("EVERY cli agent in the catalog launches its own binary — not a shell (#199)", () => {
     // Five of the seven used to collapse to "shell": codex, gemini, copilot, bob, aider. gov then
     // announced the agent had started, and opened a bare prompt.
@@ -199,10 +236,11 @@ describe("gov-work — guided Work flow", () => {
     expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // bob WAS the example of "unverified, so launch bare and hand the prompt back to be pasted".
-    // It is verified now — `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>
-    // Prompt to send to the agent`. The old expectation was correct discipline and a stale fact.
+    // `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>  Prompt to send to the agent`.
+    // That verified Bob ACCEPTS the flag, not what it does: a walk on 2026-09-21 showed `-p` is one-shot — it
+    // answers and exits — so the spec now also carries `resume` (asserted in its own test below).
     expect(agentLaunchSpec("ibm-bob", "/p", "GO"))
-      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
+      .to.deep.include({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // THE PASTE PATH IS STILL REACHABLE, and still the right answer where nobody has looked.
     // `aider` installs from PyPI, so the npm sweep that answered the others could not answer it.
@@ -237,7 +275,7 @@ describe("gov-work — guided Work flow", () => {
   it("ensureRootProtocol writes NO Claude special case — no @-import stub, no SessionStart hook", () => {
     // BOTH MECHANISMS REMOVED BY RULING (Policy Owner, 2026-09-11): one mechanism for all
     // agents, because a special case that makes one vendor better-governed biases the agent
-    // choice at Q10 for a reason unrelated to the agent. The @-import also failed differently —
+    // choice at Q11 for a reason unrelated to the agent. The @-import also failed differently —
     // it resolved at READ time, so a broken workspace path gave Claude an empty context with
     // no error, where every other agent would have had the text or nothing at all.
     const writes: Array<[string, string]> = [];
@@ -247,7 +285,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: () => {},
     };
-    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
     expect(byPath["/work/PRJ-9-infra/CLAUDE.md"], "no stub written from thin air").to.equal(undefined);
     expect(byPath["/work/PRJ-9-infra/.claude/settings.json"], "no hook gov owns").to.equal(undefined);
@@ -259,12 +297,13 @@ describe("gov-work — guided Work flow", () => {
     const fs = {
       ...fsWith([]),
       // CLAUDE.md is in the mirrored list now — same rendered text as every other agent.
-      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md"))
+      readFile: (f: string) => (px(f).includes("/agent/harness/")
+        && (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md")))
         ? `# rendered protocol (${f})` : null,   // these rendered; others absent
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const written = writes.map(([p]) => p);
     expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude — copied, like the rest
     expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
@@ -280,13 +319,13 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => f.endsWith("CLAUDE.md") ? "# rendered protocol" : null,
+      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol\n" : null),
       writeFile: (p: string, c: string) => w.push([p, c]),
       mkdirp: (d: string) => dirs.push(d),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol");
+    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol\n");
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "and no hook").to.equal(undefined);
     expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "handed over as argv")
       .to.deep.equal(["KICK"]);
@@ -294,16 +333,16 @@ describe("gov-work — guided Work flow", () => {
 
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
     const w: Array<[string, string]> = [];
-    const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK")!.args, "speak-first").to.deep.equal(["KICK"]);
   });
 
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
     const w: Array<[string, string]> = [];
-    const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
       .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK", promptText: "KICK" });   // cwd verbatim, prompt carried
@@ -329,7 +368,7 @@ describe("work — non-TTY session start", () => {
     // the prompt must name the four files the session-start protocol requires
     expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
     expect(s?.prompt).to.contain("gov_repo/projects/PRJ-43-gov/agent.md");
-    expect(s?.prompt).to.contain("org-ai-agent-governance-policy.md");
+    expect(s?.prompt).to.contain("framework-specification.md");
     expect(s?.prompt).to.contain("todo.md");
   });
 
@@ -474,6 +513,35 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
     });
   });
 
+  // PRJ-121 intent 05, Item 4, ruling Q5: the live joiner journey drives gov with flags only. `--no-launch` sets the
+  // project up exactly as without it — join (or seed, with --seed) — and stops at "ready", starting nothing.
+  describe("--no-launch", () => {
+    it("joins a project someone else seeded, says where it is, launches nothing and asks nothing", async () => {
+      const { deps: d, ran, launched, out } = deps({ fs: fsWith([]), prompt: async () => { throw new Error("must not prompt"); },
+        projects: projects([{ number: 7, title: "Alpha", seeded: true }]) as never });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", noLaunch: true, interactive: false });
+      expect(code, out.join("\n")).to.equal(0);
+      expect(ran.map((a) => a[0]), "the project was joined").to.include("join");
+      expect(launched, "nothing was started").to.deep.equal([]);
+      expect(out.join("\n")).to.match(/is ready at:/).and.to.match(/--no-launch: nothing started/);
+    });
+
+    it("needs no --agent: without a terminal it does not fail on the agent question", async () => {
+      const { deps: d, launched, out } = deps({ fs: fsWith(ready) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", noLaunch: true, interactive: false });
+      expect(code).to.equal(0);
+      expect(launched).to.deep.equal([]);
+      expect(out.join("\n")).to.not.match(/--agent=/);
+    });
+
+    it("still refuses to START an unseeded project without --seed", async () => {
+      const { deps: d, ran } = unseededDeps();
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-9", noLaunch: true, interactive: false });
+      expect(code).to.equal(1);
+      expect(ran.map((a) => a[0])).to.not.include("seed");
+    });
+  });
+
   describe("--print-prompt", () => {
     it("emits the prompt through the stdout channel and launches nothing", async () => {
       const printed: string[] = [];
@@ -499,50 +567,108 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
 });
 
 describe("gov-work — the agent menu offers what exists (#195)", () => {
-  it("nothing installed and an org default → offers to install THAT, then starts it", async () => {
-    // The joiner's ordinary case, not an edge one: a new machine, a new person, a
-    // container. The adopter chose a default for exactly this moment (#196, Q3), so
-    // printing a list and stepping aside leaves the person who most needs help
-    // holding a command to retype.
+  // An org's list now goes through the picker (2026-10-08): every approved agent, installed or not. The answers
+  // route by question — the picker's `Choose [..]`, the install's `Install … now?` — and anything else is the
+  // project picker's "1".
+  const route = (choose: string[], install: string[] = []) => {
+    const c = [...choose]; const i = [...install];
+    return async (q: string): Promise<string> =>
+      /Choose \[/.test(q) ? (c.shift() ?? "zz") : /Install .* now\?/.test(q) ? (i.shift() ?? "n") : "1";
+  };
+
+  it("nothing installed and an org default → Enter offers to install THAT, then starts it", async () => {
+    // The joiner's ordinary case: a new machine, a new person, a container (#196, Q3).
     const installed: string[] = [];
     const { deps: d, out, launched } = deps({
       hasTool: () => false,
-      approvedAgents: () => [{ id: "claude-code", default: true }],
+      approvedAgents: () => [{ id: "claude-code", default: true }, { id: "cursor" }],
       installAgent: (id: string) => { installed.push(id); return true; },
-      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+      prompt: route([""], ["y"]),
     });
     await runWorkFlow(d);
-    expect(out.join("\n")).to.contain("Your organization's default is Claude Code");
+    expect(out.join("\n")).to.match(/1\) Claude Code\s+not installed — choose it to install now · organization default/);
     expect(installed).to.deep.equal(["claude-code"]);
     expect(launched[0]?.[0], "and it starts, rather than telling you to re-run").to.equal("claude-code");
   });
 
   it("an agent that installs but cannot run is NOT announced as started (#200)", async () => {
-    // `installAgent` answers "can it run", not "did npm succeed". An agent waiting on an API key
-    // used to be reported ready and then launched — which, before #199, meant a bare shell wearing
-    // its name. The project is still made; only the claim is withdrawn.
+    // `installAgent` answers "can it run", not "did the installer succeed". The claim is withdrawn and the person
+    // is back at the list; three misses end in a shell, called a shell.
     const { deps: d, out, launched } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "ibm-bob", default: true }],
       installAgent: () => false,                       // installed, no key: not usable
-      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+      prompt: route(["", "", ""], ["y", "y", "y"]),
     });
     await runWorkFlow(d);
     expect(out.join("\n"), "no false claim").to.not.match(/IBM Bob is ready/);
     expect(out.join("\n")).to.match(/IBM Bob is not ready yet/);
-    expect(out.join("\n"), "and the project still exists").to.match(/The project is ready at/);
     expect(launched.map(([a]) => a), "a shell, called a shell").to.deep.equal(["shell"]);
   });
 
-  it("declining the install still gets you a working shell", async () => {
-    const { deps: d, out, launched } = deps({
+  it("declining every install still gets you a working shell — never a silent install", async () => {
+    const { deps: d, launched } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "claude-code", default: true }],
       installAgent: () => { throw new Error("must not be called"); },
-      prompt: async (q: string) => (/Install/.test(q) ? "n" : "1"),
+      prompt: route(["", "", ""], ["n", "n", "n"]),
     });
     await runWorkFlow(d);
-    expect(out.join("\n")).to.contain("No AI agent is installed");
+    expect(launched[0]?.[0]).to.equal("shell");
+  });
+
+  // PRJ-121, 2026-09-22 — the Policy Owner, on a walk: "I was expecting to see a choice of approved agents rather
+  // than forced to use just the default."
+  it("every APPROVED agent is offered, in the org's order, the default pre-selected", async () => {
+    const asked: string[] = [];
+    const { deps: d, out } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "claude-code" }, { id: "ibm-bob", default: true }, { id: "openai-codex" }],
+      installAgent: () => true,
+      prompt: async (q: string) => { asked.push(q); return route([""], ["y"])(q); },
+    });
+    await runWorkFlow(d);
+    const menu = out.join("\n");
+    expect(menu).to.match(/1\) Claude Code/).and.to.match(/2\) IBM Bob\s+not installed.*organization default/).and.to.match(/3\) OpenAI Codex/);
+    expect(asked, "Enter means the default").to.include("  Choose [1/2/3] (Enter = 2, IBM Bob) : ");
+  });
+
+  it("picking a NON-default approved agent installs and starts THAT one", async () => {
+    const installed: string[] = [];
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: route(["2"], ["y"]),
+    });
+    await runWorkFlow(d);
+    expect(installed, "not the default — the one chosen").to.deep.equal(["claude-code"]);
+    expect(launched[0]?.[0]).to.equal("claude-code");
+  });
+
+  it("a bad answer is asked again, and three of them leave you in a shell — never a silent install", async () => {
+    let n = 0;
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
+      installAgent: () => { throw new Error("must not be called"); },
+      prompt: async (q: string) => (/Choose \[/.test(q) ? (n++, "zz") : "1"),
+    });
+    await runWorkFlow(d);
+    expect(n, "asked three times").to.equal(3);
+    expect(launched[0]?.[0]).to.equal("shell");
+  });
+
+  it("with no default, Enter chooses nothing — gov never installs what nobody picked", async () => {
+    const asked: string[] = [];
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob" }, { id: "claude-code" }],
+      installAgent: () => { throw new Error("must not be called"); },
+      prompt: async (q: string) => { asked.push(q); return /Choose \[/.test(q) ? "" : "1"; },
+    });
+    await runWorkFlow(d);
+    expect(asked, "and the prompt names no default").to.include("  Choose [1/2] : ");
     expect(launched[0]?.[0]).to.equal("shell");
   });
 
@@ -568,15 +694,15 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     expect(launched[0]?.[0]).to.equal("claude-code");
   });
 
-  it("offers a menu when neither layer decides, and says what each choice does", async () => {
-    const { deps: d, out } = deps({
+  it("two installed and no default: the picker asks, and opens the one chosen", async () => {
+    const { deps: d, out, launched } = deps({
       hasTool: (c: string) => c === "claude" || c === "cursor-agent",
       approvedAgents: () => [{ id: "claude-code" }, { id: "cursor" }],   // two, no default
+      prompt: route(["2"]),
     });
     await runWorkFlow(d);
-    const text = out.join("\n");
-    expect(text).to.contain("runs the agent here, with the rules loaded");
-    expect(text, "the option that always works, explained").to.contain("No AI involved");
+    expect(out.join("\n")).to.match(/1\) Claude Code\s+installed/).and.to.match(/2\) Cursor\s+installed/);
+    expect(launched[0]?.[0]).to.equal("cursor");
   });
 
   it("honours the org's approved list over what happens to be installed", async () => {
@@ -588,7 +714,7 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     // Claude is installed and NOT approved here — offering it would put gov's own
     // menu in breach of the policy it seeded.
     expect(out.join("\n")).to.not.contain("Claude Code");
-    expect(out.join("\n")).to.contain("the only approved agent installed here");
+    expect(out.join("\n")).to.contain("the only agent your organization approves");
     expect(launched[0]?.[0]).to.equal("cursor");
   });
 });
@@ -643,41 +769,41 @@ describe("gov-work — the fork question is asked where the terminal is (#194)",
 });
 
 /**
- * POL-086a — WHICH BRANCH THE AGENT IS POINTED AT (C01).
+ * GOV-FRM-456 — WHICH BRANCH THE AGENT IS POINTED AT (C01).
  *
  * The prompt used to read everything from `<project>/<workspace-repo>/…`, a worktree on the
- * PROJECT branch. POL-086a is explicit that org knowledge, the protocol and policies "must be
+ * PROJECT branch. GOV-FRM-456 is explicit that org knowledge, the protocol and policies "must be
  * built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project branch", while
  * `projects/PRJ-…/` is read from the project branch.
  *
- * That is not a technicality. POL-086b lets a project branch edit org knowledge as a PROPOSAL
+ * That is not a technicality. GOV-FRM-086 lets a project branch edit org knowledge as a PROPOSAL
  * with no governing force — so pointing the agent at the same branch makes an unratified edit
- * the thing it obeys. Self-governing, which POL-086b prohibits in as many words, reachable by
+ * the thing it obeys. Self-governing, which GOV-FRM-086 prohibits in as many words, reachable by
  * accident rather than by intent.
  */
-describe("gov-work — the session prompt reads governance from the default branch (POL-086a)", () => {
+describe("gov-work — the session prompt reads governance from the default branch (GOV-FRM-456)", () => {
   const GOV = "/home/t/.gov/acme/gov_repo";
 
   it("governance comes from the default-branch clone, not the worktree", () => {
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
     expect(p, "org-config from the default branch").to.contain(`${GOV}/org-config.yaml`);
-    expect(p, "and the policy too").to.contain(`${GOV}/governance/policies/org-ai-agent-governance-policy.md`);
+    expect(p, "and the policy too").to.contain(`${GOV}/framework/framework-specification.md`);
     expect(p, "never the worktree copy of the policy")
-      .to.not.contain("acme-gov/governance/policies/org-ai-agent-governance-policy.md");
+      .to.not.contain("acme-gov/framework/framework-specification.md");
   });
 
   it("project paths still come from the project branch", () => {
-    // The other half of POL-086a: `projects/PRJ-…/` IS the project branch's, and reading it
+    // The other half of GOV-FRM-456: `projects/PRJ-…/` IS the project branch's, and reading it
     // from the default branch would show the state before this project started.
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
     expect(p).to.contain("acme-gov/projects/PRJ-9-infra/agent.md");
     expect(p).to.contain("acme-gov/projects/PRJ-9-infra/knowledge/todo.md");
   });
 
-  it("says WHICH branch governs, so the agent can apply POL-086b itself", () => {
+  it("says WHICH branch governs, so the agent can apply GOV-FRM-086 itself", () => {
     // The agent is told the rule, not just handed two paths — it has to refuse to treat a
     // project-branch edit as authority, and it cannot do that without knowing which is which.
-    expect(sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV)).to.contain("POL-086a");
+    expect(sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV)).to.contain("GOV-FRM-086");
   });
 
   it("falls back to the worktree when no govHome is known, rather than naming a dead path", () => {
@@ -685,5 +811,446 @@ describe("gov-work — the session prompt reads governance from the default bran
     // stops the session. Neither is good, and the first at least proceeds.
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov");
     expect(p).to.contain("acme-gov/org-config.yaml");
+  });
+});
+
+
+// PRJ-121, 2026-09-22 — a local walk: pages of 11, then 1, then 7; every `m` re-ran a 10-second gh call; a
+// dropped connection was reported as "no projects"; and Work, promised as "continue the current project",
+// listed every project instead.
+describe("Work — paging, the board cache, an honest failure, the current project", () => {
+  // 40 boards; only every 4th is mine (anchored to rk), the rest belong to others — so a board-sized page
+  // would show a quarter of its size, varying.
+  const many = Array.from({ length: 40 }, (_, i) => ({ number: 100 - i, title: `P${100 - i}` }));
+  const mine = Object.fromEntries(many.filter((_, i) => i % 4 === 0).map((b) => [b.number, ["rk"]]));
+  const others = Object.fromEntries(many.filter((_, i) => i % 4 !== 0).map((b) => [b.number, ["someone-else"]]));
+
+  // The same arithmetic, now on the ONE list whose eligibility costs a call per board: "you could start".
+  // 40 un-anchored boards, of which every 4th is writable — a board-sized page would show a quarter of its
+  // size, varying, which is precisely the 11-then-1-then-7 defect.
+  const writableEvery4th = (n: number): boolean => (100 - n) % 4 === 0;
+
+  it("a page is FULL — `limit` of the boards I can start, scanning as many as that takes", () => {
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({}), canWriteBoard: writableEvery4th });
+    const first = unstartedPage(d, 5, 0);
+    expect(first.items).to.have.length(5);
+    expect(first.more).to.equal(true);
+    const second = unstartedPage(d, 5, first.nextOffset);
+    expect(second.items).to.have.length(5);
+    expect(second.items[0]!.boardNumber, "no project skipped or repeated").to.be.lessThan(first.items[4]!.boardNumber);
+  });
+
+  it("the last page says there is no more", () => {
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({}), canWriteBoard: writableEvery4th });
+    const all = unstartedPage(d, 100, 0);
+    expect(all.items).to.have.length(10);
+    expect(all.more).to.equal(false);
+  });
+
+  it("the board list is fetched ONCE per flow, however many pages are shown", async () => {
+    let calls = 0;
+    const counted: Projects = { listBoards: (o) => { calls++; return projects(many).listBoards(o); } };
+    const answers = ["m", "m", "0"];
+    const { deps: d } = deps({ projects: counted, anchor: anchorFor({ ...mine, ...others }), prompt: async () => answers.shift() ?? "0" });
+    await runWorkFlow(d);
+    expect(calls).to.equal(1);
+  });
+
+  it("GitHub not answering is said as that — never 'no projects'", async () => {
+    const failing: Projects = { listBoards: () => [], lastFailure: () => "Command failed: gh project list … EOF" };
+    const { deps: d, out } = deps({ projects: failing });
+    const code = await runWorkFlow(d);
+    expect(code).to.equal(1);
+    expect(out.join("\n")).to.contain("Could not reach GitHub").and.not.contain("No active or startable projects");
+  });
+
+  it("an empty answer that DID come back is still 'no projects', without the retired Admin ▸ manage hint", async () => {
+    const { deps: d, out } = deps({ projects: projects([]) });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("No active or startable projects").and.not.contain("Admin ▸ manage");
+  });
+
+  it("standing in a project, Work continues IT — no list", async () => {
+    const { deps: d, out } = deps({ prompt: async () => { throw new Error("should not ask for a project"); } });
+    await runWorkFlow(d, { currentProject: "PRJ-7-alpha", printPromptOnly: true });
+    const text = out.join("\n");
+    expect(text).to.contain("Continuing PRJ-7-alpha — the project you are in");
+    expect(text).to.not.contain("Select a project");
+  });
+
+  it("a named --project wins over the one you stand in", async () => {
+    const { deps: d, out } = deps({ projects: projects([{ number: 7, title: "Alpha" }, { number: 8, title: "Beta" }]), anchor: anchorFor({ 7: ["rk"], 8: ["rk"] }) });
+    await runWorkFlow(d, { currentProject: "PRJ-7-alpha", projectPattern: "beta", printPromptOnly: true });
+    expect(out.join("\n")).to.not.contain("Continuing PRJ-7-alpha");
+  });
+});
+
+/**
+ * AN ORGANIZATION THAT RUNS NO AI AGENTS — gov's fixed process, complete on its own.
+ *
+ * Fixed behaviour must be complete on its own; agentic behaviour is additive. An org that recorded
+ * `authorized_agents: none` used to meet the agent machinery anyway: `approvedAgents()` returned an
+ * empty list, that was read as "has not decided", and the whole framework catalogue was offered for
+ * install. The decision had been made; gov argued with it.
+ */
+/**
+ * GOV-FRM-461 — `--agent=<id>` IS CHECKED AGAINST authorized_agents, like the menu.
+ *
+ * The menu offered approved agents only, but the flag (and `$GOV_AGENT`, which resolves into it) went straight to
+ * the launch: the one path a script takes skipped the organization's decision.
+ */
+describe("gov-work — --agent must be an authorized agent (GOV-FRM-461)", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+  const onlyBob = () => [{ id: "ibm-bob", default: true }];
+
+  it("GOV-FRM-461: refuses to launch an agent the organization did not authorize, and says what to do", async () => {
+    const { deps: d, out, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob, prompt: async () => { throw new Error("must not ask"); } });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
+    const text = out.join("\n");
+    expect(code).to.equal(2);
+    expect(launched, "nothing started").to.deep.equal([]);
+    expect(text).to.contain("`--agent=claude` names an agent your organization has not authorized");
+    expect(text, "what IS authorized").to.contain("lists: ibm-bob");
+    expect(text, "and both ways forward").to.contain("--agent=<id>").and.contain("gov agent approve claude-code");
+  });
+
+  it("GOV-FRM-461: launches an authorized agent named by flag, alias or catalog id", async () => {
+    for (const agent of ["ibm-bob"]) {
+      const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob });
+      expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent, interactive: false })).to.equal(0);
+      expect(pxDeep(launched)).to.deep.equal([[agent, seeded]]);
+    }
+    const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: () => [{ id: "claude-code" }] });
+    expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false })).to.equal(0);
+    expect(launched.length).to.equal(1);
+  });
+
+  it("GOV-FRM-461: cursor-gui is Cursor — authorized exactly when cursor is", () => {
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "cursor" }])).to.equal(null);
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "claude-code" }])).to.not.equal(null);
+  });
+
+  it("GOV-FRM-461: an org that has not decided falls back to the framework's list, and the refusal says so", () => {
+    expect(unauthorizedAgentLines("claude-code", null), "on the framework's list").to.equal(null);
+    expect(unauthorizedAgentLines("windsurf", null)!.join("\n"), "deferred, so not on it").to.contain("has not chosen its agents yet");
+  });
+
+  it("a shell is never an agent, so it is never refused", () => {
+    expect(unauthorizedAgentLines("shell", [{ id: "ibm-bob" }])).to.equal(null);
+  });
+});
+
+describe("gov-work — structure-only: agents off, process intact", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+  /** The `[]` the reader produces from `authorized_agents: none` — an answer, not a gap. */
+  const none = () => [] as readonly { readonly id: string }[];
+
+  it("explains that agents are off, names the file and the way to turn them on", async () => {
+    const { deps: d, out } = deps({ fs: fsWith(ready), approvedAgents: none, prompt: async () => { throw new Error("must not ask"); } });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    const text = out.join("\n");
+    expect(code).to.equal(0);
+    expect(text).to.contain("AI agents are OFF for this organization");
+    expect(text).to.contain("authorized_agents: none");
+    expect(text, "and the one command that changes it").to.contain("gov agent approve <id>");
+  });
+
+  it("does not offer, install or launch an agent — and never asks which", async () => {
+    const installed: string[] = [];
+    const { deps: d, out, launched } = deps({
+      fs: fsWith(ready), approvedAgents: none, hasTool: () => false,
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async () => { throw new Error("must not ask"); },
+    });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    const text = out.join("\n");
+    expect(installed, "nothing installed on an org that authorized nothing").to.deep.equal([]);
+    expect(launched.map((l) => l[0]), "a shell, which is the whole point of the fixed process").to.deep.equal(["shell"]);
+    expect(text, "the framework's list is NOT proposed as theirs").to.not.contain("Which would you like to install");
+    expect(text).to.not.contain("No AI agent is installed");
+    expect(text).to.not.contain("Claude Code");
+  });
+
+  it("GOV-FRM-446 the project itself is still made ready — the process is what they came for", async () => {
+    const { deps: d, out, ran } = deps({ fs: fsWith([]), approvedAgents: none, prompt: async () => "y" });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    expect(ran.map((a) => a[0]), "it still clones/seeds").to.include("join");
+    expect(pxAbs(out.join("\n"))).to.contain(seeded);
+  });
+
+  it("refuses an explicit --agent rather than quietly opening a shell and reporting success", async () => {
+    // Substituting a shell and calling it done is the fallback-indistinguishable-from-success
+    // shape this flow keeps removing (#199). A script that asked for an agent must hear no.
+    const { deps: d, out, launched } = deps({ fs: fsWith(ready), approvedAgents: none });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude-code", interactive: false });
+    expect(code).to.equal(2);
+    expect(launched, "nothing started").to.deep.equal([]);
+    expect(out.join("\n")).to.contain("--agent=claude-code` cannot be honoured");
+    expect(out.join("\n"), "and both ways forward are named").to.contain("--agent=shell");
+  });
+
+  it("--agent=shell is still honoured — a shell was never an agent", async () => {
+    const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: none });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", interactive: false });
+    expect(code).to.equal(0);
+    expect(pxDeep(launched)).to.deep.equal([["shell", seeded]]);
+  });
+
+  it("an org that has NOT decided is untouched — it still gets the framework's list", async () => {
+    // The distinction this whole change rests on: null is a gap, [] is a decision.
+    const { deps: d, out } = deps({
+      fs: fsWith(ready), approvedAgents: () => null, hasTool: () => false,
+      prompt: async () => "",
+    });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    expect(out.join("\n")).to.not.contain("AI agents are OFF");
+  });
+
+  it("ensureRootProtocol mirrors NOTHING — nine vendor files for nine tools they do not use", () => {
+    // The worst of it: CLAUDE.md, GEMINI.md, AGENTS.md, .cursor/, .clinerules/ and the rest
+    // appeared in every project directory of an org that had told gov it runs no agents.
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
+        ? "authorized_agents: none\n"
+        : "# rendered protocol"),                            // everything IS rendered — and still not mirrored
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
+    expect(r.structureOnly).to.equal(true);
+    expect(r.placed).to.deep.equal([]);
+    expect(writes, "not one vendor file").to.deep.equal([]);
+  });
+
+  it("…and mirrors everything as before for an org that DID authorize an agent", () => {
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
+        ? 'authorized_agents:\n  default: "claude-code"\n'
+        : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
+    expect(r.structureOnly).to.equal(false);
+    expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
+    expect(r.placed.length, "every rendered file").to.be.greaterThan(1);
+  });
+
+  it("an UNANSWERED org-config mirrors as before — only a decision turns the mirror off", () => {
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
+        ? 'org_name: "Acme"\nauthorized_agents:\n  default: ""\n'                // the shipped template
+        : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs)).structureOnly).to.equal(false);
+    expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
+  });
+});
+
+/**
+ * EVERY APPROVED AGENT IS A CHOICE (Policy Owner, 2026-10-08) — and an agent whose ACCOUNT stops it is said to be
+ * stopped, not sent round the first-run loop (F24).
+ *
+ * svm-geneva approved IBM Bob (default), OpenAI Codex and Claude Code; only Bob was installed. gov said "Using IBM
+ * Bob — the only approved agent installed here" and launched it. Then Bob's free trial had expired, and gov called
+ * that a first-run step and offered to open Bob again.
+ */
+describe("gov-work — the agent picker lists every approved agent (2026-10-08)", () => {
+  const GENEVA = [{ id: "ibm-bob", default: true }, { id: "openai-codex" }, { id: "claude-code" }];
+
+  /** A Geneva machine: Bob only. `answers` are the agent picker's, in order; installs answer from `install`. */
+  function geneva(over: Partial<WorkFlowDeps> & { answers?: string[]; install?: string[] } = {}) {
+    const asked: string[] = [];
+    const installed: string[] = [];
+    const answers = [...(over.answers ?? [""])];
+    const install = [...(over.install ?? [])];
+    const { answers: _a, install: _i, ...rest } = over;
+    const made = deps({
+      hasTool: (c: string) => c === "bob",
+      approvedAgents: () => GENEVA,
+      config: { githubOrg: "svm-geneva", workspaceRepo: "acme-gov", agentWorkRoot: "/work", orgName: "Geneva ERS" },
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async (q: string) => {
+        asked.push(q);
+        if (/Choose \[/.test(q)) return answers.shift() ?? "zz";
+        if (/Install .* now\?/.test(q)) return install.shift() ?? "n";
+        return "1";
+      },
+      ...rest,
+    });
+    return { ...made, asked, installed };
+  }
+
+  it("shows all three, says what each costs, and Enter opens the default", async () => {
+    const { deps: d, out, asked, launched } = geneva();
+    expect(await runWorkFlow(d)).to.equal(0);
+    const text = out.join("\n");
+    expect(text).to.contain([
+      "  Agent for PRJ-7 (approved by Geneva ERS):",
+      "    1) IBM Bob        installed · organization default",
+      "    2) OpenAI Codex   not installed — choose it to install now",
+      "    3) Claude Code    not installed — choose it to install now",
+    ].join("\n"));
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+    expect(text, "no silent pick any more").to.not.contain("the only approved agent installed here");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("choosing an agent that is not installed offers the install, then opens it", async () => {
+    const { deps: d, installed, launched } = geneva({ answers: ["2"], install: ["y"] });
+    await runWorkFlow(d);
+    expect(installed).to.deep.equal(["openai-codex"]);
+    expect(launched.map(([a]) => a)).to.deep.equal(["openai-codex"]);
+  });
+
+  it("declining the install goes back to the list — nothing installed, nothing opened behind your back", async () => {
+    const { deps: d, installed, launched, asked } = geneva({ answers: ["3", "1"], install: ["n"] });
+    await runWorkFlow(d);
+    expect(installed).to.deep.equal([]);
+    expect(asked.filter((q) => /Choose \[/.test(q)), "asked twice").to.have.length(2);
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("an install that does not leave the agent ready goes back to the list too", async () => {
+    const { deps: d, out, launched } = geneva({ answers: ["2", "1"], install: ["y"], installAgent: () => false });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("OpenAI Codex is not ready yet");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  // ── Policy Owner, 2026-10-12: a list only when there is a choice; Enter is what you used LAST TIME ───────────
+  /** An in-memory disk holding gov's per-person state; nothing else exists on it. */
+  const memFs = (seed: Record<string, string> = {}) => {
+    const files = new Map<string, string>(Object.entries(seed).map(([k, v]) => [px(k), v]));
+    const fs: Fs = { ...fsWith([]), readFile: (f) => files.get(px(f)) ?? null, writeFile: (f, c) => { files.set(px(f), c); }, mkdirp() {} };
+    return { fs, files };
+  };
+  const RECORD_7 = "/work/preferences/rk/state/agent/PRJ-7-alpha.json";
+  const last = (agent: string) => JSON.stringify({ agent, at: "2026-10-11T00:00:00.000Z" });
+
+  it("resuming a project: Enter is the agent you used LAST TIME on it", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, asked, out, launched } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "claude", answers: [""] });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 3, Claude Code) : ");
+    expect(out.join("\n")).to.match(/3\) Claude Code\s+installed · used last time/);
+    expect(launched.map(([a]) => a)).to.deep.equal(["claude-code"]);
+  });
+
+  it("last time's agent no longer installed: Enter falls back to the org default", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, asked } = geneva({ fs, answers: ["1"] });   // Bob only on this machine
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+  });
+
+  it("last time's agent the org no longer approves: Enter falls back to the org default", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("cursor") });
+    const { deps: d, asked } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "cursor-agent", answers: ["1"] });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+  });
+
+  it("seeding a project from scratch: Enter is the org default, whatever an old record says", async () => {
+    const { fs } = memFs({ "/work/preferences/rk/state/agent/PRJ-9-infra.json": last("claude-code") });
+    const { deps: d, asked, launched } = geneva({
+      fs, hasTool: (c: string) => c === "bob" || c === "claude", answers: [""],
+      projects: projects([{ number: 9, title: "Infra" }]), anchor: anchorFor({}),
+    });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("the choice is recorded per project and per developer, locally, once it is made", async () => {
+    const { fs, files } = memFs();
+    const { deps: d } = geneva({ fs, answers: ["2"], install: ["y"] });
+    await runWorkFlow(d);
+    const rec = files.get(px(RECORD_7));
+    expect(rec, "written under the person's own state folder").to.be.a("string");
+    expect(JSON.parse(rec!).agent).to.equal("openai-codex");
+    // …and the next session on the project offers it as Enter.
+    const again = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "codex", answers: [""] });
+    await runWorkFlow(again.deps);
+    expect(again.asked).to.include("  Choose [1/2/3] (Enter = 2, OpenAI Codex) : ");
+  });
+
+  it("ONE approved agent, installed: no list, no prompt — one line says which and why", async () => {
+    const { fs, files } = memFs();
+    const { deps: d, out, asked, launched } = geneva({ fs, approvedAgents: () => [{ id: "ibm-bob", default: true }] });
+    await runWorkFlow(d);
+    expect(asked.some((q) => /Choose \[/.test(q)), "no prompt").to.equal(false);
+    expect(out.join("\n")).to.not.contain("Agent for");
+    expect(out.filter((l) => /IBM Bob/.test(l))).to.deep.equal(["  Opening IBM Bob — the only agent your organization approves."]);
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+    expect(JSON.parse(files.get(px(RECORD_7))!).agent, "and recorded like any choice").to.equal("ibm-bob");
+  });
+
+  it("work.agent.ask=never on a resumed project opens last time's agent, and says that is why", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, out, launched } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "claude" });
+    await runWorkFlow(d, { agentAsk: "never" });
+    expect(out.join("\n")).to.contain("Using Claude Code — the agent you used last time on this project.");
+    expect(launched.map(([a]) => a)).to.deep.equal(["claude-code"]);
+  });
+
+  it("work.agent.ask=never: no question — but gov names the agent and says how to change that", async () => {
+    const { deps: d, out, asked, launched } = geneva();
+    await runWorkFlow(d, { agentAsk: "never" });
+    expect(asked.some((q) => /Choose \[/.test(q))).to.equal(false);
+    expect(out.join("\n")).to.contain("Using IBM Bob");
+    expect(out.join("\n")).to.contain("gov preferences set work.agent.ask always");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("no terminal: no question, the default is used, and gov says so — it never hangs", async () => {
+    const { deps: d, out, launched } = geneva({
+      fs: fsWith(["/work/PRJ-7-alpha", "/work/PRJ-7-alpha/acme-gov/.git"]),
+      prompt: async () => { throw new Error("must not prompt"); },
+    });
+    expect(await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: false })).to.equal(0);
+    expect(out.join("\n")).to.match(/No terminal to ask in/);
+    expect(out.join("\n")).to.contain("IBM Bob");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("F24: an expired trial is said plainly, and the list comes back WITHOUT that agent", async () => {
+    const launches: string[] = [];
+    const { deps: d, out, asked, installed } = geneva({
+      answers: ["", "1"], install: ["y"],
+      launch: async (agent) => {
+        launches.push(agent);
+        return agent === "ibm-bob" ? { blocked: "account" as const, reason: "its account's free trial has expired" } : 0;
+      },
+    });
+    expect(await runWorkFlow(d)).to.equal(0);
+    const text = out.join("\n");
+    expect(text).to.contain("IBM Bob cannot run: its account's free trial has expired — that is between you and IBM, gov cannot fix it.");
+    expect(text, "not the first-run story").to.not.match(/licence|signing in/);
+    const second = text.slice(text.lastIndexOf("Agent for"));
+    expect(second, "Bob is gone from the second list").to.not.contain("IBM Bob");
+    expect(asked.filter((q) => /Choose \[/.test(q))[1]).to.equal("  Choose [1/2] : ");
+    expect(installed).to.deep.equal(["openai-codex"]);
+    expect(launches).to.deep.equal(["ibm-bob", "openai-codex"]);
+  });
+
+  it("F24: with no other approved agent left, gov stops and says where the project is", async () => {
+    const { deps: d, out } = geneva({
+      approvedAgents: () => [{ id: "ibm-bob", default: true }],
+      launch: async () => ({ blocked: "account" as const, reason: "its account's free trial has expired" }),
+    });
+    expect(await runWorkFlow(d)).to.equal(1);
+    expect(out.join("\n")).to.contain("gov cannot fix it");
+    expect(out.join("\n")).to.match(/No other approved agent/);
   });
 });

@@ -6,7 +6,7 @@
  * `python3`/`yq`). Query building and response parsing are pure and unit-tested;
  * the subprocess runner is injected so the adapter is testable without `gh`.
  */
-import { execFileSync } from "node:child_process";
+import { run as runProcess } from "../run-process.js";
 import type { BoardRef } from "./identity.js";
 import { type Board, type BoardProject, BoardFetchError } from "./board.js";
 
@@ -118,7 +118,31 @@ export function mergeBoardPages(acc: BoardProject, next: BoardProject): BoardPro
   };
 }
 
-const defaultRunGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8" });
+/**
+ * ONE RETRY FOR A DROPPED CONNECTION (PRJ-121, 2026-09-22). On a walk, `gh project list --limit 1000` — a
+ * 10–12 s GraphQL call on this org — failed with gh's bare `EOF` (GitHub closed the connection mid-response),
+ * and gov reported "No active or startable projects for you". Run by hand it succeeded three times running.
+ * A transient transport failure earns one retry; anything else (auth, a bad argument, 404) fails at once,
+ * because repeating it only doubles the wait for the same answer.
+ */
+const TRANSIENT = /\bEOF\b|\b50[234]\b|timed? ?out|timeout|connection reset|ECONNRESET|TLS handshake|stream error/i;
+
+export function isTransientGhError(e: unknown): boolean {
+  const x = e as { message?: string; stderr?: string | Buffer };
+  return TRANSIENT.test(`${x?.message ?? ""}\n${x?.stderr?.toString() ?? ""}`);
+}
+
+export function retryTransient(run: RunGh, pauseMs = 1500): RunGh {
+  return (args) => {
+    try { return run(args); } catch (e) {
+      if (!isTransientGhError(e)) throw e;
+      if (pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pauseMs);   // synchronous, like the call
+      return run(args);
+    }
+  };
+}
+
+const defaultRunGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:lifecycle:gh-board", fn: "gh" }));
 
 /** A {@link Board} backed by the `gh` CLI. `runGh` is injectable for tests. */
 export function createGhBoard(runGh: RunGh = defaultRunGh): Board {
@@ -177,14 +201,14 @@ export function createGhBoard(runGh: RunGh = defaultRunGh): Board {
         if (!proj?.id) return false;
         if (proj.title === title) return false;          // already says what we want
         nodeId = proj.id;
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return false;
       }
       try {
         const m = `mutation{updateProjectV2(input:{projectId:"${nodeId}",title:${JSON.stringify(title)}}){projectV2{id}}}`;
         runGh(["api", "graphql", "-f", `query=${m}`]);
         return true;
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return false;
       }
     },

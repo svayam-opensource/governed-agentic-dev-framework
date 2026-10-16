@@ -59,11 +59,16 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-# MATCHES THE RAW STREAM, WHICH CARRIES COLOUR. "Install IBM Bob now?" is painted bold
-# (#204), so escape codes sit between the `?` and the ` (Y/n)` — a pattern spanning them
-# never matches, and the run reads as a hang rather than a typo. Match inside one painted
-# run, never across its edges.
+# MATCHES THE RAW STREAM, WHICH MAY CARRY COLOUR (#204). Match inside one painted run, never
+# across its edges, or the run reads as a hang rather than a typo.
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
+< 1
 > Install IBM Bob now
+< y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
 < y
 # THE ASSERTION IS THAT THESE TWO PROMPTS ARE REACHED AND WAIT. Before the fix the whole
 # screen scrolled past unanswered, because a readline already held fd 0.
@@ -86,5 +91,22 @@ never "nothing was skipped" "Nothing saved."
 saw_re "the key was stored where a person can find it again" "written: .*preferences/.*/credentials"
 exists "and it really is on disk" "$HOME/.gov/acme/projects/preferences/$GH_STUB_LOGIN/credentials"
 runs grep -q "sk-test-not-a-real-key" "$HOME/.gov/acme/projects/preferences/$GH_STUB_LOGIN/credentials" \
-  && pass "the backup copy holds the key that was typed" \
+  && pass "the store holds the key that was typed" \
   || fail "the credentials file does not contain the key that was pasted"
+
+# A LATER SESSION GETS THE KEY (Policy Owner, 2026-09-22: credentials are stored in, and loaded from, the
+# preferences credentials file). Before, a key pasted once was gone the moment gov exited: the next session
+# started without it, and a headless machine was sent to a browser sign-in that cannot complete. So: a NEW gov
+# process, the key NOT in the environment, and the agent must still receive it — without it ever being printed.
+: > "$AGENT_DOUBLE_LOG"
+drive "$(conv <<'C'
+~ 180
+> $
+C
+)" env -u BOB_API_KEY GOV_YES=1 gov work --project=infra --agent=ibm-bob
+
+info "a later session loads the key gov stored — the person is not asked again"
+says "gov says it used the stored key" "Using the IBM Bob key gov stored for you"
+ran "and the agent it started received it" "env=BOB_API_KEY:set"
+never "and gov did not ask for the key again" "Paste the BOB_API_KEY"
+never "and the key itself is never printed" "sk-test-not-a-real-key"

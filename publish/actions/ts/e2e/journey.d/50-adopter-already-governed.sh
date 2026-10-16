@@ -25,7 +25,7 @@ drive "$(conv <<'C'
 ~ 120
 > Join acme/acme-gov now
 < Y
-> Active org
+> Install complete
 > start work now
 < n
 C
