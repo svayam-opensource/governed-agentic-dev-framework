@@ -11,6 +11,9 @@ name: node-ci
 #   container Debian · Fedora            (on the ubuntu host — glibc/toolchain differences, also free)
 
 on:
+  # Manual runs, on any branch: `gh workflow run node-ci.yml --ref <branch>`. How a Windows defect is
+  # iterated on by someone with no Windows machine — the hosted runner is the only one we have.
+  workflow_dispatch:
   # PRs: NO path filter — so the required checks always run + report (a path-filtered required check
   # blocks PRs that don't touch the paths, since the check never runs). Cached + fast when unchanged.
   pull_request:
