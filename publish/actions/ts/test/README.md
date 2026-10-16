@@ -8,6 +8,10 @@ Two **required** status checks protect `main`. Both are fixed *commands*, so
 `npm test` globs **`test/**/*.test.ts`**. A new case = a new `it()` or a new
 `*.test.ts` file. Auto-discovered, zero config.
 
+Each test may take up to **10s** (`.mocharc.json`; mocha's own default is 2s). A test that runs
+in under a second on a laptop can pass 2s on a loaded CI agent — Jenkins gov-work dev #21/#22 failed
+that way. A test that needs longer still sets `this.timeout(…)` itself.
+
 | put it here | for |
 |---|---|
 | `test/<area>/*.test.ts` | a function's / module's behavior |
