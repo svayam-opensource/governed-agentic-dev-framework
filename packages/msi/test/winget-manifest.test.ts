@@ -126,3 +126,20 @@ test("an UNSIGNED MSI lists exactly as a signed one would: hash of its own bytes
     assert.doesNotMatch(fs.readFileSync(path.join(out, f), "utf8"), /^\s*-?\s*(SignatureSha256|PublisherCertificate|CertificateThumbprint):/m, f);
   }
 });
+
+test("adopter-e2e / windows on a PRE-RELEASE head: the winget step says why it renders nothing; a clean release renders as before", () => {
+  // Policy Owner, 2026-10-16: MSI/winget carry clean releases only; pre-releases (`@next`) are npm-only. The job still
+  // builds, installs and test-signs a TEST MSI of a pre-release; only the listing — which renderWinget refuses — is
+  // skipped. Not with `if:`: a skipped step on a green run breaks green-streak.sh's "no step skipped".
+  const wf = fs.readFileSync(path.join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "adopter-e2e.yml"), "utf8");
+  const start = wf.indexOf("- name: winget manifests for Svayam.Gov");
+  assert.ok(start > 0, "the winget step exists");
+  const step = wf.slice(start, wf.indexOf("\n      - name:", start + 1));
+  assert.doesNotMatch(step, /^\s+if:/m, "the step always runs (no skipped step on a green run)");
+  const gate = step.indexOf("-notmatch '^\\d+\\.\\d+\\.\\d+$'");
+  assert.ok(gate > 0, "gates on a clean x.y.z version");
+  const render = step.indexOf("node packages/msi/scripts/winget.mjs");
+  assert.ok(gate < render, "the gate comes before rendering");
+  assert.match(step.slice(gate, render), /::notice::[^\n]*pre-release[^\n]*npm-only[^\n]*\n\s+exit 0/, "names the reason, then ends the step green");
+  assert.throws(() => renderWinget({ version: "2.0.0-next.1", installers }), /pre-release/, "what the gate protects against");
+});

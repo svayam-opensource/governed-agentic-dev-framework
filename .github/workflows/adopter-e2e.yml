@@ -243,7 +243,14 @@ jobs:
         env:
           GOV_MSI: ${{ steps.msi.outputs.x64 }}
           GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+        # MSI/winget carry CLEAN releases only; pre-releases (`@next`) are npm-only (Policy Owner, 2026-10-16). On a
+        # pre-release head the TEST MSI above is still built, test-signed and installed below; only the listing is not
+        # rendered. Ended green with a notice, not `if:` — a skipped step would break green-streak.sh's "no step skipped".
         run: |
+          if ($env:GOV_MSI_VERSION -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Host "::notice::winget manifests not rendered: $($env:GOV_MSI_VERSION) is a pre-release — MSI/winget carry clean releases only; pre-releases are npm-only"
+            exit 0
+          }
           $dir = node packages/msi/scripts/winget.mjs --version $env:GOV_MSI_VERSION --out "$env:RUNNER_TEMP\winget" $env:GOV_MSI | Select-Object -Last 1
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
