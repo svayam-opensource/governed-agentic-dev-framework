@@ -18,6 +18,7 @@ import { licenceCommand } from "../../src/cli/licence-verb.js";
 import { httpRegistryToken } from "../../src/cli/licence-run.js";
 import { createKeychain, keychainRunner, LICENCE_ACCOUNT } from "../../src/security/keychain.js";
 import { endRun, startRun } from "../../src/log.js";
+import { writeStandIn } from "../helpers/stand-in.js";
 
 const b64 = (o: unknown): string => Buffer.from(JSON.stringify(o)).toString("base64url");
 const KEY = `${b64({ alg: "EdDSA", typ: "gov-key+jws", kid: "test-stub-1" })}.${b64({ org: 297356872, jti: "never-on-disk-7f3a" })}.c2lnbmF0dXJlLW9mLXRoZS1rZXk`;
@@ -48,7 +49,8 @@ async function settledLog(dir: string): Promise<string> {
   return "";
 }
 
-(process.platform === "win32" ? describe.skip : describe)("A10 — the personal key never on disk, never in a log", function () {
+// Every OS: the stand-in gets a `.cmd` beside it on Windows, so gov's spawn finds it there too (helpers/stand-in.ts).
+describe("A10 — the personal key never on disk, never in a log", function () {
   this.timeout(30_000);
   let home = ""; let store = ""; let bin = ""; let server: http.Server; let base = "";
   const printed: string[] = [];
@@ -57,7 +59,7 @@ async function settledLog(dir: string): Promise<string> {
     home = fs.mkdtempSync(path.join(os.tmpdir(), "gov-a10-home-"));
     store = fs.mkdtempSync(path.join(os.tmpdir(), "gov-a10-keyring-"));   // the "OS keyring": outside $HOME
     bin = fs.mkdtempSync(path.join(os.tmpdir(), "gov-a10-bin-"));
-    fs.writeFileSync(path.join(bin, "secret-tool"), FAKE_SECRET_TOOL, { mode: 0o755 });
+    writeStandIn(bin, "secret-tool", FAKE_SECRET_TOOL, "node");
     server = http.createServer((req, res) => {
       let body = "";
       req.on("data", (d) => (body += d)).on("end", () => {

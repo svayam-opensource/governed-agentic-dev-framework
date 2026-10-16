@@ -29,10 +29,14 @@ export function bashExe(): string {
   return hit ?? "C:\\Program Files\\Git\\bin\\bash.exe";
 }
 
-/** Write `<dir>/<name>` (a shell script) so that gov's spawn finds it on this OS. Returns the script's path. */
-export function writeStandIn(dir: string, name: string, script: string): string {
+/**
+ * Write `<dir>/<name>` so that gov's spawn finds it on this OS, and return its path. The script is bash unless it is
+ * `node` (a `#!/usr/bin/env node` script): on Windows that one is handed to this Node, not to Git Bash.
+ */
+export function writeStandIn(dir: string, name: string, script: string, interpreter: "bash" | "node" = "bash"): string {
   const file = path.join(dir, name);
   fs.writeFileSync(file, script, { mode: 0o755 });
-  if (process.platform === "win32") fs.writeFileSync(path.join(dir, `${name}.cmd`), `@"${bashExe()}" "%~dp0${name}" %*\r\n`);
+  const runner = interpreter === "node" ? process.execPath : bashExe();
+  if (process.platform === "win32") fs.writeFileSync(path.join(dir, `${name}.cmd`), `@"${runner}" "%~dp0${name}" %*\r\n`);
   return file;
 }

@@ -117,8 +117,19 @@ export function runCapture(cmd: string, args: readonly string[], opts: RunOption
   status: number | null; stdout: string; stderr: string; timedOut: boolean; notFound: boolean; error?: string;
 } {
   const started = Date.now();
-  const r = spawnSync(cmd, args as string[], {
+  // THROUGH THE SAME PLAN AS EVERY OTHER RUN (#223). This one spawned the bare name, so on Windows it found only a
+  // `.exe`: a `.cmd` (an npm-installed tool, a stand-in) was "not installed" here and found everywhere else.
+  let p: SpawnPlan;
+  try {
+    p = plan(cmd, args, opts.env);
+  } catch (e) {
+    const why = (e as Error).message;
+    logRun("warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), notFound: true } }, Date.now() - started, 1, why);
+    return { status: null, stdout: "", stderr: "", timedOut: false, notFound: true };
+  }
+  const r = spawnSync(p.file, p.args as string[], {
     encoding: "utf8",
+    ...(p.verbatim ? { windowsVerbatimArguments: true } : {}),
     stdio: [opts.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     ...(opts.env ? { env: opts.env } : {}),
