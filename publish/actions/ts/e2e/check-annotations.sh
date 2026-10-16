@@ -11,6 +11,10 @@
 #
 #   check_annotations REPO CHECK_ID     one line per annotation: `<level> <path>:<line> <message>`, the message's
 #                                       newlines folded to spaces so one finding is one line
+#   explain_check REPO CHECK_ID         to stderr: the check run's title, summary and every annotation — why a check
+#                                       that should have passed did not. GitHub records a job it never started (spending
+#                                       limit, Actions policy) as an annotation too, so a red that ran nothing names its
+#                                       cause instead of a bare `failure` (2026-10-16: (a) failed in ~10 s, unexplained).
 #   expect_annotation NAME PATTERN REPO CHECK_ID
 #                                       an assertion (the sourcing script's `expect`): some annotation matches the
 #                                       extended regex PATTERN. Annotations can lag the check's completion too, so it
@@ -23,6 +27,16 @@
 check_annotations() {
   gh api "repos/$1/check-runs/$2/annotations?per_page=100" \
     --jq '.[] | "\(.annotation_level) \(.path):\(.start_line) \(.message | gsub("\r?\n"; " "))"'
+}
+
+explain_check() {
+  [ "${DRY:-0}" = 1 ] && return 0
+  {
+    echo "  check run $2 on $1:"
+    gh api "repos/$1/check-runs/$2" --jq '"    title:   \(.output.title // "-")", "    summary: \(.output.summary // "-" | gsub("\r?\n"; " "))"' 2>/dev/null \
+      || echo "    (could not read the check run)"
+    check_annotations "$1" "$2" 2>/dev/null | sed 's/^/    /' || true
+  } >&2
 }
 
 expect_annotation() {
