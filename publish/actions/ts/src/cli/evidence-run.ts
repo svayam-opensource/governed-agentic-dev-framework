@@ -42,7 +42,10 @@ export function ledgerSourceAt(home: string): { ok: true; src: LedgerSource; cle
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-evidence-"));
   const cleanup = (): void => fs.rmSync(tmp, { recursive: true, force: true });
   const tar = path.join(tmp, "evidence.tar");
-  const a = git(["archive", "--format=tar", "-o", tar, ref, "evidence"]);
+  // THE BYTES AS SIGNED. `git archive` applies the checkout's line-ending conversion, and Git for Windows installs with
+  // core.autocrlf=true: every record came out with CRLF, and no signature over it held — `gov evidence verify` failed
+  // the whole ledger on Windows. A ledger is a byte record, never a working tree.
+  const a = git(["-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", "-o", tar, ref, "evidence"]);
   // RELATIVE, IN ITS OWN DIRECTORY. On Windows the `tar` on PATH is often Git's GNU tar, which reads `C:\…\evidence.tar`
   // as a REMOTE archive on host `C` ("Cannot connect to C: resolve failed"). A bare name read in `tmp` means the
   // same to GNU tar, bsdtar (Windows' own) and every POSIX tar.

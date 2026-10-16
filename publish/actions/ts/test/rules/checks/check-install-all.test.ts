@@ -18,7 +18,7 @@ const CONTENT = resolve(here, "../../../../../content");
 const read = (rel: string) => readFileSync(resolve(CONTENT, rel), "utf8");
 
 /**
- * The doubles are keyed on POSIX paths; gov hands them `path.join`/`path.resolve` paths — `D:\\work\\PRJ-7…` on
+ * The doubles are keyed on POSIX paths; gov hands them `path.join`/`path.resolve` paths — `D:\work\PRJ-7…` on
  * Windows — so every path crossing in, and the printed report, is read through `pxAbs`.
  */
 const n = pxAbs;

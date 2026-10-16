@@ -84,7 +84,7 @@ describe("gov setup --ref / --from (F21)", () => {
   it("parses each, and forwards it to the old-layout upgrade setup runs first", () => {
     expect(setupContentFlags({ ref: "v1.2.3" })).to.deep.equal({ flags: { ref: "v1.2.3" }, argv: ["--ref", "v1.2.3"] });
     const r = setupContentFlags({ from: "/x/content" });
-    // --from is resolved to an absolute path — `D:\\x\\content` on Windows — so it is read through pxDeep.
+    // --from is resolved to an absolute path — `D:\x\content` on Windows — so it is read through pxDeep.
     expect(pxDeep(r)).to.deep.equal({ flags: { from: "/x/content" }, argv: ["--from", "/x/content"] });
     expect(setupContentFlags({})).to.deep.equal({ flags: {}, argv: [] });
   });

@@ -15,7 +15,9 @@ import type { Board } from "../../src/lifecycle/board.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import { makeGitProject, simulateClose, remoteHas, PROJECT_BRANCH, type GitProject } from "../helpers/git-project-fixture.js";
 
-describe("reopened project — gov sync and gov task recreate a missing project branch (#224, Q17 A)", () => {
+describe("reopened project — gov sync and gov task recreate a missing project branch (#224, Q17 A)", function () {
+  // Real git, dozens of processes per test: past mocha's 2 s default on a Windows runner.
+  this.timeout(60_000);
   let p: GitProject;
   let board: Board;
   const vcs = createGitVcs();

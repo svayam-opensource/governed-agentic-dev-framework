@@ -140,7 +140,7 @@ describe("gov licence install", () => {
     expect(seen[0]!.dir).to.equal("/data/gov/gov-check");
     expect(seen[0]!.spec).to.match(/^@svayam\/gov-check@/);
     expect(seen[0]!.env).to.deep.equal({ GOV_REGISTRY_TOKEN: "npm_tok_123" });
-    const npmrc = d.files.get(path.join("/data/gov/gov-check", ".npmrc"))!;   // written with path.join: `\\data\\…` on Windows
+    const npmrc = d.files.get(path.join("/data/gov/gov-check", ".npmrc"))!;   // written with path.join: `\data\…` on Windows
     expect(npmrc).to.include("${GOV_REGISTRY_TOKEN}").and.include("@svayam:registry=").and.not.include("npm_tok_123");
     for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123");
     expect(r.lines.join("\n")).to.not.include("npm_tok_123");

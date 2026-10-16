@@ -24,7 +24,7 @@ import { writeStandIn } from "../helpers/stand-in.js";
 
 const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretKEYmaterialDO-NOT-LEAK\n-----END RSA PRIVATE KEY-----\n";
 const CFG: AppConfig = { home: "/gov", githubOrg: "acme", orgSlugLower: "acme", workspaceRepo: "acme-gov", defaultBranch: "main" };
-/** Where gov reads org-config.yaml for CFG: `path.join(home, …)` — `\\gov\\org-config.yaml` on Windows. */
+/** Where gov reads org-config.yaml for CFG: `path.join(home, …)` — `\gov\org-config.yaml` on Windows. */
 const CFG_FILE = path.join("/gov", "org-config.yaml");
 const ORG_CONFIG = 'org_name: "Acme"\ngithub_org: "acme"\nservices:\n  vault: ""\n  oidc: ""\n\nauthorized_agents:\n  default: ""\n';
 const ok = (stdout = ""): GhOutcome => ({ status: 0, stdout, stderr: "" });

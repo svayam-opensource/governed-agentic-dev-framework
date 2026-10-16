@@ -117,7 +117,7 @@ describe("org check actions — bash and python (Item 8, Q8)", () => {
       'test "$GOV_RULE_ID" = GOV-SVM-050 || exit 3',
       'test "$GOV_EVENT" = pull_request || exit 4',
       'test "$GOV_RESOURCE" = vcs.code-repo || exit 5',
-      // The SAME directory, not the same spelling: on Windows gov hands over `D:\\a\\repo` and Git Bash's $PWD is `/d/a/repo`.
+      // The SAME directory, not the same spelling: on Windows gov hands over `D:\a\repo` and Git Bash's $PWD is `/d/a/repo`.
       'test "$(cd "$GOV_REPO_DIR" && pwd)" = "$PWD" || exit 6',
       `test "$GOV_PARAMS" = '{"max":3}' || exit 7`,
       'test "$(cat "$GOV_CHANGED_FILES")" = "$(printf "src/a.ts\\nREADME.md")" || exit 8',

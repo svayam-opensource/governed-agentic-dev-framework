@@ -129,7 +129,7 @@ describe("lifecycle skills — rendered with the harness, at every skill locatio
   it("with no lifecycle, the generated lifecycle skills are stale and deleted", () => {
     const files = new Map(skillFiles(renderLifecycleSkills(shipped)).map((f) => [`/h/${f.path}`, f.content]));
     const fs = {
-      // POSIX keys; gov asks with path.join paths (`\\h\\…` on Windows), as readFile below already allows for.
+      // POSIX keys; gov asks with path.join paths (`\h\…` on Windows), as readFile below already allows for.
       readdir: (dir: string) => {
         const d = dir.split(path.sep).join("/");
         return [...new Set([...files.keys()].filter((f) => f.startsWith(`${d}/`)).map((f) => f.slice(d.length + 1).split("/")[0]!))];

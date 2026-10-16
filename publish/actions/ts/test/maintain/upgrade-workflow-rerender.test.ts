@@ -233,7 +233,7 @@ describe("gov upgrade carries the re-render (Q9)", function () {
     expect(r.code, r.lines.join("\n")).to.equal(0);
     expect(g("show", `gov-upgrade-2.0.0:${APPROVER_CHECK_INSTALLED}`)).to.equal(NEW_TEMPLATE);
     expect(g("show", `gov-upgrade-2.0.0:${WORKFLOW_PATH}`)).to.equal(render("@svayam-opensource/gov@2.0.0"));
-    // The clone went home; its own copies are as they were.
-    expect(read(w, APPROVER_CHECK_INSTALLED)).to.equal(OLD_TEMPLATE);
+    // The clone went home; its own copies are as they were (EOL-blind: Git for Windows checks text out with CRLF).
+    expect(read(w, APPROVER_CHECK_INSTALLED)?.replace(/\r\n/g, "\n")).to.equal(OLD_TEMPLATE);
   });
 });

@@ -40,7 +40,7 @@ const BOARD = { owner: ORG, number: 7 };
 
 /**
  * An in-memory Fs rooted anywhere; paths are absolute, and keyed POSIX — gov hands it `path.join` paths, which are
- * `\\w\\PRJ-7-demo\\…` on Windows, so every path crossing in is normalised (`px`).
+ * `\w\PRJ-7-demo\…` on Windows, so every path crossing in is normalised (`px`).
  */
 function memFs(files: Record<string, string>): Fs & { files: Record<string, string>; writes: string[] } {
   const writes: string[] = [];

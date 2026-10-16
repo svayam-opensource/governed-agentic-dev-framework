@@ -186,7 +186,10 @@ describe("headless launch — the fake agent L17 drives (e2e/stub/headless-agent
 
   const run = (env: Record<string, string>, timeoutMs?: number) => runHeadless(
     { exec: (cmd, args, o) => runCaptureAsync(cmd, args, { ...o, env: { ...process.env, ...env } }) },
-    { agent: "fake", cwd: dir, kickoff: "KICKOFF", task: "TASK", isC01, timeoutMs }, runnableCatalog());
+    // Words with spaces, as every real kickoff has: an argument with no space is passed to a Windows program
+    // unquoted, and the MSYS bash the fake runs under splits an unquoted argument at its newlines (a native agent
+    // does not). With a space it is quoted, and arrives whole everywhere.
+    { agent: "fake", cwd: dir, kickoff: "THE KICKOFF", task: "THE TASK", isC01, timeoutMs }, runnableCatalog());
 
   it("ok path: writes the files it is told to, records its prompt, exits 0", async () => {
     const r = await run({ FAKE_AGENT_WRITE: "notes/a.md:hello|b.txt:world", FAKE_AGENT_PROMPT_FILE: path.join(dir, "prompt.txt") });
@@ -194,7 +197,7 @@ describe("headless launch — the fake agent L17 drives (e2e/stub/headless-agent
     expect(r.exitCode).to.equal(0);
     expect(fs.readFileSync(path.join(dir, "notes/a.md"), "utf8")).to.equal("hello");
     expect(fs.readFileSync(path.join(dir, "b.txt"), "utf8")).to.equal("world");
-    expect(fs.readFileSync(path.join(dir, "prompt.txt"), "utf8")).to.equal("KICKOFF\n\nTASK");
+    expect(fs.readFileSync(path.join(dir, "prompt.txt"), "utf8")).to.equal("THE KICKOFF\n\nTHE TASK");
   });
 
   it("prints a C01 id and exits non-zero → c01", async () => {

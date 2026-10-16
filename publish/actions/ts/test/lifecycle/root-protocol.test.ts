@@ -352,7 +352,7 @@ describe("root-protocol — a launch that changes nothing writes nothing", () =>
 
   function tracking(files: Record<string, string>): { fs: Fs; writes: string[] } {
     const writes: string[] = [];
-    // Keyed on POSIX paths, as memFs is: gov hands the double `path.join` paths — `\\work\\PRJ-9\\…` on Windows.
+    // Keyed on POSIX paths, as memFs is: gov hands the double `path.join` paths — `\work\PRJ-9\…` on Windows.
     const fs: Fs = {
       pathExists: (p) => Object.keys(files).some((f) => f === px(p) || f.startsWith(`${px(p)}/`)),
       readFile: (f) => files[px(f)] ?? null,

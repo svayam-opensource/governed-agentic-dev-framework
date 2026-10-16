@@ -218,7 +218,10 @@ export function runCaptureAsync(cmd: string, args: readonly string[], opts: RunO
         child.kill("SIGKILL");
       }
     }, opts.timeoutMs) : null;
+    let settled = false;
     const done = (r: CapturedRun, why?: string): void => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
       logRun(r.code === 0 ? "info" : "warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), headless: true, ...(r.timedOut ? { timedOut: true } : {}) } },
         Date.now() - started, r.code ?? 1, why ?? (r.code === 0 ? undefined : tail(r.stderr)));
@@ -226,6 +229,15 @@ export function runCaptureAsync(cmd: string, args: readonly string[], opts: RunO
     };
     child.on("error", (e) => done({ code: null, stdout, stderr: `${stderr}${e.message}\n` }, e.message));
     child.on("close", (code) => done({ code: timedOut ? null : code, stdout, stderr, ...(timedOut ? { timedOut: true as const } : {}) }));
+    // PAST THE BUDGET, THE PROCESS'S END IS THE END. `close` waits for every holder of the pipes, and a grandchild that
+    // escaped the kill holds them for as long as it lives — on Windows an MSYS process tree is not always one
+    // `taskkill /T` can see. So once the killed process has exited, the output stops being read and the run ends.
+    child.on("exit", () => {
+      if (!timedOut) return;
+      child.stdout.destroy();
+      child.stderr.destroy();
+      done({ code: null, stdout, stderr, timedOut: true });
+    });
   });
 }
 

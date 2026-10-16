@@ -16,7 +16,7 @@ import type { ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { sectionOwnerApproval } from "../../../src/rules/checks/policy-actions.js";
 import type { EventContext } from "../../../src/rules/model/contracts.js";
 import { resetEvidence } from "../../../src/check-seam/evidence.js";
-import { px, pxAbs } from "../../helpers/paths.js";
+import { pxAbs } from "../../helpers/paths.js";
 
 /** A GitHub annotation, other than the one quiet evidence notice an unsubscribed org's run carries (D6). */
 const EVIDENCE_NOTICE = "::notice title=gov evidence::";
@@ -332,10 +332,10 @@ describe("gov check run", () => {
   it("in GitHub Actions, each finding is ALSO an annotation — ::error with the rule id, the policy file and its line", () => {
     const d = deps({ git: prGit, gh: prGh("[]")([]), event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_ACTIONS: "true" } });
     const head = POLICY.replace("Keep it safe.", "Keep it very safe.");
-    const r = run(ARGS, { ...d, readFile: (f) => (px(f) === "/gov/policies/org-policy.md" ? head : d.readFile(f)) });   // path.join: `\\gov\\…` on Windows
+    const r = run(ARGS, { ...d, readFile: (f) => (pxAbs(f) === "/gov/policies/org-policy.md" ? head : d.readFile(f)) });   // `D:\gov\…` on Windows
     const ann = r.lines.filter(annotation);
     expect(ann, r.lines.join("\n")).to.have.length(1);
-    expect(ann[0]).to.match(/^::error title=GOV-FRM-455,file=policies\/org-policy\.md,line=1::GOV-FRM-455 \[gov-builtin\/section-owner-approval\]: @chuck has not approved/);
+    expect(ann[0], ann[0]).to.match(/^::error title=GOV-FRM-455,file=policies\/org-policy\.md,line=1::GOV-FRM-455 \[gov-builtin\/section-owner-approval\]: @chuck has not approved/);
     // The human output is the same with or without Actions — the annotations are only added, at the end.
     const plain = run(ARGS, deps({ git: prGit, gh: prGh("[]")([]), event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request" } }));
     expect(plain.lines.some((l) => l.startsWith("::"))).to.equal(false);
@@ -468,7 +468,7 @@ describe("gov check run", () => {
 describe("gov check install", () => {
   const CFG: CheckVerbConfig = { home: "/gov", defaultBranch: "main", defaultCodeBranch: "dev", githubOrg: "acme", workspaceRepo: "acme-gov", posture: "soft" };
   const mk = (written: Record<string, string>): CheckVerbDeps => ({
-    // Keyed POSIX: gov writes `path.join(home, …)` — `\\gov\\.github\\…` (or `D:\\work\\…` for --repo) on Windows.
+    // Keyed POSIX: gov writes `path.join(home, …)` — `\gov\.github\…` (or `D:\work\…` for --repo) on Windows.
     git: fakeGit(govRepo()), gh: () => null, env: {}, readFile: () => null, writeFile: (f, t) => { written[pxAbs(f)] = t; },
   });
 

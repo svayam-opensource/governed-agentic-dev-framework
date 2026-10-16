@@ -250,13 +250,17 @@ export function createGitVcs(runGit: RunGit = defaultRunGit, sleep: (ms: number)
       const r = runGit(["-C", baseRepo, "worktree", "list", "--porcelain"]);
       if (r.status !== 0) return false;
       // Compared through realpath: git prints resolved paths, and a caller's path may run through a symlink
-      // (macOS /var → /private/var) or use the other separator (Windows).
+      // (macOS /var → /private/var) or use the other separator (Windows). The NATIVE realpath, because only it
+      // expands a Windows short name (`C:\Users\RUNNER~1\…` — what %TEMP% often is) to the long one git prints;
+      // and without case on Windows, whose file names have none.
       const real = (p: string): string => {
+        let r: string;
         try {
-          return fs.realpathSync(p);
+          r = fs.realpathSync.native(p);
         } catch { /* a registered worktree whose directory is gone has no realpath; compare it as written */
-          return path.resolve(p);
+          r = path.resolve(p);
         }
+        return process.platform === "win32" ? r.toLowerCase() : r;
       };
       const want = real(dir);
       return r.stdout.split("\n")
