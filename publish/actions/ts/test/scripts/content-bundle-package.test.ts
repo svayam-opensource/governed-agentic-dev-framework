@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BUILD_IDENTITY_PATH, contentFingerprint } from "../../src/maintain/build-identity.js";
 import { requireFreshLib } from "../helpers/lib-fresh.js";
+import { plan } from "../../src/run-process.js";
 import { CONTENT_BUNDLE_PATH, fingerprintEntries, materializeContentBundle, readContentBundle } from "../../src/maintain/content-bundle.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -47,7 +48,9 @@ describe("the gov package bundles its framework content", () => {
 
   it("npm pack ships the bundle, and its --json stdout parses (gov-cicd reads it)", function () {
     this.timeout(60000);
-    const r = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: root, encoding: "utf8" });
+    // npm is `npm.cmd` on Windows: spawned the way gov spawns it (PATH × PATHEXT, a .cmd through cmd.exe).
+    const npm = plan("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"]);
+    const r = spawnSync(npm.file, [...npm.args], { cwd: root, encoding: "utf8", windowsVerbatimArguments: npm.verbatim });
     expect(r.status, r.stderr).to.equal(0);
     const packed = JSON.parse(r.stdout) as { files: { path: string }[] }[];
     const files = packed[0]!.files.map((f) => f.path);

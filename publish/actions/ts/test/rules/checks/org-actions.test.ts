@@ -18,7 +18,7 @@ import type { EventContext, RuleSet } from "../../../src/rules/model/contracts.j
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import { checkCommand, type CheckVerbConfig, type CheckVerbDeps } from "../../../src/cli/check-verb.js";
 import {
-  createNodeActionExecutor, parseActionSpec, ACTIONS_DIR, type ActionExecutor, type ActionRun,
+  createNodeActionExecutor, parseActionSpec, pythonCandidates, pythonNotFound, ACTIONS_DIR, type ActionExecutor, type ActionRun,
 } from "../../../src/rules/checks/executor.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,7 +117,8 @@ describe("org check actions — bash and python (Item 8, Q8)", () => {
       'test "$GOV_RULE_ID" = GOV-SVM-050 || exit 3',
       'test "$GOV_EVENT" = pull_request || exit 4',
       'test "$GOV_RESOURCE" = vcs.code-repo || exit 5',
-      'test "$GOV_REPO_DIR" = "$PWD" || exit 6',
+      // The SAME directory, not the same spelling: on Windows gov hands over `D:\\a\\repo` and Git Bash's $PWD is `/d/a/repo`.
+      'test "$(cd "$GOV_REPO_DIR" && pwd)" = "$PWD" || exit 6',
       `test "$GOV_PARAMS" = '{"max":3}' || exit 7`,
       'test "$(cat "$GOV_CHANGED_FILES")" = "$(printf "src/a.ts\\nREADME.md")" || exit 8',
       "exit 0",
@@ -175,7 +176,23 @@ describe("org check actions — bash and python (Item 8, Q8)", () => {
     const files = { [`${ACTIONS_DIR}/lint-py/action.yaml`]: "tool: python\nentry: run.py\n", [`${ACTIONS_DIR}/lint-py/run.py`]: "pass\n" };
     const v = runWith(files, [bind("python/lint-py")], createNodeActionExecutor({ python: "python3-not-installed-gov-test" }));
     expect(v.verdict).to.equal("cannot-tell");
-    expect(v.findings.join()).to.match(/python3 not found/);
+    expect(v.findings.join()).to.match(/python3-not-installed-gov-test not found/);
+  });
+
+  it("python is found under the name the platform gives it: python3 then python off Windows; py -3, python, python3 on Windows", () => {
+    expect(pythonCandidates("linux")).to.deep.equal([["python3"], ["python"]]);
+    expect(pythonCandidates("darwin")).to.deep.equal([["python3"], ["python"]]);
+    expect(pythonCandidates("win32")).to.deep.equal([["py", "-3"], ["python"], ["python3"]]);
+  });
+
+  it("no Python 3 under any of those names → cannot-tell, naming every name tried", () => {
+    const files = { [`${ACTIONS_DIR}/lint-py/action.yaml`]: "tool: python\nentry: run.py\n", [`${ACTIONS_DIR}/lint-py/run.py`]: "pass\n" };
+    const nowhere = { ...PARENT_ENV, PATH: resolve(here, "no-such-dir-gov-test") };
+    const v = createCheckRunner({ rules: rules([bind("python/lint-py")]), ...tree(files), executor: createNodeActionExecutor(), env: nowhere, repoDir: process.cwd() }).run("GOV-SVM-050", PR);
+    expect(v.verdict).to.equal("cannot-tell");
+    expect(v.findings.join()).to.include(`${pythonNotFound()} not found on this machine`);
+    expect(pythonNotFound("linux")).to.equal("Python 3 (tried `python3`, `python`)");
+    expect(pythonNotFound("win32")).to.equal("Python 3 (tried `py -3`, `python`, `python3`)");
   });
 
   it("no executor here (a gov verb gate) → cannot-tell, never a pass", () => {

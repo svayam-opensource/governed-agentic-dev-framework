@@ -276,7 +276,7 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
   // longer vouch for it.
   const absent = result.skipped.filter((x) => x.stale === null);
   if (absent.length) {
-    lines.push(`    ${absent.length} absent: ${absent.slice(0, 2).map((s) => s.at.split("/").pop()).join(", ")}`
+    lines.push(`    ${absent.length} absent: ${absent.slice(0, 2).map((s) => path.basename(s.at)).join(", ")}`
       + `${absent.length > 2 ? `, and ${absent.length - 2} more` : ""} — no rendered source at the default branch.`);
   }
   return lines;

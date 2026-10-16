@@ -94,7 +94,8 @@ describe("gov-work — gov agent install (#196)", () => {
   it("runs a vendor script too — approval IS the trust decision", () => {
     // Gating on npm-vs-curl would be gov second-guessing a reviewed decision by the
     // Infrastructure Owner (#196, Q2).
-    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false);
+    // On a POSIX machine: on Windows a curl|bash installer is refused with the vendor's URL (the win32 cases below).
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "linux");
     expect(p.ok).to.equal(true);
     if (!p.ok) return;
     // Run as a verified download now, not `sh -c "curl | bash"` (#205) — agent-script-pin.test.ts.

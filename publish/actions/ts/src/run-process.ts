@@ -207,7 +207,12 @@ export function runCaptureAsync(cmd: string, args: readonly string[], opts: RunO
     const timer = opts.timeoutMs ? setTimeout(() => {
       timedOut = true;
       try {
-        if (group && child.pid) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL");
+        if (group && child.pid) process.kill(-child.pid, "SIGKILL");
+        // WINDOWS HAS NO PROCESS GROUP TO SIGNAL. Killing the agent alone left what it started (a shell, a `sleep`)
+        // holding the pipes, and the run waited for it to finish on its own — the budget was not a budget.
+        // `taskkill /T` ends the whole tree.
+        else if (process.platform === "win32" && child.pid) killTreeWin32(child.pid);
+        else child.kill("SIGKILL");
       } catch {
         // The group is already gone (it exited as the timer fired); kill the child itself, which is a no-op if so.
         child.kill("SIGKILL");
@@ -222,6 +227,12 @@ export function runCaptureAsync(cmd: string, args: readonly string[], opts: RunO
     child.on("error", (e) => done({ code: null, stdout, stderr: `${stderr}${e.message}\n` }, e.message));
     child.on("close", (code) => done({ code: timedOut ? null : code, stdout, stderr, ...(timedOut ? { timedOut: true as const } : {}) }));
   });
+}
+
+/** End a process and every process it started (Windows). Falls back to killing the one process. */
+function killTreeWin32(pid: number): void {
+  const r = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+  if (r.status !== 0) process.kill(pid, "SIGKILL");
 }
 
 function logRun(

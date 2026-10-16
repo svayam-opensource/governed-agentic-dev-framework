@@ -24,6 +24,7 @@ import { COMMAND_SPECS } from "../../src/cli/help-spec.js";
 import type { OrgConfig } from "../../src/config/org-config.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
+import { px } from "../helpers/paths.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 const POLICY = readFileSync(path.join(CONTENT, LIFECYCLE_POLICY_PATH), "utf8");
@@ -37,19 +38,22 @@ const PB = "BRNCH-7-demo";
 const PRJ = "PRJ-7-demo";
 const BOARD = { owner: ORG, number: 7 };
 
-/** An in-memory Fs rooted anywhere; paths are absolute. */
+/**
+ * An in-memory Fs rooted anywhere; paths are absolute, and keyed POSIX — gov hands it `path.join` paths, which are
+ * `\\w\\PRJ-7-demo\\…` on Windows, so every path crossing in is normalised (`px`).
+ */
 function memFs(files: Record<string, string>): Fs & { files: Record<string, string>; writes: string[] } {
   const writes: string[] = [];
   const self = {
     files, writes,
-    pathExists: (p: string) => p in files || Object.keys(files).some((f) => f.startsWith(`${p}/`)),
+    pathExists: (p: string) => px(p) in files || Object.keys(files).some((f) => f.startsWith(`${px(p)}/`)),
     mkdirp: () => {},
-    writeFile: (f: string, c: string) => { writes.push(f); files[f] = c; },
-    readFile: (f: string) => (f in files ? files[f]! : null),
-    rm: (t: string) => { for (const f of Object.keys(files)) if (f === t || f.startsWith(`${t}/`)) delete files[f]; },
+    writeFile: (f: string, c: string) => { writes.push(px(f)); files[px(f)] = c; },
+    readFile: (f: string) => (px(f) in files ? files[px(f)]! : null),
+    rm: (t: string) => { for (const f of Object.keys(files)) if (f === px(t) || f.startsWith(`${px(t)}/`)) delete files[f]; },
     readdir: (d: string) => {
       const names = new Set<string>();
-      for (const f of Object.keys(files)) if (f.startsWith(`${d}/`)) names.add(f.slice(d.length + 1).split("/")[0]!);
+      for (const f of Object.keys(files)) if (f.startsWith(`${px(d)}/`)) names.add(f.slice(px(d).length + 1).split("/")[0]!);
       return [...names].sort();
     },
   };

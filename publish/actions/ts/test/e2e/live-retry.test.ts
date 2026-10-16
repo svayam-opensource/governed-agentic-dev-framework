@@ -6,6 +6,11 @@
  *     a rejection that is ours (non-fast-forward) fails at once, with git's words.
  *   • board_lists: polls a board until it lists an item (the project index lagged > 90 s behind a new anchor).
  * Driven with a fake `git` / `gh` answering from a sequence of recorded replies.
+ *
+ * The fake is a bash FUNCTION named `git`/`gh`, defined before the library is sourced — not an executable put first on
+ * PATH. Bash resolves a function before any PATH lookup, so the fake runs whatever the machine's PATH, tmp mount or
+ * `$PATH` separator is: on the Fedora CI container the PATH-shadowed script never ran and the REAL git answered
+ * ("cannot change to '/g'"). Every test asserts the fake's call log, so a test that reached the real tool fails.
  */
 import { expect } from "chai";
 import { spawnSync } from "node:child_process";
@@ -27,11 +32,10 @@ tail -n +2 "$f" >&${out === "stdout" ? 1 : 2}; exit "$(head -1 "$f")"
 
 function run(tool: "git" | "gh", replies: [number, string][], call: string) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "live-retry-"));
-  fs.mkdirSync(path.join(dir, "bin"));
-  fs.writeFileSync(path.join(dir, "bin", tool), FAKE(tool === "git" ? "stderr" : "stdout"), { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, "fake"), FAKE(tool === "git" ? "stderr" : "stdout"));
   replies.forEach(([code, text], i) => fs.writeFileSync(path.join(dir, `r${i + 1}`), `${code}\n${text}\n`));
-  const r = spawnSync("bash", ["-c", `set -euo pipefail; . "${LIB}"; ${call}`], {
-    encoding: "utf8", env: { PATH: `${path.join(dir, "bin")}:${process.env.PATH}`, FAKE_DIR: dir, LIVE_RETRY_PAUSE: "0" },
+  const r = spawnSync("bash", ["-c", `set -euo pipefail; ${tool}() { bash "$FAKE_DIR/fake" "$@"; }; . "$LIVE_RETRY_LIB"; ${call}`], {
+    encoding: "utf8", env: { PATH: process.env.PATH, FAKE_DIR: dir, LIVE_RETRY_LIB: LIB, LIVE_RETRY_PAUSE: "0" },
   });
   const calls = fs.existsSync(path.join(dir, "calls.log")) ? fs.readFileSync(path.join(dir, "calls.log"), "utf8").trim().split("\n") : [];
   fs.rmSync(dir, { recursive: true, force: true });

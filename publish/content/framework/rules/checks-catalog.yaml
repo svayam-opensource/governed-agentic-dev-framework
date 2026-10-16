@@ -62,7 +62,7 @@ tools:
   - id: gov-builtin
   # An org-authored script in policies/actions/<name>/ (action.yaml: tool, entry, timeout, needs), run from the
   # DEFAULT branch's copy with no token unless `needs: [github]`. Exit 0 pass, 1 miss, else cannot-tell
-  # (framework-specification.md §9.5). `python` needs python3 on PATH.
+  # (framework-specification.md §9.5). `python` needs Python 3 on PATH: python3 or python (Windows: py -3, python, python3).
   - id: bash
   - id: python
   # A GitHub Action. The framework's own (gh-action/landed-by-pr) runs inside gov; an org's gh-action/<name>

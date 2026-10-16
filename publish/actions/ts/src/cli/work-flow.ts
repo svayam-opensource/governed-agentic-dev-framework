@@ -485,8 +485,9 @@ export function agentLaunchSpec(
   env: NodeJS.ProcessEnv = process.env,
   catalog: readonly AgentCandidate[] = AGENT_CATALOG,
   exists: (p: string) => boolean = fs.existsSync,
+  platform: NodeJS.Platform = process.platform,
 ): LaunchSpec | null {
-  if (agent === "shell") return { cmd: env.SHELL || fallbackShell(exists), args: [], detached: false, promptText: inject };
+  if (agent === "shell") return { cmd: env.SHELL || fallbackShell(exists, platform, env), args: [], detached: false, promptText: inject };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
   //

@@ -17,7 +17,8 @@
  *   out  exit code  0 pass · 1 miss (the binding's `on_miss` decides fail or warn) · anything else cannot-tell
  *        stdout     optional JSON lines {"rule"?, "file"?, "line"?, "message"} — each one a finding; any other
  *                   line is the action's own log and is ignored
- *   a timeout, a missing interpreter, an unreadable action.yaml → cannot-tell, never a pass.
+ *   a timeout, a missing interpreter, an unreadable action.yaml → cannot-tell, never a pass. `python` is whichever
+ *   Python 3 the machine has under its usual name — see {@link pythonCandidates}.
  *
  * SAFETY (spec §6 "Running org code"):
  *   - The code is read from the DEFAULT BRANCH only, as the rules are, and materialised into a temp dir. A pull
@@ -218,13 +219,64 @@ function parseFindings(stdout: string, ruleId: string): string[] {
 }
 
 /** The interpreters, overridable for a test that needs one to be missing. */
-export interface NodeExecutorOptions { readonly bash?: string; readonly python?: string }
+export interface NodeExecutorOptions {
+  readonly bash?: string;
+  /** One command to use for `python` actions instead of looking for one (a test names a missing one). */
+  readonly python?: string;
+  /** The platform whose interpreter names are tried; defaults to this one. */
+  readonly platform?: NodeJS.Platform;
+}
+
+/**
+ * THE NAMES PYTHON 3 HAS ON A PERSON'S MACHINE, in the order they are tried. Until 2026-10-16 gov ran `python3` and
+ * nothing else — the name Linux and macOS use, and one a python.org install on Windows does not create: there it is
+ * `py` (the launcher) and `python`.
+ *
+ *   Linux / macOS   `python3` — the name every distribution gives Python 3 — then `python`, for a machine whose
+ *                   only Python is a 3 under that name (a virtualenv, a container image).
+ *   Windows         `py -3` — the launcher python.org installs — then `python`, then `python3`. On Windows `python`
+ *                   and `python3` may be the Microsoft Store's stand-ins, which print an advert and exit 9009.
+ *
+ * So a candidate counts only once it has RUN and said it is Python 3 — a name on PATH proves nothing. A Python 2
+ * `python` is passed over the same way.
+ */
+export function pythonCandidates(platform: NodeJS.Platform = process.platform): readonly (readonly string[])[] {
+  return platform === "win32" ? [["py", "-3"], ["python"], ["python3"]] : [["python3"], ["python"]];
+}
+
+const PROBE = "import sys; sys.exit(0 if sys.version_info[0] == 3 else 3)";
+
+/** The first candidate that runs and is Python 3, or null. Asked once per executor. */
+function findPython(platform: NodeJS.Platform, env: Readonly<Record<string, string>>): readonly string[] | null {
+  for (const c of pythonCandidates(platform)) {
+    const r = runCapture(c[0], [...c.slice(1), "-c", PROBE], {
+      env: { ...env }, timeoutMs: 15_000, pgm: "gov-work:rules:checks:executor", fn: "findPython",
+    });
+    if (r.status === 0) return c;
+  }
+  return null;
+}
+
+/** How the missing interpreter is named to the person: what was looked for, and every name tried. */
+export function pythonNotFound(platform: NodeJS.Platform = process.platform): string {
+  return `Python 3 (tried ${pythonCandidates(platform).map((c) => `\`${c.join(" ")}\``).join(", ")})`;
+}
 
 /** The real executor: a temp dir with the action's files and the changed-files list, the interpreter, then cleanup. */
 export function createNodeActionExecutor(opts: NodeExecutorOptions = {}): ActionExecutor {
+  const platform = opts.platform ?? process.platform;
+  let python: readonly string[] | null | undefined;
   return {
     run(r: ActionRun): ActionResult {
-      const command = r.tool === "bash" ? (opts.bash ?? "bash") : (opts.python ?? "python3");
+      let argv: readonly string[];
+      if (r.tool === "bash") argv = [opts.bash ?? "bash"];
+      else if (opts.python) argv = [opts.python];
+      else {
+        if (python === undefined) python = findPython(platform, r.env);
+        if (python === null) return { kind: "not-found", command: pythonNotFound(platform) };
+        argv = python;
+      }
+      const command = argv[0];
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-action-"));
       try {
         const code = path.join(tmp, "action");
@@ -235,12 +287,11 @@ export function createNodeActionExecutor(opts: NodeExecutorOptions = {}): Action
         }
         const changedFile = path.join(tmp, "changed-files.txt");
         fs.writeFileSync(changedFile, r.changedFiles.join("\n"));
-        const res = runCapture(command, [path.join(code, r.entry)], {
+        const res = runCapture(command, [...argv.slice(1), path.join(code, r.entry)], {
           cwd: r.cwd, env: { ...r.env, GOV_CHANGED_FILES: changedFile }, timeoutMs: r.timeoutMs,
           pgm: "gov-work:rules:checks:executor", fn: "run", meta: { tool: r.tool },
         });
-        // `python3` is the name the ruling gives; a test may name another missing command.
-        if (res.notFound) return { kind: "not-found", command: r.tool === "python" ? "python3" : command };
+        if (res.notFound) return { kind: "not-found", command: r.tool === "python" && !opts.python ? pythonNotFound(platform) : command };
         if (res.timedOut) return { kind: "timed-out", stdout: res.stdout, stderr: res.stderr };
         if (res.status === null) return { kind: "error", message: res.error ?? "killed by a signal" };
         return { kind: "exited", status: res.status, stdout: res.stdout, stderr: res.stderr };

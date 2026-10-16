@@ -5,6 +5,7 @@
 // entitlements, lease expiry — and where the personal key lives; open gov never judges a licence itself (spec 02 §5:
 // verification in open gov would be decorative). All network and module access is through fakes.
 import { expect } from "chai";
+import * as path from "node:path";
 import { licenceCommand, type LicenceDeps, type ModuleState } from "../../src/cli/licence-verb.js";
 import { createKeychain, LICENCE_ACCOUNT, type OsKeychain } from "../../src/security/keychain.js";
 import type { LicenceStatus } from "../../src/check-seam/public.js";
@@ -139,7 +140,7 @@ describe("gov licence install", () => {
     expect(seen[0]!.dir).to.equal("/data/gov/gov-check");
     expect(seen[0]!.spec).to.match(/^@svayam\/gov-check@/);
     expect(seen[0]!.env).to.deep.equal({ GOV_REGISTRY_TOKEN: "npm_tok_123" });
-    const npmrc = d.files.get("/data/gov/gov-check/.npmrc")!;
+    const npmrc = d.files.get(path.join("/data/gov/gov-check", ".npmrc"))!;   // written with path.join: `\\data\\…` on Windows
     expect(npmrc).to.include("${GOV_REGISTRY_TOKEN}").and.include("@svayam:registry=").and.not.include("npm_tok_123");
     for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123");
     expect(r.lines.join("\n")).to.not.include("npm_tok_123");

@@ -20,6 +20,8 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     expect(repoNameFromUrl("git@github.com:Svayamtech/911-SVM-LIB-SVC.git")).to.equal("911-SVM-LIB-SVC");
     expect(repoNameFromUrl("https://github.com/Svayamtech/911-SVM-LIB-SVC")).to.equal("911-SVM-LIB-SVC");
     expect(repoNameFromUrl("https://github.com/o/name/")).to.equal("name");
+    // A local clone source on Windows: backslashes separate as well.
+    expect(repoNameFromUrl("C:\\Users\\me\\remotes\\911-SVM-LIB-SVC.git")).to.equal("911-SVM-LIB-SVC");
   });
 
   it("baseCloneDir composes <agentWorkRoot>/.bases/<name>", () => {

@@ -8,6 +8,7 @@
 import { expect } from "chai";
 import { packCommand, type PackDeps } from "../../src/cli/pack-verb.js";
 import type { PackRegistry } from "../../src/check-seam/public.js";
+import { pxAll } from "../helpers/paths.js";
 
 const REGISTRY: PackRegistry = {
   list: () => [
@@ -43,7 +44,7 @@ describe("gov pack (A9)", () => {
     const w = world();
     const r = await packCommand(["add", "soc2-cc8"], w.deps);
     expect(r.code, r.lines.join("\n")).to.equal(0);
-    expect(Object.keys(w.written).sort()).to.deep.equal([
+    expect(pxAll(Object.keys(w.written)).sort()).to.deep.equal([
       "/tmp/gov-pack-x/policies/common/packs/soc2-cc8.md",
       "/tmp/gov-pack-x/policies/packs/soc2-cc8.yaml",
     ]);

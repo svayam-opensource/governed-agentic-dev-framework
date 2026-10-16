@@ -53,7 +53,9 @@ function remoteMoves(f: ReturnType<typeof fixture>) {
   return g(f.seedDir, "rev-parse", "HEAD");
 }
 
-describe("gov setup — first push of the default branch (gadf#180)", () => {
+describe("gov setup — first push of the default branch (gadf#180)", function () {
+  // Real git, a dozen processes a test: on a Windows runner each git start costs ~150 ms, past mocha's 2 s default.
+  this.timeout(30_000);
   it("pushes when the remote has not moved", () => {
     const f = fixture();
     const r = firstPush(realGit, f.home);

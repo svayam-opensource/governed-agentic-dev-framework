@@ -531,7 +531,8 @@ the changed files, one per line). The script answers with its exit code:
 | anything else | the check could not tell |
 
 A script that runs past its timeout also could not tell, and so does a `python` action on a machine without
-`python3`. To say what it found, the script prints one JSON object per line, with a `message` and, where it
+Python 3. gov looks for it under the names it usually has: `python3`, then `python` on Linux and macOS; `py -3`, then
+`python`, then `python3` on Windows. When none of them is Python 3, the finding names every one gov tried. To say what it found, the script prints one JSON object per line, with a `message` and, where it
 helps, the `file`, the `line` and the `rule`. gov shows each one as a finding. Any other output is the script's own
 log, and gov ignores it.
 

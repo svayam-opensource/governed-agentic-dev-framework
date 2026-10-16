@@ -105,7 +105,7 @@ export function govHomeFor(homeDir: string, orgSlug: string, join: (...p: string
 
 /** `git@github.com:Svayamtech/svm-prj-work.git` / `https://github.com/Svayamtech/svm-prj-work` → `svm-prj-work`. */
 export function repoNameFromUrl(url: string): string | null {
-  const m = /([^/:]+?)(?:\.git)?\/?$/.exec(url.trim());
+  const m = /([^/\\:]+?)(?:\.git)?[/\\]?$/.exec(url.trim());   // `\` too: a local path on Windows
   return m?.[1] ?? null;
 }
 

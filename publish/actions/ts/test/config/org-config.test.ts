@@ -116,8 +116,9 @@ describe("gov-work — org-config after the split", () => {
   });
 
   it("the work root: the default beside the gov repo, or the person's own — never the file's", () => {
-    expect(parseOrgConfig('org_slug: "ACME"\nagent_work_root: "/elsewhere"\n', "/h").agentWorkRoot).to.equal("/h/.gov/acme/projects");
-    expect(parseOrgConfig('org_slug: "ACME"\n', "/h", { workRoot: "~/work" }).agentWorkRoot).to.equal("/h/work");
+    // px: the root is joined with path.join — `\\h\\.gov\\…` on Windows.
+    expect(px(parseOrgConfig('org_slug: "ACME"\nagent_work_root: "/elsewhere"\n', "/h").agentWorkRoot)).to.equal("/h/.gov/acme/projects");
+    expect(px(parseOrgConfig('org_slug: "ACME"\n', "/h", { workRoot: "~/work" }).agentWorkRoot)).to.equal("/h/work");
     expect(parseOrgConfig("org_name: x\n", "/h").agentWorkRoot, "no slug, no default").to.equal("");
   });
 

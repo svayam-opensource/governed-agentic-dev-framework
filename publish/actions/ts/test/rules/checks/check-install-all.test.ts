@@ -11,11 +11,17 @@ import { checkCommand, type CheckVerbDeps, type CheckVerbConfig } from "../../..
 import { boardLinkedRepos, checksDiagnostic, checkStatusReport, GENERATED_MARK, type LinkedRepos, type ScopeDeps } from "../../../src/cli/check-scope.js";
 import { BoardFetchError } from "../../../src/lifecycle/board.js";
 import { doctor } from "../../../src/maintain/doctor.js";
+import { pxAbs } from "../../helpers/paths.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CONTENT = resolve(here, "../../../../../content");
 const read = (rel: string) => readFileSync(resolve(CONTENT, rel), "utf8");
 
+/**
+ * The doubles are keyed on POSIX paths; gov hands them `path.join`/`path.resolve` paths — `D:\\work\\PRJ-7…` on
+ * Windows — so every path crossing in, and the printed report, is read through `pxAbs`.
+ */
+const n = pxAbs;
 const ROOT = "/work";
 const PRJ = `${ROOT}/PRJ-7-billing`;
 const GOV = `${PRJ}/acme-gov`;
@@ -56,15 +62,15 @@ function deps(w: World): CheckVerbDeps & { removed: string[] } {
   const removed: string[] = [];
   const scope: ScopeDeps = {
     linkedRepos: () => w.linked,
-    pathExists: (p) => w.dirs.has(p),
-    listDir: (d) => (d === ROOT ? ["PRJ-7-billing", "PRJ-8-other", "preferences"] : []),
-    removeFile: (p) => { removed.push(p); delete w.disk[p]; },
+    pathExists: (p) => w.dirs.has(n(p)),
+    listDir: (d) => (n(d) === ROOT ? ["PRJ-7-billing", "PRJ-8-other", "preferences"] : []),
+    removeFile: (p) => { removed.push(n(p)); delete w.disk[n(p)]; },
   };
   return {
     removed,
     git: (repo, args) => {
-      if (args[0] === "symbolic-ref") return w.branches[repo] ?? null;
-      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return w.dirs.has(`${repo}/.git`) ? "true" : null;
+      if (args[0] === "symbolic-ref") return w.branches[n(repo)] ?? null;
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return w.dirs.has(`${n(repo)}/.git`) ? "true" : null;
       if (args[0] === "rev-parse") return args.includes("origin/main") ? "abc" : null;
       if (args[0] === "ls-tree") {
         const want = args.slice(args.indexOf("--") + 1);
@@ -75,8 +81,8 @@ function deps(w: World): CheckVerbDeps & { removed: string[] } {
     },
     gh: () => { throw new Error("install and status call no GitHub API"); },
     env: {},
-    readFile: (f) => w.disk[f] ?? null,
-    writeFile: (f, t) => { w.disk[f] = t; },
+    readFile: (f) => w.disk[n(f)] ?? null,
+    writeFile: (f, t) => { w.disk[n(f)] = t; },
     scope,
   };
 }
@@ -87,11 +93,11 @@ const CFG: CheckVerbConfig = {
 const install = (w: World, flags: Record<string, string | boolean> = {}, cfg = CFG) => {
   const d = deps(w);
   const r = checkCommand(["install"], { all: true, ...flags }, d, cfg);
-  return { ...r, text: r.lines.join("\n"), removed: d.removed };
+  return { ...r, text: n(r.lines.join("\n")), removed: d.removed };
 };
 const status = (w: World, flags: Record<string, string | boolean> = {}, cfg = CFG) => {
   const r = checkCommand(["status"], flags, deps(w), cfg);
-  return { ...r, text: r.lines.join("\n") };
+  return { ...r, text: n(r.lines.join("\n")) };
 };
 
 describe("gov check install --all", () => {

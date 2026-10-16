@@ -41,7 +41,8 @@ function setup(): { content: string; adopter: string; g: (...a: string[]) => str
     expect(g("rev-parse", "--abbrev-ref", "HEAD")).to.equal("main");
     expect(r.lines.join("\n")).to.match(/switched this clone back to main/);
     expect(g("show", "gov-upgrade-2.0.0:VERSION")).to.equal("2.0.0");
-    expect(fs.readFileSync(path.join(adopter, "VERSION"), "utf8"), "the working tree is main's again").to.equal("1.0.0\n");
+    // EOL-blind: the question is WHICH branch's file is there, and Git for Windows checks text out with CRLF.
+    expect(fs.readFileSync(path.join(adopter, "VERSION"), "utf8").replace(/\r\n/g, "\n"), "the working tree is main's again").to.equal("1.0.0\n");
   });
 
   it("when the push fails, the clone still goes back to its branch", () => {

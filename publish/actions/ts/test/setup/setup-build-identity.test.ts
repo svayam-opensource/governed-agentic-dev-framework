@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { contentFingerprint, readBuildIdentity, writeBuildIdentity, type BuildIdentity, type Invocation } from "../../src/maintain/build-identity.js";
 import { selectSetupContent } from "../../src/setup/create.js";
 import { setupContentFlags } from "../../src/cli/main.js";
+import { pxDeep } from "../helpers/paths.js";
 
 const tmp = (p: string): string => fs.mkdtempSync(path.join(os.tmpdir(), p));
 function content(version = "1.2.3"): string {
@@ -83,7 +84,8 @@ describe("gov setup --ref / --from (F21)", () => {
   it("parses each, and forwards it to the old-layout upgrade setup runs first", () => {
     expect(setupContentFlags({ ref: "v1.2.3" })).to.deep.equal({ flags: { ref: "v1.2.3" }, argv: ["--ref", "v1.2.3"] });
     const r = setupContentFlags({ from: "/x/content" });
-    expect(r).to.deep.equal({ flags: { from: "/x/content" }, argv: ["--from", "/x/content"] });
+    // --from is resolved to an absolute path — `D:\\x\\content` on Windows — so it is read through pxDeep.
+    expect(pxDeep(r)).to.deep.equal({ flags: { from: "/x/content" }, argv: ["--from", "/x/content"] });
     expect(setupContentFlags({})).to.deep.equal({ flags: {}, argv: [] });
   });
   it("refuses a flag with no value, and both together", () => {

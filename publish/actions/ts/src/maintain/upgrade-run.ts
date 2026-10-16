@@ -694,6 +694,10 @@ export function fetchTemplateContent(templateUrl: string, ref: string): { conten
   const g = (args: string[]): string => runProcess("git", ["-C", tmp, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
   try {
     g(["init", "-q"]);
+    // THE BYTES AS COMMITTED. Git for Windows installs with core.autocrlf=true, so a checkout here wrote every text
+    // file with CRLF — content that is not the framework's, whose fingerprint is not the one it was published with,
+    // and which gov then copied into the organization's repository. This clone is a byte copy, not a working tree.
+    g(["config", "core.autocrlf", "false"]);
     g(["remote", "add", "origin", templateUrl]);
     g(["sparse-checkout", "set", "publish/content"]);
     g(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", ref]);

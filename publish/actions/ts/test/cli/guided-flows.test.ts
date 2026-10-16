@@ -176,12 +176,14 @@ describe("gov-work — guided Work flow", () => {
   it("with no $SHELL, opens a shell that is actually on the machine — never zsh by assumption", () => {
     const on = (...present: string[]) => (p: string) => present.includes(p);
     const noShell = {} as NodeJS.ProcessEnv;
-    // A Rocky/Debian/Ubuntu image: bash, no zsh.
-    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/bash", "/bin/sh"))!.cmd).to.equal("/bin/bash");
+    // A Rocky/Debian/Ubuntu image: bash, no zsh. (Linux, whatever this test runs on — Windows has its own rule.)
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/bash", "/bin/sh"), "linux")!.cmd).to.equal("/bin/bash");
     // A minimal image with only POSIX sh.
-    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/sh"))!.cmd).to.equal("/bin/sh");
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/sh"), "linux")!.cmd).to.equal("/bin/sh");
     // zsh is never chosen on assumption, even where it exists — bash comes first when $SHELL says nothing.
-    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/zsh", "/bin/bash", "/bin/sh"))!.cmd).to.equal("/bin/bash");
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/zsh", "/bin/bash", "/bin/sh"), "linux")!.cmd).to.equal("/bin/bash");
+    // Windows: PowerShell 7 when it is on PATH, else the console's own shell.
+    expect(agentLaunchSpec("shell", "/p", "GO", { ComSpec: "C:\\Windows\\system32\\cmd.exe" } as NodeJS.ProcessEnv, undefined, () => false, "win32")!.cmd).to.equal("C:\\Windows\\system32\\cmd.exe");
   });
 
   // PRJ-121, 2026-09-22 — `bob -p` is ONE-SHOT: on a walk it answered the protocol, printed its Task ID and exited,

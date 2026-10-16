@@ -9,8 +9,10 @@ import * as path from "node:path";
 
 /** The repo name from a clone URL: last path segment, minus a trailing `.git`. */
 export function repoNameFromUrl(url: string): string {
-  const trimmed = url.replace(/\/+$/, "");
-  const last = trimmed.split(/[/:]/).pop() ?? trimmed;
+  // A backslash separates too: a local clone source on Windows is `C:\…\remotes\app.git`, and splitting on `/`
+  // and `:` alone named the repo `\…\remotes\app` — so its worktree landed in a nest of folders, not beside the others.
+  const trimmed = url.replace(/[/\\]+$/, "");
+  const last = trimmed.split(/[/\\:]/).pop() ?? trimmed;
   return last.replace(/\.git$/, "");
 }
 

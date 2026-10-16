@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { plan } from "../../src/run-process.js";
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -23,11 +24,14 @@ describe("check-seam — @svayam-opensource/gov/check-host from a packed tarball
       throw new Error("lib/ has no check-seam build — run `npm run build` before the tests.");
     }
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-check-host-"));
-    const out = execFileSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir], { cwd: pkgRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    const tgz = path.join(dir, (JSON.parse(out) as { filename: string }[])[0]!.filename);
+    // npm is `npm.cmd` on Windows: spawned the way gov spawns it (PATH × PATHEXT, a .cmd through cmd.exe).
+    const npm = plan("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", dir]);
+    const out = execFileSync(npm.file, [...npm.args], { cwd: pkgRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsVerbatimArguments: npm.verbatim });
+    const tgz = (JSON.parse(out) as { filename: string }[])[0]!.filename;
     const target = path.join(dir, "consumer", "node_modules", "@svayam-opensource", "gov");
     fs.mkdirSync(target, { recursive: true });
-    execFileSync("tar", ["-xzf", tgz, "-C", target, "--strip-components=1"]);
+    // Relative paths in `dir`: Git's GNU tar on Windows reads `D:\…` as a remote host `D`.
+    execFileSync("tar", ["-xzf", tgz, "-C", "consumer/node_modules/@svayam-opensource/gov", "--strip-components=1"], { cwd: dir });
     fs.writeFileSync(path.join(dir, "consumer", "package.json"), JSON.stringify({ name: "consumer", private: true }));
   });
 

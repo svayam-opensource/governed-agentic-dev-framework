@@ -43,7 +43,10 @@ export function ledgerSourceAt(home: string): { ok: true; src: LedgerSource; cle
   const cleanup = (): void => fs.rmSync(tmp, { recursive: true, force: true });
   const tar = path.join(tmp, "evidence.tar");
   const a = git(["archive", "--format=tar", "-o", tar, ref, "evidence"]);
-  const x = a.status === 0 ? runResult("tar", ["-xf", tar, "-C", tmp], { pgm: PGM, fn: "ledgerSourceAt" }) : a;
+  // RELATIVE, IN ITS OWN DIRECTORY. On Windows the `tar` on PATH is often Git's GNU tar, which reads `C:\…\evidence.tar`
+  // as a REMOTE archive on host `C` ("Cannot connect to C: resolve failed"). A bare name read in `tmp` means the
+  // same to GNU tar, bsdtar (Windows' own) and every POSIX tar.
+  const x = a.status === 0 ? runResult("tar", ["-xf", "evidence.tar"], { cwd: tmp, pgm: PGM, fn: "ledgerSourceAt" }) : a;
   if (x.status !== 0) {
     cleanup();
     return { ok: false, line: `could not read evidence/ from ${ref} in ${home}: ${(x.stderr || "git archive failed").trim().split("\n")[0]}` };

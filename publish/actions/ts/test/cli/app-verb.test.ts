@@ -20,9 +20,12 @@ import { startLoopback, type StartLoopback } from "../../src/cli/app-loopback.js
 import { doctor } from "../../src/maintain/doctor.js";
 import { endRun, startRun } from "../../src/log.js";
 import { chooseModel } from "../../src/rules/propose/providers/index.js";
+import { writeStandIn } from "../helpers/stand-in.js";
 
 const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretKEYmaterialDO-NOT-LEAK\n-----END RSA PRIVATE KEY-----\n";
 const CFG: AppConfig = { home: "/gov", githubOrg: "acme", orgSlugLower: "acme", workspaceRepo: "acme-gov", defaultBranch: "main" };
+/** Where gov reads org-config.yaml for CFG: `path.join(home, …)` — `\\gov\\org-config.yaml` on Windows. */
+const CFG_FILE = path.join("/gov", "org-config.yaml");
 const ORG_CONFIG = 'org_name: "Acme"\ngithub_org: "acme"\nservices:\n  vault: ""\n  oidc: ""\n\nauthorized_agents:\n  default: ""\n';
 const ok = (stdout = ""): GhOutcome => ({ status: 0, stdout, stderr: "" });
 const err = (stderr: string): GhOutcome => ({ status: 1, stdout: "", stderr });
@@ -51,7 +54,7 @@ function fakeLoopback(code: string | Error, seen: { page?: string; state?: strin
 }
 
 function setupDeps(gh: GhRun, opts: { code?: string | Error; files?: Record<string, string>; seen?: { page?: string; state?: string } } = {}) {
-  const files: Record<string, string> = { "/gov/org-config.yaml": ORG_CONFIG, ...(opts.files ?? {}) };
+  const files: Record<string, string> = { [CFG_FILE]: ORG_CONFIG, ...(opts.files ?? {}) };
   const said: string[] = [];
   const writes: { file: string; text: string }[] = [];
   const deps: AppSetupDeps = {
@@ -111,7 +114,7 @@ describe("gov app setup — the org's GitHub App, by the manifest flow", () => {
     expect(sets[0]!.input).to.equal("Iv23abc");
     expect(sets[1]!.input, "the key goes on stdin").to.equal(PEM);
 
-    expect(readGithubApp(files["/gov/org-config.yaml"])).to.deep.equal({ clientId: "Iv23abc", slug: "gov-acme" });
+    expect(readGithubApp(files[CFG_FILE])).to.deep.equal({ clientId: "Iv23abc", slug: "gov-acme" });
     const text = r.lines.join("\n");
     expect(text).to.contain("https://github.com/apps/gov-acme/installations/new");
     expect(text).to.contain("acme-gov").and.contain("gov app check");
@@ -127,7 +130,7 @@ describe("gov app setup — the org's GitHub App, by the manifest flow", () => {
       expect([...r.lines, ...said].join("\n")).to.not.contain(bit);
       expect(writes.map((w) => w.text).join("\n")).to.not.contain(bit);
     }
-    expect(writes.map((w) => w.file)).to.deep.equal(["/gov/org-config.yaml"]);
+    expect(writes.map((w) => w.file)).to.deep.equal([CFG_FILE]);
     expect(calls.filter((c) => c.input?.includes("MIIEsecretKEY")).map((c) => c.args[2])).to.deep.equal(["GOV_APP_PRIVATE_KEY"]);
   });
 
@@ -144,7 +147,7 @@ describe("gov app setup — the org's GitHub App, by the manifest flow", () => {
     expect(r.code).to.equal(1);
     expect(text).to.contain("GOV_APP_PRIVATE_KEY could not be set").and.contain("admin:org").and.contain("kept no copy");
     expect(text).to.not.contain("MIIEsecretKEY");
-    expect(readGithubApp(files["/gov/org-config.yaml"])?.slug).to.equal("gov-acme");
+    expect(readGithubApp(files[CFG_FILE])?.slug).to.equal("gov-acme");
   });
 
   it("the exchange fails: exit 1, nothing set, nothing written", async () => {
@@ -176,7 +179,7 @@ describe("gov app setup — the org's GitHub App, by the manifest flow", () => {
   it("an App already recorded and still on GitHub is not created twice", async () => {
     const calls: Call[] = [];
     const { deps } = setupDeps(fakeGh([[/^api \/apps\/gov-acme$/, ok("{}")]], calls),
-      { files: { "/gov/org-config.yaml": withGithubApp(ORG_CONFIG, { clientId: "Iv1", slug: "gov-acme" }) } });
+      { files: { [CFG_FILE]: withGithubApp(ORG_CONFIG, { clientId: "Iv1", slug: "gov-acme" }) } });
     const r = await appSetup(deps, CFG);
     expect(r.code).to.equal(0);
     expect(r.lines.join("\n")).to.contain("already has its App").and.contain("gov app check");
@@ -396,15 +399,15 @@ describe("gov app setup — secrets where they reach (Free + private)", () => {
     const conv = JSON.stringify({ id: 42, slug: "gov-acme", client_id: "Iv23abc", pem: REAL_KEY });
     const { deps, files } = setupDeps(fakeGh(freeRoutes([[/conversions$/, ok(conv)]]), []));
     await appSetup(deps, CFG);
-    const id = readGithubApp(files["/gov/org-config.yaml"])!;
+    const id = readGithubApp(files[CFG_FILE])!;
     expect(id.keyFingerprint).to.equal(keyFingerprint(REAL_KEY));
     expect(id.keyFingerprint).to.match(/^SHA256:[A-Za-z0-9+/]+=*$/);
-    expect(files["/gov/org-config.yaml"]).to.not.contain(keyBits(REAL_KEY));
+    expect(files[CFG_FILE]).to.not.contain(keyBits(REAL_KEY));
   });
 });
 
 describe("gov app rotate — a new key onto every repo that needs it; gov never keeps a key", () => {
-  const recorded = { "/gov/org-config.yaml": withGithubApp(ORG_CONFIG, { clientId: "Iv1", slug: "gov-acme", keyFingerprint: "SHA256:oldOLDold=" }) };
+  const recorded = { [CFG_FILE]: withGithubApp(ORG_CONFIG, { clientId: "Iv1", slug: "gov-acme", keyFingerprint: "SHA256:oldOLDold=" }) };
   const rotateDeps = (gh: GhRun, over: Partial<AppSetupDeps> = {}, files: Record<string, string> = {}) => {
     const s = setupDeps(gh, { files: { ...recorded, ...files } });
     const removed: string[] = [];
@@ -434,7 +437,7 @@ describe("gov app rotate — a new key onto every repo that needs it; gov never 
     const text = r.lines.join("\n");
     expect(text).to.contain("SHA256:oldOLDold=").and.contain("delete").and.contain("https://github.com/organizations/acme/settings/apps/gov-acme");
     expect(text).to.contain(keyFingerprint(REAL_KEY)!);
-    expect(readGithubApp(files["/gov/org-config.yaml"])!.keyFingerprint).to.equal(keyFingerprint(REAL_KEY));
+    expect(readGithubApp(files[CFG_FILE])!.keyFingerprint).to.equal(keyFingerprint(REAL_KEY));
     for (const t of [text, calls.flatMap((c) => c.args).join(" "), writes.map((w) => w.text).join("\n")]) expect(t).to.not.contain(keyBits(REAL_KEY));
   });
 
@@ -574,7 +577,7 @@ describe("the private key never reaches the run's log — a real run, a real gh 
     const bin = path.join(root, "bin");
     fs.mkdirSync(bin);
     // The stand-in answers the conversion with a key, and for `secret set` records only WHETHER stdin carried it.
-    fs.writeFileSync(path.join(bin, "gh"), [
+    writeStandIn(bin, "gh", [
       "#!/bin/sh",
       'case "$*" in',
       '  "api /apps/"*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;',
@@ -582,12 +585,12 @@ describe("the private key never reaches the run's log — a real run, a real gh 
       `  "secret set GOV_APP_PRIVATE_KEY"*) if cat | grep -q MIIEsecretKEY; then echo key-on-stdin >> "${root}/seen"; fi ;;`,
       '  "secret set"*) cat > /dev/null ;;',
       "esac",
-    ].join("\n"), { mode: 0o755 });
+    ].join("\n"));
     savedPath = process.env.PATH ?? "";
     process.env.PATH = `${bin}${path.delimiter}${savedPath}`;
 
     startRun({ argv: ["app", "setup"], command: "app", workRoot: root, login: "tester", version: "9" });
-    const files: Record<string, string> = { "/gov/org-config.yaml": ORG_CONFIG };
+    const files: Record<string, string> = { [CFG_FILE]: ORG_CONFIG };
     const r = await appSetup({
       gh: ghRunner("gov-work:test:app"),
       loopback: fakeLoopback("code123", {}),

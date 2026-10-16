@@ -26,6 +26,7 @@ import { WORKFLOW_TEMPLATE } from "../../src/maintain/repo-protect.js";
 import type { CheckBinding } from "../../src/rules/model/catalog.js";
 import { withInstalledPin, type CheckVerbConfig } from "../../src/cli/check-verb.js";
 
+const TEMPLATE_POSIX = WORKFLOW_TEMPLATE.split(path.sep).join("/");
 const tmp = (p: string): string => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const put = (root: string, rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
 const read = (root: string, rel: string): string | null => { try { return fs.readFileSync(path.join(root, rel), "utf8"); } catch { return null; /* absent */ } };
@@ -179,7 +180,8 @@ describe("gov upgrade carries the re-render (Q9)", function () {
     put(c, "MANIFEST.yaml", [
       "files:",
       "  - { src: VERSION, dst: VERSION, mode: scaffold-auto }",
-      `  - { src: ${WORKFLOW_TEMPLATE}, dst: ${WORKFLOW_TEMPLATE}, mode: scaffold-auto }`,
+      // A MANIFEST names paths with `/`, as the real one does; WORKFLOW_TEMPLATE is an OS path (`\` on Windows).
+      `  - { src: ${TEMPLATE_POSIX}, dst: ${TEMPLATE_POSIX}, mode: scaffold-auto }`,
       "",
     ].join("\n"));
     put(c, "VERSION", "2.0.0\n");

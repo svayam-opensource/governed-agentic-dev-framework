@@ -26,6 +26,7 @@ import {
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import { runCaptureAsync } from "../../src/run-process.js";
 import type { RuleRow } from "../../src/rules/model/rule-row.js";
+import { bashExe } from "../helpers/stand-in.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FAKE_AGENT = path.resolve(here, "../../e2e/stub/headless-agent");
@@ -169,6 +170,14 @@ describe("headless launch — reading the exit (03-Q10)", () => {
   });
 });
 
+/**
+ * The fake agent as something Windows can START: it is a bash script, and Windows runs only what PATHEXT names. A
+ * `.cmd` wrapper would not do — cmd.exe ends a command at a newline, and the prompt is several lines — so there the
+ * catalog's command is Git Bash and the script is its first argument. Elsewhere it is the catalog of the tests above.
+ */
+const runnableCatalog = (): readonly AgentCandidate[] => process.platform !== "win32" ? fakeCatalog() : fakeCatalog().map((a) =>
+  a.id === "fake" ? { ...a, cmd: bashExe(), headlessArgv: [FAKE_AGENT, ...a.headlessArgv!] } : a);
+
 describe("headless launch — the fake agent L17 drives (e2e/stub/headless-agent)", function () {
   this.timeout(20_000);
   let dir: string;
@@ -177,7 +186,7 @@ describe("headless launch — the fake agent L17 drives (e2e/stub/headless-agent
 
   const run = (env: Record<string, string>, timeoutMs?: number) => runHeadless(
     { exec: (cmd, args, o) => runCaptureAsync(cmd, args, { ...o, env: { ...process.env, ...env } }) },
-    { agent: "fake", cwd: dir, kickoff: "KICKOFF", task: "TASK", isC01, timeoutMs }, fakeCatalog());
+    { agent: "fake", cwd: dir, kickoff: "KICKOFF", task: "TASK", isC01, timeoutMs }, runnableCatalog());
 
   it("ok path: writes the files it is told to, records its prompt, exits 0", async () => {
     const r = await run({ FAKE_AGENT_WRITE: "notes/a.md:hello|b.txt:world", FAKE_AGENT_PROMPT_FILE: path.join(dir, "prompt.txt") });

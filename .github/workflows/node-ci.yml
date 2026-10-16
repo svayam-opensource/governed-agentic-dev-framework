@@ -308,16 +308,28 @@ jobs:
       # actions themselves need (checkout wants git; setup-node unpacks a .tar.xz) — deliberately not
       # a build-essential kitchen sink, so a test that needs something we do not ship FAILS here
       # instead of quietly finding it on the host.
+      #
+      # python3 is the one exception, and it is not ours: an org check action may be `python/<name>`, and
+      # test/rules/checks/org-actions.test.ts runs a REAL one (the behaviour under test is a process's). An org
+      # that binds a python action has Python on the machine that runs it; Debian slim ships none, Fedora does.
+      # What gov says on a machine WITHOUT it is tested separately, on every leg, by emptying PATH.
       - name: bootstrap the container
         working-directory: /
         run: |
           set -eu
           if command -v apt-get >/dev/null; then
-            apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates curl xz-utils
+            apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates curl xz-utils python3
           else
-            dnf -y install git ca-certificates tar xz findutils
+            dnf -y install git ca-certificates tar xz findutils python3
           fi
       - uses: actions/checkout@v4
+      # THE CHECKOUT BELONGS TO ANOTHER USER. The workspace is a host directory owned by the runner's uid, mounted
+      # into a container that runs as root, so git refuses it ("detected dubious ownership") — and every test that
+      # asks git about this repository (pol-aliases' `git grep`, run 38838958583) failed for a reason no adopter
+      # has. checkout's own exception lives in a temporary HOME that is gone after its step. SYSTEM scope, not
+      # global: tests run git with their own HOME, and a global setting would not reach them.
+      - name: trust the checkout (container user ≠ the workspace's owner)
+        run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
