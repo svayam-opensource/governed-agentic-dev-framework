@@ -314,6 +314,7 @@ PR_A="$(open_pr e2e/checks "gov checks (workflows only)" "$G" "$R_GOV")"
 SHA_A="$(head_of "$R_GOV" "$PR_A")"
 for id in GOV-FRM-455 GOV-FRM-467 GOV-FRM-468; do
   res="$(wait_check "$R_GOV" "$SHA_A" "$id · pull_request")"
+  [ "${res%% *}" = success ] || [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
   expect "(a) $id · pull_request passed on PR #$PR_A (got: ${res%% *})" test "${res%% *}" = success
 done
 x gh pr merge "$PR_A" --repo "$R_GOV" --merge --delete-branch >/dev/null || die "merge of #$PR_A failed"
