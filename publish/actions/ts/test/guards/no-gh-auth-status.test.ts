@@ -40,7 +40,10 @@ function tsFiles(d: string): string[] {
   });
 }
 
-describe("guard: no hint sends people to `gh auth status` (Item 10)", () => {
+describe("guard: no hint sends people to `gh auth status` (Item 10)", function () {
+  // Parsing all of src/ takes ~1s on a laptop and over 2s on a loaded CI agent (Jenkins gov-work dev #21).
+  this.timeout(30_000);
+
   it("no string or template literal in src/ mentions `gh auth status`", () => {
     const offenders = tsFiles(SRC).flatMap((f) =>
       literalsIn(f).filter((l) => /gh auth status/.test(l.text)).map((l) => `${path.relative(SRC, f)}:${l.line}`));

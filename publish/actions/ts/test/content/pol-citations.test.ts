@@ -107,11 +107,20 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "publish/actions/deprecated/tests/test_secret_scanner.sh": OUT_OF_SCOPE,
 };
 
+/**
+ * Jenkins' `dir('x') { sh … }` keeps its durable-task scratch (the step's own console log) in a sibling `x@tmp/`
+ * INSIDE the checkout. It is untracked and not ours — and its log quotes this suite's output, POL numbers included
+ * (Jenkins gov-work dev #21: `publish/actions/ts@tmp/durable-…/jenkins-log.txt`).
+ */
+function isCiScratch(file: string): boolean {
+  return file.split("/").some((seg) => seg.endsWith("@tmp"));
+}
+
 /** Every tracked or untracked (not ignored) file in the repository that contains a POL number. */
 function filesCitingPol(): string[] | null {
   try {
     const out = execFileSync("git", ["-C", ROOT, "grep", "--untracked", "-lE", "POL-[0-9]"], { encoding: "utf8" });
-    return out.split("\n").filter(Boolean).sort();
+    return out.split("\n").filter(Boolean).filter((f) => !isCiScratch(f)).sort();
   } catch (e) {
     // `git grep` exits 1 when nothing matches — a real answer. Anything else (no git, not a repository) is not.
     if ((e as { status?: number }).status === 1) return [];
