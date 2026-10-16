@@ -53,6 +53,9 @@ function world(agentDoes: (cwd: string, task: string) => Partial<HeadlessResult>
   execFileSync("git", ["init", "-q", "--bare", "-b", "main", remote]);
   fs.mkdirSync(home);
   git(home, "init", "-q", "-b", "main");
+  // gov commits through the product's own git (no -c identity): a CI runner has no global identity, so the repo
+  // carries one (its worktrees share this config).
+  git(home, "config", "user.name", "t"); git(home, "config", "user.email", "t@x");
   const put = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(home, rel)), { recursive: true }); fs.writeFileSync(path.join(home, rel), text); };
   put(LIFECYCLE_POLICY_PATH, fs.readFileSync(path.join(CONTENT, LIFECYCLE_POLICY_PATH), "utf8"));
   for (const k of ["intent", "spec", "plan", "build"]) {

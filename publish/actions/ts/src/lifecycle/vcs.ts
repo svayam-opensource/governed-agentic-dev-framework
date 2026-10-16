@@ -121,10 +121,19 @@ const defaultRunGit: RunGit = (args) => runResult("git", args, { pgm: "gov-work:
 /**
  * A push GitHub refused for ITS OWN reasons, not ours — worth one more try. Seen live: `remote: fatal error in
  * commit_refs` / `[remote rejected] … (failure)` on a joiner's first push (svayam-e2e run 38482423935), a server
- * error that the same push, seconds later, does not hit. A rejection that IS ours (non-fast-forward, protected
+ * error that the same push, seconds later, does not hit; GitHub also words it `(failed)` (adopter-e2e run 38754541610). A rejection that IS ours (non-fast-forward, protected
  * branch, permission) never matches, so it fails at once, as before.
  */
-export const TRANSIENT_PUSH = /fatal error in commit_refs|remote rejected\][^\n]*\(failure\)|internal server error|returned error: 5\d\d|HTTP 5\d\d|RPC failed|early EOF|Connection reset|Could not resolve host|unexpected disconnect/i;
+export const TRANSIENT_PUSH = /fatal error in commit_refs|remote rejected\][^\n]*\(fail(?:ure|ed)\)|internal server error|returned error: 5\d\d|HTTP 5\d\d|RPC failed|early EOF|Connection reset|Could not resolve host|unexpected disconnect/i;
+
+/**
+ * git refusing to commit because it does not know who the author is (no user.name / user.email anywhere — a fresh
+ * machine, a container, a CI runner): `*** Please tell me who you are.` … `fatal: empty ident name … not allowed` /
+ * `fatal: unable to auto-detect email address`. git's own last line names neither setting, so gov says what to run.
+ */
+export const NO_GIT_IDENTITY = /Please tell me who you are|empty ident name|unable to auto-detect email address|auto-detection is disabled/i;
+export const GIT_IDENTITY_HINT =
+  'git does not know who you are, so it cannot commit — set it once: git config --global user.name "Your Name" && git config --global user.email you@example.com';
 
 const sleepSync = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
 
@@ -210,7 +219,10 @@ export function createGitVcs(runGit: RunGit = defaultRunGit, sleep: (ms: number)
       must(["-C", repoDir, "add", pathspec]);
     },
     commit(repoDir, message) {
-      must(["-C", repoDir, "commit", "-m", message]);
+      const r = runGit(["-C", repoDir, "commit", "-m", message]);
+      if (r.status === 0) return;
+      if (NO_GIT_IDENTITY.test(r.stderr ?? "")) throw new Error(GIT_IDENTITY_HINT);
+      throw new Error(`git commit failed (exit ${r.status})${r.stderr ? `: ${r.stderr.trim()}` : ""}`);
     },
     resetHard(repoDir, sha) {
       must(["-C", repoDir, "reset", "--hard", sha]);

@@ -29,6 +29,9 @@
 #   --dry-run (or E2E_DRY_RUN=1)  HERMETIC: prints every gh / git / gov / script call instead of making it
 #                                 (test/e2e/signal-journey-dry.test.ts)
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=live-retry.sh
+. "$HERE/live-retry.sh"
 
 DRY=0
 for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac; done
@@ -109,12 +112,28 @@ command -v script >/dev/null || [ "$DRY" = 1 ] || die "\`script\` (util-linux) i
 
 # ── 1. Two projects, both seeded by bot A; bot B joins B ─────────────────────────────────────────────────────────
 seed_project() {   # <name> <dry board number> → sets P_URL P_NUM P_ID P_DIR
-  local out
+  local out rc=0 anchor
   out="$(xo "Handing to gov seed https://github.com/orgs/$E2E_ORG/projects/$2
-  workspace: /dry/projects/PRJ-$2-$1" gov project "$1" --seed </dev/null 2>&1)" || { printf '%s\n' "$out" | tail -12; die "gov project $1 --seed failed"; }
+  workspace: /dry/projects/PRJ-$2-$1" gov project "$1" --seed </dev/null 2>&1)" || rc=$?
   P_URL="$(printf '%s\n' "$out" | grep -oE "https://github\.com/orgs/$E2E_ORG/projects/[0-9]+" | head -1)"
   [ -n "$P_URL" ] || { printf '%s\n' "$out" | tail -12; die "gov project $1 did not print its board"; }
-  P_NUM="${P_URL##*/}"; BOARDS+=("$P_NUM")
+  P_NUM="${P_URL##*/}"; BOARDS+=("$P_NUM")   # deleted at the end even if seeding fails below
+  if [ "$rc" -ne 0 ]; then
+    # gov waited 90 s for GitHub's project index to list the new anchor and stopped, saying to run `gov seed` when it
+    # does (run 38754541610: the index lagged past 90 s). Not a gov failure — do what gov said, within a bound: wait
+    # up to 3 min more; then add the anchor once more (as 2a373bb does for the adopter's board) and wait again.
+    case "$out" in *"does not list its anchor yet"*) ;; *) printf '%s\n' "$out" | tail -12; die "gov project $1 --seed failed" ;; esac
+    anchor="$(printf '%s\n' "$out" | grep -oE "https://github\.com/$E2E_ORG/[^ ]+/issues/[0-9]+" | head -1)"
+    [ -n "$anchor" ] || { printf '%s\n' "$out" | tail -12; die "gov project $1 named no anchor issue"; }
+    printf '  · board #%s does not list its anchor yet (GitHub index lag) — waiting, then gov seed as gov said\n' "$P_NUM"
+    if ! board_lists "$E2E_ORG" "$P_NUM" "$anchor" 180; then
+      printf '  · still not listed after 3 min — re-adding %s once: %s\n' "$anchor" \
+        "$(gh project item-add "$P_NUM" --owner "$E2E_ORG" --url "$anchor" --format json 2>&1 | head -c 200)"
+      board_lists "$E2E_ORG" "$P_NUM" "$anchor" 180 \
+        || die "board #$P_NUM never listed its anchor $anchor (~6 min after gov's own 90 s) — GitHub's project index, not gov"
+    fi
+    out="$(gov seed "$P_URL" </dev/null 2>&1)" || { printf '%s\n' "$out" | tail -12; die "gov seed $P_URL failed (after the board listed its anchor)"; }
+  fi
   P_ID="PRJ-${P_NUM}-$1"
   P_DIR="$(printf '%s\n' "$out" | sed -n 's/^  workspace: //p' | head -1)"; P_DIR="${P_DIR/#\~/$HOME}"
   [ -n "$P_DIR" ] || die "gov project $1 --seed did not say where its workspace is"

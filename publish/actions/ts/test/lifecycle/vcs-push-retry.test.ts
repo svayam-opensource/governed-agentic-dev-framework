@@ -33,6 +33,13 @@ describe("gov-work — git push retries GitHub's own failures, never ours", () =
     expect(calls).to.have.length(3);
   });
 
+  it("GitHub's `(failed)` wording of the same server-side rejection is retried too (run 38754541610)", () => {
+    const FAILED = "To https://github.com/o/r\n ! [remote rejected] e2e/policy -> e2e/policy (failed)\nerror: failed to push some refs";
+    const { vcs, calls } = world([{ status: 1, stderr: FAILED }, { status: 0 }]);
+    vcs.push("/r", "origin", "e2e/policy");
+    expect(calls).to.have.length(2);
+  });
+
   it("a rejection that is ours (non-fast-forward) fails at once — no retry", () => {
     const { vcs, calls, naps } = world([{ status: 1, stderr: NON_FF }]);
     expect(() => vcs.push("/r", "origin", "main")).to.throw(/non-fast-forward/);

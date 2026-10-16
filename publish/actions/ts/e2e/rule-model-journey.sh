@@ -42,6 +42,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/token-scopes.sh"
 # shellcheck source=check-annotations.sh
 . "$HERE/check-annotations.sh"
+# shellcheck source=live-retry.sh
+. "$HERE/live-retry.sh"
 DRY=0
 for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac; done
 [ "${E2E_DRY_RUN:-0}" = "1" ] && DRY=1
@@ -140,9 +142,13 @@ poll() { local t0=$SECONDS out
     if [ $((SECONDS - t0)) -ge "$WAIT_SECS" ] || [ "$SECONDS" -ge "$DEADLINE" ]; then return 0; fi; sleep 10; done; }
 violations() { gh issue list --repo "$1" --label gov-violation --state all --json number,title,assignees \
   --jq ".[] | select(.title | test(\"$2\")) | select([.assignees[].login] | index(\"$LOGIN\")) | .number" | head -1; }
+# Runs inside $(…), where neither `set -e` nor the ERR trap reach: every failure is checked here, or the journey goes
+# on to a PR that does not exist (run 38754541610: a refused push surfaced two steps later as "Head sha can't be blank").
 open_pr() { # branch title → prints the PR number
-  x git -C "$3" push -q -u origin "$1"
-  local url; url="$(xo "https://github.com/$4/pull/1" gh pr create --repo "$4" --base "$DEF" --head "$1" --title "$2" --body "rule-model journey $RUN_ID")"
+  if [ "$DRY" = 1 ]; then printf '  + git -C %s push -q -u origin %s\n' "$3" "$1" >&3
+  else push_retry "$3" "$1" || die "could not push $1 to $4 (see the git error above)" >&2; fi
+  local url; url="$(xo "https://github.com/$4/pull/1" gh pr create --repo "$4" --base "$DEF" --head "$1" --title "$2" --body "rule-model journey $RUN_ID")" \
+    || die "gh pr create $1 → $4 failed" >&2
   echo "${url##*/}"; }
 head_of() { xo "dry-sha-$2" gh pr view "$2" --repo "$1" --json headRefOid --jq .headRefOid; }
 

@@ -84,7 +84,8 @@ describe("evidence sink sites (spec 02 §3.1)", () => {
       org: [{ id: "GOV-ACME-090", source: { doc: "policies/org-policy.md", section: "4", sha: "abc1234" }, expectation: "x", actor: ["everyone"], level: "C02",
         checks: [{ on: { resource: "gov.verb", event: "close" }, action: "gov-check/segregation", on_miss: "fail" }], start: { version: "1.0.0", date: "2026-10-06" }, end: null }],
     };
-    runBoundChecks(rules, { resource: "gov.verb", event: "close" }, {}, () => null);
+    // The environment is injected: on a CI runner process.env carries GITHUB_ACTIONS=true, which would make this `ci`.
+    runBoundChecks(rules, { resource: "gov.verb", event: "close" }, {}, () => null, { env: {} });
     const drafts = evidenceDrafts();
     expect(drafts.map((d) => d.kind)).to.deep.equal(["gate"]);
     const rec = finalizeRecord(drafts[0]!, 123456);
