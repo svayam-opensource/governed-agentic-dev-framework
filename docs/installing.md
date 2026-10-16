@@ -72,6 +72,8 @@ agents it installed, and keeps `~/.gov` (your workspaces and preferences).
 - **winget lags a release.** Microsoft reviews every winget listing, which takes hours to days. The
   `gov-<version>-x64.msi` (or `-arm64.msi`) is on the release page as soon as the release is out, if you cannot
   wait. Expect the "Unknown publisher" prompt.
+- **Pre-releases (`@next`) are npm-only.** The MSI and winget carry clean releases (`x.y.z`) only; a
+  pre-release is published to npm under the `next` tag and nowhere else.
 
 ---
 

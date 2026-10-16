@@ -39,6 +39,10 @@ sequenceDiagram
 - **winget** (`scripts/winget.mjs`) renders the `Svayam.Gov` manifests from `winget/` for the released MSIs.
   winget checks `InstallerSha256` and needs no signature, so the listing is the same for signed and unsigned MSIs.
   gov-cicd's prod promote runs it and opens the `microsoft/winget-pkgs` PR. Only plain `x.y.z` versions are listed.
+- **Pre-releases (`@next`) are npm-only; the MSI and winget carry clean releases** (Policy Owner, 2026-10-16).
+  Windows Installer's ProductVersion has no pre-release field, so `2.0.0-next.1` and `2.0.0` cannot be told apart.
+  On a pre-release head, `adopter-e2e / windows` still builds, test-signs and installs a TEST MSI; its winget step
+  ends with a notice and renders no listing.
 
 ## Build it yourself (Windows)
 
