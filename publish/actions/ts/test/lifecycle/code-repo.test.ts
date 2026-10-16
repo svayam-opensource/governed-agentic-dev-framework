@@ -233,7 +233,9 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
   });
 });
 
-describe("prj-work Phase 2 — Vcs code-repo reads (real git)", () => {
+describe("prj-work Phase 2 — Vcs code-repo reads (real git)", function () {
+  // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   it("lsRemoteHeads + defaultBranch + clone against a local bare repo", () => {
     const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "prjwork-remote-")));
     try {
@@ -260,7 +262,9 @@ describe("prj-work Phase 2 — Vcs code-repo reads (real git)", () => {
 });
 
 // ── #214 / #224: what a previous attempt (or a closed project) left at the path ──────────────────────────────
-describe("add-repo — leftovers at the worktree path (#214) and a present worktree (#224), real git", () => {
+describe("add-repo — leftovers at the worktree path (#214) and a present worktree (#224), real git", function () {
+  // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   let p: GitProject;
   beforeEach(() => { p = makeGitProject(); });
   afterEach(() => p.cleanup());

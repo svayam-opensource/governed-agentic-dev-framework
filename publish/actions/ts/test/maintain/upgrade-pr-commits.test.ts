@@ -76,7 +76,9 @@ function upgrade(r: Repo, ext: UpgradeExtension = {}): { code: number; out: stri
   return { code: res.code, out: res.lines.join("\n"), body, subjects };
 }
 
-(gitOk() ? describe : describe.skip)("gov upgrade --pr — four ordered commits (Q6)", () => {
+(gitOk() ? describe : describe.skip)("gov upgrade --pr — four ordered commits (Q6)", function () {
+  // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   it("framework · org moves · migrations · proposed prose, in that order, with their subjects", () => {
     const r = repo(FULL);
     const u = upgrade(r, PROPOSE);

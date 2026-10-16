@@ -33,7 +33,9 @@ function setup(): { content: string; adopter: string; g: (...a: string[]) => str
   return { content, adopter, g };
 }
 
-(gitOk() ? describe : describe.skip)("gov upgrade --pr — the clone goes back to its branch", () => {
+(gitOk() ? describe : describe.skip)("gov upgrade --pr — the clone goes back to its branch", function () {
+  // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   it("after opening the PR, the clone is back on the branch it was on, and the output says so", () => {
     const { content, adopter, g } = setup();
     const r = runUpgradePr(content, adopter, { userHome: tmp("govpr-home-"), openPr: () => "https://example.test/pr/1" });

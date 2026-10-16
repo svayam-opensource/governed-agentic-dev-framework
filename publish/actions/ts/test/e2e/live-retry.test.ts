@@ -42,7 +42,9 @@ function run(tool: "git" | "gh", replies: [number, string][], call: string) {
   return { status: r.status, err: r.stderr, calls };
 }
 
-describe("e2e/live-retry.sh — bounded retries for GitHub's own failures", () => {
+describe("e2e/live-retry.sh — bounded retries for GitHub's own failures", function () {
+  // A bash per call, and the fake's own processes: on a Windows runner each start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   it("push_retry: GitHub's `(failed)` rejection, then success → pushed on the second try", () => {
     const r = run("git", [[1, FAILED], [0, ""]], "push_retry /g e2e/policy");
     expect(r.status, r.err).to.equal(0);

@@ -91,7 +91,9 @@ describe("GOV-FRM-445 — org-owned files are never overwritten by an upgrade", 
     expect(formatPlan(p).join("\n")).to.match(/README\.md.*does not know.*overlay-schema/);
   });
 
-  describe("through the runner (real files)", () => {
+  describe("through the runner (real files)", function () {
+    // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+    this.timeout(30_000);
     const tmp = (p: string): string => fs.mkdtempSync(path.join(os.tmpdir(), p));
     const write = (root: string, rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
     const oldContent = (): string => {

@@ -175,7 +175,9 @@ describe("selectUpgradeContent — the default content is the client's own build
   });
 });
 
-(gitOk() ? describe : describe.skip)("fetchTemplateContent — by commit", () => {
+(gitOk() ? describe : describe.skip)("fetchTemplateContent — by commit", function () {
+  // Real git, many processes a test: on a Windows runner each git start costs ~150 ms, near mocha's 2 s default.
+  this.timeout(30_000);
   it("fetches a full commit sha (not only a branch) and reports the commit it got", () => {
     const repo = tmp("bid-repo-");
     const g = (...a: string[]): string => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" }).trim();
