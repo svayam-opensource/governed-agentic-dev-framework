@@ -161,7 +161,7 @@ describe("gov check install --all", () => {
     expect(w.disk[`${GOV}/.github/workflows/gov-validate.yml`]).to.equal(ORG);
     const r = install(w, {}, { ...CFG, runner: classifyRunsOn(["self-hosted", "linux"]) });
     expect(w.disk[`${GOV}/.github/workflows/gov-validate.yml`]).to.equal("name: gov-validate\njobs:\n  validate:\n    runs-on: [self-hosted, linux] # ours\n");
-    expect(r.text).to.match(/written\s+acme-gov\s+\.github\/workflows\/gov-validate\.yml:4  runs-on: ubuntu-latest → \[self-hosted, linux\]/);
+    expect(r.text).to.match(/written\s+acme-gov\s+\.github\/workflows\/gov-validate\.yml:4 {2}runs-on: ubuntu-latest → \[self-hosted, linux\]/);
   });
 
   it("refuses a repo that is not cloned, not git, detached, or on another project's branch — and says which", () => {
