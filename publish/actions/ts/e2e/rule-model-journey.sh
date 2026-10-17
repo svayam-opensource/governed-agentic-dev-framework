@@ -134,8 +134,8 @@ explain_wait() { local repo="$1" sha="$2" name="$3" queued
     echo "  Queued runs mean no runner carrying every one of those labels is online in $E2E_ORG — register one there, or set E2E_RUNS_ON."
     if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::rule-model journey: \"$name\" never completed — $queued run(s) queued; is a runner $RUNS_ON online in $E2E_ORG?"; fi
   } >&2; }
-# A RUNNER WITHOUT gh (run 39033584186): gov's check then says so, could not tell, and soft posture shows it green.
-# The journey stops at the first such check, naming the runner and the fix, rather than failing later on a symptom.
+# A RUNNER WITHOUT gh (run 39033584186): gov's check then fails, naming it (any posture — ruling 2026-10-17). The
+# journey stops at the first such check, naming the runner and the fix, rather than failing later on a symptom.
 runner_has_gh() { local repo="$1" id="$2"
   [ "$DRY" = 1 ] || [ "$id" = - ] && return 0
   if check_annotations "$repo" "$id" 2>/dev/null | grep -q 'GitHub CLI (`gh`) is not on this runner'; then

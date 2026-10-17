@@ -59,10 +59,10 @@ export interface CheckVerbDeps {
   readonly git: GitRead;
   readonly gh: Gh;
   /**
-   * Whether the GitHub CLI is on this machine's PATH. In GitHub Actions gov reads and writes GitHub through it; a
-   * self-hosted runner may not have it. Absent → assumed present (tests, and callers that do not run checks).
+   * Whether a tool gov needs (`git`, `gh`) is on this machine's PATH. In GitHub Actions gov reads the rules through
+   * git and reads and writes GitHub through gh; a self-hosted runner may lack either. Absent → assumed present.
    */
-  readonly ghInstalled?: () => boolean;
+  readonly toolOnPath?: (tool: RequiredTool) => boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Absolute path → text, or null. */
   readonly readFile: (file: string) => string | null;
@@ -92,18 +92,31 @@ export interface CheckVerbDeps {
  * event, and the checkout it runs in. Injected so this file stays free of the model and the forge.
  */
 /**
- * A RUNNER WITHOUT `gh` (svayam-e2e's self-hosted runner, run 39033584186). GitHub's hosted runners ship the GitHub CLI;
- * a self-hosted runner need not. Without it every GitHub read failed one by one — the proposer read "the review
- * comments could not be read" and could not tell, which soft posture shows as a green check that did nothing. So in
- * GitHub Actions gov looks once, before it runs anything, and names the missing tool.
+ * A RUNNER WITHOUT A TOOL GOV NEEDS (svayam-e2e's self-hosted runner, run 39033584186: no `gh`). GitHub's hosted runners
+ * ship git and the GitHub CLI; a self-hosted runner need not. Without gh every GitHub read failed one by one — the
+ * proposer could not tell, which soft posture showed as a green check that did nothing. So in GitHub Actions gov looks
+ * once, before it runs anything, and names the missing tool. Such a check FAILS under any posture (Policy Owner
+ * ruling, 2026-10-17): it could not run, which says nothing about the change. Every other "could not tell" keeps the
+ * posture's rules.
  */
+export type RequiredTool = "git" | "gh";
+export const GIT_MISSING =
+  "`git` is not on this runner's PATH, and gov reads the rules and the change through it, so nothing was checked. "
+  + "GitHub's hosted runners have it; on a self-hosted runner install it (https://git-scm.com) where the runner "
+  + "service's PATH finds it, then re-run this check.";
 export const GH_MISSING =
   "the GitHub CLI (`gh`) is not on this runner's PATH, and gov reads and writes GitHub through it (pull requests, "
   + "review comments, violation records), so nothing was checked. GitHub's hosted runners have it; on a self-hosted "
   + "runner install it (https://cli.github.com) where the runner service's PATH finds it, then re-run this check.";
 
-const ghMissing = (deps: Pick<CheckVerbDeps, "env" | "ghInstalled">): boolean =>
-  deps.env.GITHUB_ACTIONS === "true" && deps.ghInstalled !== undefined && !deps.ghInstalled();
+const REQUIRED_TOOLS: readonly (readonly [RequiredTool, string])[] = [["git", GIT_MISSING], ["gh", GH_MISSING]];
+export const TOOL_MISSING_FAILS = "FAILED — this runner lacks a tool gov needs, so the check could not run; that fails under any posture (exit 1).";
+
+/** The messages for the tools this runner lacks — in GitHub Actions only; elsewhere, none. */
+function missingTools(deps: Pick<CheckVerbDeps, "env" | "toolOnPath">): string[] {
+  if (deps.env.GITHUB_ACTIONS !== "true" || !deps.toolOnPath) return [];
+  return REQUIRED_TOOLS.filter(([tool]) => !deps.toolOnPath!(tool)).map(([, why]) => why);
+}
 
 export type ProposeOnPr = (tag: string, eventName: string, event: unknown, repoDir: string) => Promise<BuiltinOutcome>;
 
@@ -188,8 +201,8 @@ export async function checkCommandAsync(
     }
   }
   const binds = mine.some((b) => b.action === PROPOSE_ACTION);
-  // No gh: the proposer would only fail at its first GitHub read; the run below says why, once.
-  if (!binds || !deps.proposeOnPr || ghMissing(deps)) return checkCommand(positionals, flags, deps, cfg);
+  // A missing tool: the proposer would only fail at its first read; the run below says why, once.
+  if (!binds || !deps.proposeOnPr || missingTools(deps).length) return checkCommand(positionals, flags, deps, cfg);
   const repoDirFlag = flagStr(flags, "repo-dir");
   const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
   const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
@@ -236,14 +249,15 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ],
   });
 
+  // Before anything reads: without git the rules cannot be read either, and that must not pass as "could not tell".
+  const lacking = missingTools(deps).map((why) => `${id}: ${why}`);
+  if (lacking.length) {
+    return { result: { code: 1, lines: [...lines, ...lacking, `${id}: ${TOOL_MISSING_FAILS}`] }, annotate: { verdict: { verdict: "fail", findings: lacking } } };
+  }
   const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
   const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
   if (!loaded.ok) {
     const finding = `${id}: the rules could not be read at ${ref}: ${loaded.reason}.`;
-    return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
-  }
-  if (ghMissing(deps)) {
-    const finding = `${id}: ${GH_MISSING}`;
     return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
   }
   const rules = loaded.set;
