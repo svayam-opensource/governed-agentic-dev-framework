@@ -318,7 +318,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   const workflows = opts.seed ? null : installedWorkflowInputs(entries, readContent, readAdopter);
   if (!opts.apply) {
     const rerender = workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: false }).lines : [];
-    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
+    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...orgWorkflowRunners(adopterDir, opts.seed === true, false), ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
   const notes: string[] = [];
@@ -348,6 +348,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...settleRoleList(adopterDir),
       ...(opts.seed ? [] : fillTokens(adopterDir, createdPaths(plan, res.applied))),
       ...(opts.seed ? [] : fillRunner(adopterDir, createdPaths(plan, res.applied))),
+      ...orgWorkflowRunners(adopterDir, opts.seed === true, true),
       ...refreshCodeowners(adopterDir),
       ...(workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: true }).lines : []),
     ],
@@ -474,6 +475,16 @@ export function fillRunner(adopterDir: string, created: readonly string[]): stri
 }
 
 /**
+ * THE ORG'S gov-validate.yml FOLLOWS ci.runs_on — its runs-on lines only (Policy Owner ruling, 2026-10-17;
+ * maintain/org-workflow-runner.ts). Not in setup's seed, where governance.yaml is not the org's yet.
+ */
+function orgWorkflowRunners(adopterDir: string, seed: boolean, apply: boolean): string[] {
+  if (seed) return [];
+  const io = { read: (abs: string) => readIf(abs), write: (abs: string, text: string) => fs.writeFileSync(abs, text, "utf8") };
+  return syncSeededWorkflowRunners(adopterDir, readGovernance(adopterDir).ci, io, apply).lines;
+}
+
+/**
  * THE FRAMEWORK'S README, LEFT BY THE TEMPLATE COPY, BECOMES THE ORG'S (F22 — framework-readme.ts). Only a README
  * whose fingerprint is one the framework shipped, and only in an adopter repo (one with org-config.yaml): in the
  * framework's own checkout that README is the framework's. The org README's tokens are filled from org-config.yaml
@@ -532,6 +543,7 @@ import { log } from "../log.js";
 import { parseApprovedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH, readGovernance } from "../config/governance.js";
 import { DEFAULT_RUNS_ON, runsOnYaml, withRunsOn } from "../config/ci-runner.js";
+import { syncSeededWorkflowRunners } from "./org-workflow-runner.js";
 import { recordWorkRoot } from "../config/work-root.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";
 import { settleFrameworkReadme } from "./framework-readme.js";
@@ -680,7 +692,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: true }).lines;
     // The org's rules that cite a file this upgrade moved follow it, in this commit (spec §3.5, T8): re-sourced, patch bump, snapshot, entry.
     const relocationLines = relocateOrgRows(adopterDir, returnTo, appliedMoves(plan.actions, applied));
-    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...fillRunner(adopterDir, createdPaths(plan, applied)), ...relocationLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...fillRunner(adopterDir, createdPaths(plan, applied)), ...orgWorkflowRunners(adopterDir, false, true), ...relocationLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
     commitPart("migrations");
     proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;   // reads what commit 4 retires, so before applying it
     applyPart("proposed-prose");

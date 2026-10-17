@@ -77,14 +77,28 @@ export function runsOnYaml(r: RunsOn): string {
   return typeof r === "string" ? r : `[${r.join(", ")}]`;
 }
 
-/** A job's `runs-on:` line, in a workflow laid out as GitHub's examples are (jobs at 2 spaces, their keys at 4). */
-const JOB_RUNS_ON = /^( {4}runs-on:[ \t]*)(.*?)[ \t]*$/gm;
+/**
+ * A job's `runs-on:` line, in a workflow laid out as GitHub's examples are (jobs at 2 spaces, their keys at 4):
+ * the key, the value, and a trailing ` # comment`, which is the organization's and is kept.
+ */
+const JOB_RUNS_ON = /^( {4}runs-on:[ \t]*)(.*?)((?:[ \t]+#.*?)?)[ \t]*$/gm;
 /** A value computed by GitHub (a matrix, an input) is the workflow's own logic, never replaced. */
 const isExpression = (v: string): boolean => v.includes("${{");
 
 /** `text` with every job's `runs-on:` set to `value` (YAML text, from {@link runsOnYaml}). An expression is kept. */
 export function withRunsOn(text: string, value: string): string {
-  return text.replace(JOB_RUNS_ON, (line, head: string, v: string) => (isExpression(v) ? line : `${head}${value}`));
+  return text.replace(JOB_RUNS_ON, (line, head: string, v: string, comment: string) => (isExpression(v) ? line : `${head}${value}${comment}`));
+}
+
+/** Each job `runs-on:` line {@link withRunsOn} would change: its 1-based line number, the value it had, the new one. */
+export function runsOnEdits(text: string, value: string): { line: number; was: string; now: string }[] {
+  const out: { line: number; was: string; now: string }[] = [];
+  for (const m of text.matchAll(JOB_RUNS_ON)) {
+    const was = m[2]!;
+    if (isExpression(was) || m[0] === `${m[1]}${value}${m[3]}`) continue;
+    out.push({ line: text.slice(0, m.index).split("\n").length, was, now: value });
+  }
+  return out;
 }
 
 /** The first job's `runs-on:` value as written, or null when no job names one. */

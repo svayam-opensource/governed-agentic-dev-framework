@@ -534,6 +534,21 @@ describe("gov check install", () => {
     }
   });
 
+  it("the org's gov-validate.yml: only its runs-on lines follow ci.runs_on, each reported; absent ci.runs_on → untouched", () => {
+    const VALIDATE_ABS = "/gov/.github/workflows/gov-validate.yml";
+    const ORG = "name: gov-validate # ours\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./ours.sh\n";
+    const withFile = (written: Record<string, string>): CheckVerbDeps => ({ ...mk(written), readFile: (f) => (pxAbs(f) === VALIDATE_ABS ? ORG : null) });
+    const set: Record<string, string> = {};
+    const r = checkCommand(["install"], {}, withFile(set), { ...CFG, runner: classifyRunsOn(["self-hosted", "linux"]) });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(set[VALIDATE_ABS]).to.equal(ORG.replace("runs-on: ubuntu-latest", "runs-on: [self-hosted, linux]"));
+    expect(r.lines.join("\n")).to.contain(".github/workflows/gov-validate.yml:4  runs-on: ubuntu-latest → [self-hosted, linux]");
+    const unset: Record<string, string> = {};
+    const r2 = checkCommand(["install"], {}, withFile(unset), CFG);
+    expect(unset[VALIDATE_ABS]).to.equal(undefined);
+    expect(r2.lines.join("\n")).to.not.contain("gov-validate.yml");
+  });
+
   it("an unusable ci.runs_on: nothing is written, exit 1, the key named", () => {
     const written: Record<string, string> = {};
     const r = checkCommand(["install"], {}, mk(written), { ...CFG, runner: classifyRunsOn("two words") });

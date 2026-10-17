@@ -3,6 +3,7 @@
 //
 // `gov check install --all` and `gov check status` (P3 wave 3): the check workflow across a project's repositories —
 // the governance repo and every linked code repo, at its clone — over fakes and the shipped rule stores.
+import { classifyRunsOn } from "../../../src/config/ci-runner.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -150,6 +151,17 @@ describe("gov check install --all", () => {
     expect(writes).to.equal(0);
     expect(text).to.match(/unchanged\s+acme-gov/).and.match(/unchanged\s+billing/).and.match(/unchanged\s+ledger/);
     expect(text).to.contain("Nothing changed on disk");
+  });
+
+  it("the org's gov-validate.yml in the gov repo: only its runs-on follows ci.runs_on, reported; absent → untouched", () => {
+    const ORG = "name: gov-validate\njobs:\n  validate:\n    runs-on: ubuntu-latest # ours\n";
+    const w = world({ branches: { [GOV]: "BRNCH-7-billing", [BILLING]: "BRNCH-7-billing", [LEDGER]: "BRNCH-7-billing" } });
+    w.disk[`${GOV}/.github/workflows/gov-validate.yml`] = ORG;
+    install(w);
+    expect(w.disk[`${GOV}/.github/workflows/gov-validate.yml`]).to.equal(ORG);
+    const r = install(w, {}, { ...CFG, runner: classifyRunsOn(["self-hosted", "linux"]) });
+    expect(w.disk[`${GOV}/.github/workflows/gov-validate.yml`]).to.equal("name: gov-validate\njobs:\n  validate:\n    runs-on: [self-hosted, linux] # ours\n");
+    expect(r.text).to.match(/written\s+acme-gov\s+\.github\/workflows\/gov-validate\.yml:4  runs-on: ubuntu-latest → \[self-hosted, linux\]/);
   });
 
   it("refuses a repo that is not cloned, not git, detached, or on another project's branch — and says which", () => {

@@ -521,9 +521,14 @@ ci:
 
 `runs_on` is one runner label, or a list of labels a runner must carry every one of. gov then uses it in the
 workflows it writes: `gov check install` writes it into every job of `gov-checks.yml`, `gov repo protect apply` into
-the approver check, and `gov upgrade` keeps both in step when you change it. The validation workflow
-(`gov-validate.yml`) gets it when it is first installed. After that, that file is yours, so if you change your runner
-later, change it there too. A value gov cannot use — a label with a space, an empty list — stops `gov check install`
+the approver check, and `gov upgrade` keeps both in step when you change it.
+
+The validation workflow, `gov-validate.yml`, is different: gov installs it once, and after that it is yours. gov
+still keeps its runner in step, and nothing else. While `ci.runs_on` is set, `gov upgrade` and `gov check install`
+change only the `runs-on:` lines of its jobs to your runner, and say which lines they changed. Every other line,
+including a comment at the end of a `runs-on:` line, stays as you wrote it. A job whose runner is an expression,
+such as `${{ matrix.os }}`, is left alone. If you remove `ci.runs_on`, gov stops touching the file. gov never changes a
+workflow it did not install, such as one you wrote yourself. A value gov cannot use — a label with a space, an empty list — stops `gov check install`
 and `gov repo protect apply` before they write anything, and the message names `ci.runs_on`. `gov doctor` warns about
 it too. A runner you set by hand in gov's approver check is kept as long as `ci.runs_on` is not set.
 

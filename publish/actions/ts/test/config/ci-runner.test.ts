@@ -63,6 +63,8 @@ describe("ci.runs_on — the organization's runner", () => {
     expect(runsOnOf("name: x\n")).to.equal(null);
     expect(sameButRunner(out, WORKFLOW)).to.equal(true);
     expect(sameButRunner(out, WORKFLOW.replace("echo a", "echo c"))).to.equal(false);
+    // A comment on the line is the organization's: kept.
+    expect(withRunsOn("jobs:\n  a:\n    runs-on: ubuntu-latest   # our pool\n", "[self-hosted]")).to.equal("jobs:\n  a:\n    runs-on: [self-hosted]   # our pool\n");
   });
 
   it("runnerFor: the organization's choice wins; without one, a workflow keeps the runner it has", () => {

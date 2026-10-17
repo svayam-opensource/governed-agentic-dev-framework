@@ -29,6 +29,7 @@ import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
 import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
 import { DEFAULT_RUNNER, runsOnYaml, type RunnerChoice } from "../config/ci-runner.js";
+import { syncSeededWorkflowRunners } from "../maintain/org-workflow-runner.js";
 import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
@@ -430,7 +431,9 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
   if (!rendered.ok) return { code: 1, lines: [`check install: ${rendered.reason}. Nothing was written.`] };
   const { files, bindings } = rendered;
   const govRepo = govRepoOf(cfg);
-  if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`] };
+  // The org's gov-validate.yml follows ci.runs_on — its runs-on lines only, each reported (ruling 2026-10-17).
+  const runner = syncSeededWorkflowRunners(target, cfg.runner ?? DEFAULT_RUNNER, { read: deps.readFile, write: deps.writeFile }, true).lines;
+  if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`, ...runner] };
 
   const lines: string[] = [];
   for (const f of files) {
@@ -438,6 +441,7 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
     deps.writeFile(abs, f.text);
     lines.push(`wrote ${abs}`);
   }
+  lines.push(...runner);
   const jobs = [...new Set(bindings.map((b) => `${b.id} · ${b.check.on.event}`))].sort();
   lines.push(
     `  ${bindings.length} binding(s) from ${ref}: ${jobs.join(", ")}`,
