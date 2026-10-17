@@ -13,7 +13,10 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
-## 2.0.0-next.1 — pre-release (dist-tag `next`; `latest` stays 1.2.3)
+## 2.0.0-next.2 — pre-release (dist-tag `next`; `latest` stays 1.2.3)
+
+2.0.0-next.1 reached the internal uat registry only and was never published to npmjs; next.2 is the
+first public 2.0 pre-release and carries everything below, including the org runner choice (`ci.runs_on`).
 
 The first 2.0 pre-release: everything PRJ-121 built. Install it only on purpose
 (`npm i -g @svayam-opensource/gov@next`). 2.0.0 itself ships when the vision checklist is complete.
