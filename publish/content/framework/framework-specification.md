@@ -519,7 +519,10 @@ ci:
   runs_on: [self-hosted, linux]
 ```
 
-`runs_on` is one runner label, or a list of labels a runner must carry every one of. gov then uses it in the
+`runs_on` is one runner label, or a list of labels a runner must carry every one of. A self-hosted runner needs
+`git` and the GitHub CLI, `gh`, on the runner service's PATH. gov reads and writes GitHub through `gh`, and GitHub's
+hosted runners already have it. The workflow installs Node itself. If `gh` is missing, each check says so and
+checks nothing. gov then uses it in the
 workflows it writes: `gov check install` writes it into every job of `gov-checks.yml`, `gov repo protect apply` into
 the approver check, and `gov upgrade` keeps both in step when you change it.
 

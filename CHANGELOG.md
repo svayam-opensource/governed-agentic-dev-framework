@@ -48,7 +48,9 @@ The first 2.0 pre-release: everything PRJ-121 built. Install it only on purpose
   list such as `[self-hosted, linux]`) goes into every job of `gov-checks.yml`, the approver check, and a newly
   installed `gov-validate.yml`. While it is set, `gov upgrade` and `gov check install` also keep the org's existing
   `gov-validate.yml` on it, changing only its `runs-on:` lines and naming each one. Unset, they ask for
-  `ubuntu-latest` as before and never touch the org's copy. An organization whose CI runs only on
+  `ubuntu-latest` as before and never touch the org's copy. On a runner without the GitHub CLI, `gov check run`
+  says that `gh` is missing and checks nothing. Before, each GitHub read failed in turn, and under soft posture the
+  check went green having done nothing. An organization whose CI runs only on
   self-hosted runners (an Actions spending limit of $0) needs it, or its checks wait for a runner that never comes.
 - Many first-run fixes (#191–#224): failed seeds keep the workspace, wrong answers are asked again, forks, reopened
   projects, verified vendor installers, a stale mirror is never used (#180).

@@ -58,6 +58,11 @@ import type { LoadedModule } from "../check-seam/loader.js";
 export interface CheckVerbDeps {
   readonly git: GitRead;
   readonly gh: Gh;
+  /**
+   * Whether the GitHub CLI is on this machine's PATH. In GitHub Actions gov reads and writes GitHub through it; a
+   * self-hosted runner may not have it. Absent → assumed present (tests, and callers that do not run checks).
+   */
+  readonly ghInstalled?: () => boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Absolute path → text, or null. */
   readonly readFile: (file: string) => string | null;
@@ -86,6 +91,20 @@ export interface CheckVerbDeps {
  * The proposer on a pull request (cli/rules-propose-ci.ts), as `gov check run` calls it: the rule's tag, the
  * event, and the checkout it runs in. Injected so this file stays free of the model and the forge.
  */
+/**
+ * A RUNNER WITHOUT `gh` (svayam-e2e's self-hosted runner, run 39033584186). GitHub's hosted runners ship the GitHub CLI;
+ * a self-hosted runner need not. Without it every GitHub read failed one by one — the proposer read "the review
+ * comments could not be read" and could not tell, which soft posture shows as a green check that did nothing. So in
+ * GitHub Actions gov looks once, before it runs anything, and names the missing tool.
+ */
+export const GH_MISSING =
+  "the GitHub CLI (`gh`) is not on this runner's PATH, and gov reads and writes GitHub through it (pull requests, "
+  + "review comments, violation records), so nothing was checked. GitHub's hosted runners have it; on a self-hosted "
+  + "runner install it (https://cli.github.com) where the runner service's PATH finds it, then re-run this check.";
+
+const ghMissing = (deps: Pick<CheckVerbDeps, "env" | "ghInstalled">): boolean =>
+  deps.env.GITHUB_ACTIONS === "true" && deps.ghInstalled !== undefined && !deps.ghInstalled();
+
 export type ProposeOnPr = (tag: string, eventName: string, event: unknown, repoDir: string) => Promise<BuiltinOutcome>;
 
 export interface CheckVerbConfig {
@@ -169,7 +188,8 @@ export async function checkCommandAsync(
     }
   }
   const binds = mine.some((b) => b.action === PROPOSE_ACTION);
-  if (!binds || !deps.proposeOnPr) return checkCommand(positionals, flags, deps, cfg);
+  // No gh: the proposer would only fail at its first GitHub read; the run below says why, once.
+  if (!binds || !deps.proposeOnPr || ghMissing(deps)) return checkCommand(positionals, flags, deps, cfg);
   const repoDirFlag = flagStr(flags, "repo-dir");
   const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
   const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
@@ -220,6 +240,10 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
   if (!loaded.ok) {
     const finding = `${id}: the rules could not be read at ${ref}: ${loaded.reason}.`;
+    return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
+  }
+  if (ghMissing(deps)) {
+    const finding = `${id}: ${GH_MISSING}`;
     return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
   }
   const rules = loaded.set;

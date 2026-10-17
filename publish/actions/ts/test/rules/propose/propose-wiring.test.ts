@@ -476,6 +476,46 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 });
 
+describe("a runner without the GitHub CLI says so, and runs nothing (svayam-e2e self-hosted runner, run 39033584186)", () => {
+  // On chinhut-e2e, `gh` was not installed: the proposer read "the review comments on #3 could not be read", could
+  // not tell, and under soft posture the check went green having done nothing. gov now names the missing tool.
+  const store = `- id: GOV-FRM-468\n  source: { doc: framework/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov proposes."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
+  const catalog = "resources:\n  - id: vcs.gov-repo\n    renderer: github-actions\n    events:\n      - { name: pull_request, mode: gate }\ntools:\n  - id: gov-builtin\nactions:\n  - id: gov-builtin/rules-propose\n    tool: gov-builtin\n    params: { type: object, additionalProperties: false, properties: {} }\n";
+  const git = treeAsGit(memTree({ "org-config.yaml": "org_slug: \"SVM\"\n", "framework/rules/rules.yaml": store, "framework/rules/checks-catalog.yaml": catalog }));
+  const CFG = (posture: "soft" | "hard") => ({ home: "/gov", defaultBranch: "main", defaultCodeBranch: "dev", githubOrg: "acme", workspaceRepo: "gov", posture });
+  const runWith = async (env: Record<string, string>, ghInstalled: boolean, posture: "soft" | "hard" = "soft") => {
+    const seen: string[] = [];
+    const r = await checkCommandAsync(["run", "GOV-FRM-468"], { resource: "vcs.gov-repo", event: "pull_request" }, {
+      git, gh: () => null, env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: "/e.json", ...env },
+      readFile: (f) => (f === "/e.json" ? JSON.stringify(EVENT) : null), writeFile: () => {},
+      ghInstalled: () => ghInstalled,
+      proposeOnPr: async (tag) => { seen.push(tag); return { verdict: "pass", findings: [] }; },
+    }, CFG(posture));
+    return { r, text: r.lines.join("\n"), seen };
+  };
+
+  it("in GitHub Actions with no gh: the proposer does not run, and the finding names gh and how to fix it — as an annotation", async () => {
+    const { text, seen } = await runWith({ GITHUB_ACTIONS: "true" }, false);
+    expect(seen, "nothing ran").to.deep.equal([]);
+    expect(text).to.contain("GOV-FRM-468: the GitHub CLI (`gh`) is not on this runner's PATH");
+    expect(text).to.contain("https://cli.github.com");
+    expect(text).to.match(/^::warning [^\n]*the GitHub CLI \(`gh`\) is not on this runner's PATH/m);
+  });
+
+  it("it could not tell: soft posture warns (exit 0), hard posture blocks (exit 1) — the posture rules, unchanged", async () => {
+    expect((await runWith({ GITHUB_ACTIONS: "true" }, false, "soft")).r.code).to.equal(0);
+    expect((await runWith({ GITHUB_ACTIONS: "true" }, false, "hard")).r.code).to.equal(1);
+  });
+
+  it("gh installed, or not in GitHub Actions: no such finding, and the proposer runs", async () => {
+    for (const [env, has] of [[{ GITHUB_ACTIONS: "true" }, true], [{}, false]] as const) {
+      const { text, seen } = await runWith(env, has);
+      expect(text).to.not.contain("GitHub CLI");
+      expect(seen).to.have.length(1);
+    }
+  });
+});
+
 // ── the gate starts from the prose (Policy Owner, 2026-10-07): PR #5 in the sandbox ──────────────────────────
 describe("GOV-FRM-468 a changed section with no rules is stale too — CI runs the model on it, and the changelog says so", () => {
   // §4 changes; §4 has no rule rows. Before: the gate saw no `sha` finding, CI went to finishOnly, and the model
