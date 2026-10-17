@@ -8,8 +8,12 @@
  * that a normal `gh auth login` does not grant. A half-made repo in an adopter's GitHub org is not
  * recoverable by this tool, so the tests below are largely about refusing early and saying why.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect } from "chai";
-import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
+import { parseGrantedScopes } from "../../src/maintain/fix-env.js";
+import { cleanSlateEntries, strayRootEntries, adopterRootEntries, parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
 const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
@@ -66,6 +70,17 @@ describe("derived locations (contract R9)", () => {
 });
 
 describe("preflight — nothing is created until all of this holds", () => {
+  it("refuses the slug FRM before touching GitHub — it is the framework's rule scope (rule-model Q7)", () => {
+    let calls = 0;
+    const r = preflight(okIo({ gh: () => { calls++; return "ok"; } }), "acme/acme-gov", "frm");
+    expect(r.ok).to.equal(false);
+    if (!r.ok) {
+      expect(r.failure).to.deep.equal({ why: "reserved-slug", slug: "frm" });
+      expect(explainFailure(r.failure).join("\n")).to.match(/reserved for the framework/);
+    }
+    expect(calls, "nothing asked of GitHub for an answer that can never work").to.equal(0);
+  });
+
   it("passes on a healthy machine and reports where the mirror will go", () => {
     const r = preflight(okIo(), "acme/acme-gov", "ACME");
     expect(r.ok).to.equal(true);
@@ -98,14 +113,15 @@ describe("preflight — nothing is created until all of this holds", () => {
   // An org can forbid member repo creation with every scope present, so the scope list is not the
   // authority — ask GitHub about the org itself.
   it("refuses when the org is unreachable, naming the org", () => {
-    const r = preflight(okIo({ gh: (a) => (a[0] === "auth" ? "scopes: repo" : null) }), "acme/acme-gov", "ACME");
+    // Signed in (`gh api user` answers), but the org itself is not reachable.
+    const r = preflight(okIo({ gh: (a) => (a[0] === "api" && a[1] === "user" ? "rk" : null) }), "acme/acme-gov", "ACME");
     expect(r.ok === false && r.failure.why).to.equal("cannot-create");
     if (!r.ok && r.failure.why === "cannot-create") expect(r.failure.org).to.equal("acme");
   });
 
   it("warns — but does NOT fail — when the project scope is missing", () => {
     const r = preflight(okIo({ gh: (a) => {
-      if (a[0] === "auth") return "Token scopes: 'read:org', 'repo'";
+      if (a[0] === "api" && a[1] === "-i") return "HTTP/2.0 200 OK\nX-Oauth-Scopes: read:org, repo\n\n{}";
       if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
       if (a[0] === "api") return "acme";
       return "";
@@ -332,12 +348,13 @@ files:
 `;
     const dirs = expectedDirs(manifest);
     for (const d of [".claude", ".cursor", "docs", "projects"]) expect(dirs, d).to.include(d);
-    expect(dirs, "the floor is still there").to.include.members(["agent", "knowledge", "publish"]);
+    expect(dirs, "the floor is still there").to.include.members(["agent", "knowledge"]);
+    expect(dirs, "publish/ is the seed SOURCE, never the adopter's (2026-09-22)").to.not.include("publish");
     expect(dirs, "a root-level FILE is not a directory").to.not.include("README.md");
   });
 
   it("survives a missing manifest by falling back to the floor", () => {
-    expect(expectedDirs(null)).to.deep.equal(["agent", "knowledge", "publish"]);
+    expect(expectedDirs(null)).to.deep.equal(["agent", "knowledge"]);
   });
 
   it("reads token values from the file, including keys gov-work itself never parses", () => {
@@ -366,5 +383,105 @@ files:
     expect(PER_PROJECT_TOKENS.has("<PROJECT_ID>")).to.equal(true);
     expect(PER_PROJECT_TOKENS.has("<PRJ>")).to.equal(true);
     expect(PER_PROJECT_TOKENS.has("<POLICY_OWNER_GITHUB>")).to.equal(false);
+  });
+});
+
+
+// PRJ-121, 2026-09-22 — svm-geneva-gov was created with 507 files, ~450 the framework's own: publish/ (436),
+// site/, install.ps1, CHANGELOG.md, .gitattributes. A hand-kept delete list had gone stale. Now the MANIFEST is
+// the only door, and these tests run the rule against THIS repo's real root and real manifest — so a new
+// top-level folder in the framework fails here instead of reaching an adopter.
+describe("adoption — only what the manifest produces reaches an adopter", () => {
+  const frameworkRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+  const manifestText = fs.readFileSync(path.join(frameworkRoot, "publish/content/MANIFEST.yaml"), "utf8");
+
+  it("the clean slate removes every root entry but .git and the seed source", () => {
+    expect(cleanSlateEntries([".git", "publish", "site", "AGENTS.md", "install.ps1"])).to.deep.equal(["site", "AGENTS.md", "install.ps1"]);
+  });
+
+  it("after the seed, what the manifest did not produce goes — publish/ included", () => {
+    // `governance/` is in this list on purpose: since the 2026-09-23 split the manifest produces `framework/`
+    // and `policies/`, so an old tree left in a NEW adopter's repo is exactly what this must catch.
+    expect(strayRootEntries([".git", "publish", "governance", "framework", "policies", "agent", "org-config.yaml", "CODEOWNERS"], manifestText))
+      .to.deep.equal(["publish", "governance"]);
+  });
+
+  // svm-geneva walk, 2026-10-07: setup judged strays by the TEMPLATE copy's manifest (the template's default branch,
+  // older than this gov), which has no framework/ or policies/ destinations — and deleted the folders the seed had
+  // just written. Strays are judged by the SEEDED content's manifest (main.ts: seededManifestText). This pins why.
+  it("strays are judged by the seeded manifest: an older manifest would delete framework/ and policies/", () => {
+    const root = [".git", "framework", "policies", "agent", "org-config.yaml", "CODEOWNERS"];
+    const olderManifest = "files:\n  - { src: agent/x.md, dst: agent/x.md, mode: scaffold-auto }\n  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }\n";
+    expect(strayRootEntries(root, olderManifest)).to.include.members(["framework", "policies"]);
+    expect(strayRootEntries(root, manifestText)).to.not.include.members(["framework", "policies"]);
+  });
+
+  it("against THIS repo: none of the framework's own root entries survives into an adopter's repo", () => {
+    const root = fs.readdirSync(frameworkRoot);
+    const survivors = root.filter((e) => !cleanSlateEntries(root).includes(e));           // .git, publish
+    const leaked = survivors.filter((e) => !strayRootEntries(survivors, manifestText).includes(e) && e !== ".git");
+    expect(leaked, "framework root entries that would reach every adopter").to.deep.equal([]);
+    for (const known of ["publish", "site", "install.ps1", "install.sh", "CHANGELOG.md", "packages", "ci", "docs"]) {
+      if (root.includes(known)) expect(adopterRootEntries(manifestText).has(known), `${known} must not be an adopter root entry`).to.equal(false);
+    }
+  });
+});
+
+/**
+ * ADOPTION WALK #2 (2026-10-07): `gh auth status` exits non-zero when ANY stored gh account is stale — even while the
+ * active token works. gov asked it "am I signed in?" and refused a machine that could act on GitHub perfectly well.
+ * The question gov needs answered is "can gov act on GitHub", which `gh api user` answers; the scopes come from the
+ * same endpoint's `X-OAuth-Scopes` header.
+ */
+describe("gh sign-in — can gov act on GitHub (walk #2)", () => {
+  const HEADERS = "HTTP/2.0 200 OK\nContent-Type: application/json\nX-Oauth-Scopes: gist, read:org, repo, workflow\n\n{\"login\":\"rk\"}";
+  const staleOther = (over: (a: readonly string[]) => string | null | undefined = () => undefined): CreateIo => okIo({ gh: (a) => {
+    const o = over(a); if (o !== undefined) return o;
+    if (a[0] === "auth") return null;                                          // a stale stored account: exit 1
+    if (a[0] === "api" && a[1] === "-i" && a[2] === "user") return HEADERS;
+    if (a[0] === "api" && a[1] === "user") return "rk";
+    if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
+    if (a[0] === "api") return "acme";
+    return null;
+  } });
+
+  it("a stale stored account does not stop setup when the active token works", () => {
+    const r = preflight(staleOther(), "acme/acme-gov", "ACME");
+    expect(r.ok, "gh api user answered — gov can act on GitHub").to.equal(true);
+  });
+
+  it("the scope warning reads X-OAuth-Scopes from `gh api -i user`", () => {
+    const r = preflight(staleOther(), "acme/acme-gov", "ACME");
+    expect(r.ok && r.warnings.map((w) => w.what)).to.deep.equal(["no-project-scope"]);
+  });
+
+  it("no scope header (a fine-grained or app token) is 'cannot tell', never a false alarm", () => {
+    const r = preflight(staleOther((a) => (a[1] === "-i" ? "HTTP/2.0 200 OK\n\n{}" : undefined)), "acme/acme-gov", "ACME");
+    expect(r.ok && r.warnings).to.deep.equal([]);
+  });
+
+  it("not signed in is `gh api user` failing", () => {
+    const r = preflight(staleOther((a) => (a[0] === "api" && a[1] === "user" ? null : undefined)), "acme/acme-gov", "ACME");
+    expect(r.ok === false && r.failure.why).to.equal("not-authenticated");
+  });
+
+  it("parseGrantedScopes reads the header as well as the old status line", () => {
+    expect(parseGrantedScopes(HEADERS)).to.deep.equal(["gist", "read:org", "repo", "workflow"]);
+    expect(parseGrantedScopes("x-oauth-scopes: \n")).to.deep.equal([]);
+    expect(parseGrantedScopes("HTTP/2.0 200 OK\n\n{}")).to.equal(null);
+  });
+
+  it("no gov source asks `gh auth status` whether it may act", () => {
+    const root = fileURLToPath(new URL("../../src/", import.meta.url));
+    const offenders: string[] = [];
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) walk(f);
+        else if (f.endsWith(".ts") && /\[\s*"auth"\s*,\s*"status"\s*\]/.test(fs.readFileSync(f, "utf8"))) offenders.push(path.relative(root, f));
+      }
+    };
+    walk(root);
+    expect(offenders).to.deep.equal([]);
   });
 });

@@ -18,9 +18,14 @@
  * only counts when a maintainer's email domain or the repository owner matches the vendor we
  * expect. A name that merely looks right is reported as a NEAR MISS, never as a finding.
  *
- *   node scripts/catalog-freshness.mjs            report, exit 1 on a new vendor CLI
- *   node scripts/catalog-freshness.mjs --quiet    exit code only
+ * VENDOR SCRIPTS (#205). Every catalog `install.script` is downloaded and hashed, and its digest reported for
+ * information. No catalog script is pinned (D1, 2026-10-13: Bob unpinned like Cursor — gov asks the adopter), so
+ * there is no pin to move and no pin-proposal pull request. Should a pin ever return, a moved pin is still a finding.
+ *
+ *   node scripts/catalog-freshness.mjs                report, exit 1 on a new vendor CLI or a moved pin
+ *   node scripts/catalog-freshness.mjs --quiet        exit code only
  */
+import { createHash } from "node:crypto";
 import { AGENT_CATALOG } from "../lib/esm/cli/agent-catalog.js";
 
 /**
@@ -93,8 +98,39 @@ for (const [id, { candidates, vendor }] of Object.entries(WATCH)) {
   }
 }
 
+// ── Vendor install scripts ────────────────────────────────────────────────────
+const scripts = new Map(); // url → pinned sha256 | null
+for (const a of AGENT_CATALOG) {
+  for (const i of [a.install, ...(a.variants ?? []).map((v) => v.install)]) {
+    if (i?.script) scripts.set(i.script, i.scriptSha256 ?? scripts.get(i.script) ?? null);
+  }
+}
+let moved = 0;
+say("\nvendor install scripts — pinned digests against what the vendor serves today\n");
+for (const [url, pin] of scripts) {
+  let digest;
+  try {
+    const res = await fetch(url, { redirect: "follow" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    digest = createHash("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex");
+  } catch (e) {
+    say(`  ${url}  could not fetch (${e.message}) — not a finding, try again next run`);
+    continue;
+  }
+  if (!pin) { say(`  ${url}  unpinned (asked at install)  sha256 ${digest}`); continue; }
+  if (pin === digest) { say(`  ${url}  pin holds  ${digest}`); continue; }
+  moved++;
+  say(`  ${url}  PIN MOVED`);
+  say(`             pinned ${pin}`);
+  say(`             now    ${digest}`);
+  say("             → gov refuses this script until a release carries a new pin. Read the new script,");
+  say("               then update scriptSha256 in src/cli/agent-catalog.ts.");
+}
+findings += moved;
+
 say("");
-say(`${findings} vendor CLI(s) available that the catalog calls unavailable; ${nearMisses} near miss(es) ignored.`);
+say(`${moved} pinned vendor script(s) moved.`);
+say(`${findings - moved} vendor CLI(s) available that the catalog calls unavailable; ${nearMisses} near miss(es) ignored.`);
 if (findings > 0) {
   say("");
   say("Not a build failure. A prompt to look: a vendor shipped something, and the catalog is");

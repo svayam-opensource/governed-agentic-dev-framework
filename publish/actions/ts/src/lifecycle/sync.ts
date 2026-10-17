@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `sync` (SDD Part B, sync.sh, POL-122) — merge the latest default/base into the
+ * `sync` (SDD Part B, sync.sh) — merge the latest default/base into the
  * active project branch across all repos, mid-project, without pausing. Model A
  * (SDD-012): project + repos derived from the workspace + GitHub. Forward-
  * idempotent (re-merging an up-to-date branch is a no-op); a conflict pauses for
@@ -12,7 +12,9 @@ import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { userDirtyPaths, dirtyRefusal } from "./root-protocol.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
+import { ensureProjectBranch } from "./code-repo.js";
 
 export interface SyncConfig {
   readonly githubOrg: string;
@@ -38,7 +40,7 @@ export interface SyncDeps {
 }
 
 export type SyncResult =
-  | { readonly ok: true; readonly projectBranch: string; readonly boardNumber: number; readonly synced: readonly string[] }
+  | { readonly ok: true; readonly projectBranch: string; readonly boardNumber: number; readonly synced: readonly string[]; readonly recreated: readonly string[] }
   | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "unauthorized" | "dirty" | "merge-conflict"; readonly message: string; readonly repoDir?: string };
 
 export function sync(deps: SyncDeps, config: SyncConfig, input: SyncInput): SyncResult {
@@ -63,20 +65,29 @@ export function sync(deps: SyncDeps, config: SyncConfig, input: SyncInput): Sync
 
   // Workspace repo syncs from the default branch; code repos from their base.
   const targets = [
-    { dir: input.govClone, base: config.defaultBranch },
-    ...codeRepoDirs.map((dir) => ({ dir, base: config.defaultCodeBranch })),
+    { dir: input.govClone, base: config.defaultBranch, code: false },
+    ...codeRepoDirs.map((dir) => ({ dir, base: config.defaultCodeBranch, code: true })),
   ];
 
   for (const t of targets) {
-    if (!deps.vcs.isClean(t.dir)) {
-      return { ok: false, code: 1, reason: "dirty", message: `Uncommitted changes in ${t.dir} — commit or stash first.`, repoDir: t.dir };
+    // gov's own harness files never block (Q7); anything else is somebody's work, so it is named.
+    const dirty = userDirtyPaths(deps.vcs, t.dir);
+    if (dirty.length > 0) {
+      return { ok: false, code: 1, reason: "dirty", message: dirtyRefusal(t.dir, dirty), repoDir: t.dir };
     }
   }
 
   const synced: string[] = [];
+  const recreated: string[] = [];
   for (const t of targets) {
     log(`sync ${t.base} → ${projectBranch} in ${t.dir}`);
     deps.vcs.fetch(t.dir, remote, t.base);
+    // A reopened project's code repo has its worktree but not its branch — `gov close` deleted it (#224, Q17 A).
+    // Recreated off the base and said, instead of dying on `checkout` after the earlier repos were synced.
+    // The workspace repo needs no such check: its current branch is where the project branch was read from.
+    if (t.code && ensureProjectBranch(deps.vcs, { repoDir: t.dir, projectBranch, baseBranch: t.base, remote }, log) === "recreated") {
+      recreated.push(t.dir);
+    }
     deps.vcs.checkout(t.dir, projectBranch);
     if (deps.vcs.mergeNoEdit(t.dir, `${remote}/${t.base}`) === "conflict") {
       return { ok: false, code: 2, reason: "merge-conflict", repoDir: t.dir, message: `Merge conflict: ${t.base} → ${projectBranch} in ${t.dir}. Resolve, commit, then re-run.` };
@@ -84,5 +95,5 @@ export function sync(deps: SyncDeps, config: SyncConfig, input: SyncInput): Sync
     deps.vcs.push(t.dir, remote, projectBranch);
     synced.push(t.dir);
   }
-  return { ok: true, projectBranch, boardNumber, synced };
+  return { ok: true, projectBranch, boardNumber, synced, recreated };
 }

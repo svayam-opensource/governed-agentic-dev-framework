@@ -24,8 +24,8 @@ chmod +x "$WORLD/bin/curl"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-# NINE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
-# second, and the repository is created only after Q9 — so this block is the whole
+# TWELVE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
+# second, and the repository is created only after Q12 — so this block is the whole
 # interview, uninterrupted, and the `creating acme/acme-gov` line comes after it.
 ~ 240
 > Q1 - What is full legal name
@@ -46,15 +46,20 @@ drive "$(conv <<'C'
 <
 > Q7 - Default branch to be used for development
 <
-# ANSWERED, not defaulted: the container may have no git user.email, and an empty
-# default against an email rule is a question that cannot be answered by pressing
-# Enter — which in a pty driver is a hang, not a failure.
-> Q8 - What is policy owner email
+# Q8–Q10 — BOTH ROLES BY GITHUB HANDLE, THEN AN OPTIONAL CONTACT (adoption walk #1, 2026-10-07).
+# Answered, not defaulted: the defaults are the gh login (which the container may not have) and the
+# git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
+> Q8 - Who is the Policy Owner
+< adopter
+> Q9 - Who is the Check Owner
+< adopter
+> Q10 - What contact email
 < adopter@acme.test
-> Q9 - What should be the policy effective date
+# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q11 - What governance posture
 <
 ~ 240
-# Q10 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# Q12 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
 # after the repository existed, which put the one genuine policy decision in adoption on the
 # far side of the irreversible step. One agent at a time now: the old shape was a
 # space-separated list, where a typo silently changed the organization's default.
@@ -89,8 +94,13 @@ q9="$(grep -n 'happy with your AI agent selection' "$PLAIN" | head -1 | cut -d: 
   || fail "the legal NAME is asked before the GitHub identifier"
 # The whole point of #215: nothing irreversible happens until the last answer is in.
 [ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
-  && pass "nothing is created until the LAST question (Q10's confirmation) is answered" \
-  || fail "nothing is created until the LAST question (Q10's confirmation) is answered"
+  && pass "nothing is created until the LAST question (Q12's confirmation) is answered" \
+  || fail "nothing is created until the LAST question (Q12's confirmation) is answered"
+# Walk #1 and #3 (2026-10-07): both roles asked by handle, and a numbered question says what Enter does.
+saw "the Policy Owner is ASKED by GitHub handle, not taken from the gh login" "Q8 - Who is the Policy Owner"
+saw "the contact email is optional, and says so" "(optional"
+saw "a numbered question names its default and the option it stands for" "Choose [1/2] (Enter = 1, soft) : "
+saw "and the branch question does too" "Choose [1/2] (Enter = 1, main) : "
 saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
 saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
 never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"
@@ -100,20 +110,35 @@ saw "the default is its own question" "default for your organization"
 saw "additions are offered one at a time" "add any other AI agent to the allowed list"
 saw "the selection is read back before it becomes a rule" "You have selected"
 saw "naming the default explicitly" "'IBM Bob' (default)"
-saw "and it says where the answer can be changed" "llm-governance.md"
+saw "and it says where the answer can be changed" "org-config.yaml"
 never "the old space-separated shape is gone" "separated by spaces"
 
 info "founding"
 saw "it creates the repository from the framework template" "creating acme/acme-gov"
 gh_ran "and does so through gh, with --template" "repo create acme/acme-gov --template"
-exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/org-config.yaml"
+exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/policies/governance.yaml"
+
+# THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22). svm-geneva-gov was created with ~450 of the framework's
+# own files — publish/ (436), site/, install.ps1 — because a hand-kept delete list had gone stale. The stub's
+# template copy is this whole repository, as GitHub's is, so these would reappear here if the rule broke.
+info "the adopter's repo holds only what the manifest produces"
+for leak in publish site install.ps1 install.sh CHANGELOG.md packages ci docs AGENTS.md; do
+  [ ! -e "$HOME/.gov/acme/gov_repo/$leak" ] && pass "no framework '$leak' in the adopter's repo" \
+    || fail "the framework's '$leak' reached the adopter's repo"
+done
+saw "and setup says what it removed from the template copy" "the framework's own files from the template copy"
+
+# ONE PLACE FOR A PERSON'S SETTINGS (Policy Owner, 2026-09-22). Created when the org becomes theirs, with gov's
+# defaults, and SAID — a file that appears in someone's tree without a word is a file they cannot trust.
+saw "setup creates their preferences file" "preferences.json"
+saw "and names the command that changes it" "gov preferences"
 
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
-saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"
-runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governance.md" \
-  && pass "ibm-bob is in llm-governance.md — the approved list is a file, not a memory" \
-  || fail "ibm-bob was not written to llm-governance.md"
+saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
+runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "ibm-bob is in policies/governance.yaml — the authorized list is a file, not a memory" \
+  || fail "ibm-bob was not written to policies/governance.yaml"
 
 # ONE WRITER, AND NO FALSE ALARM ABOUT IT.
 #
@@ -124,13 +149,18 @@ runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governa
 # caller read as a write failure. The assertion above could not catch it, because the file WAS
 # correct; only the message was wrong. A false alarm on the one governance decision in adoption
 # is worse than silence: the adopter's next move is to repair something that is not broken.
-never "no false alarm about writing the policy" "Could not write llm-governance.md"
+never "no false alarm about writing the policy" "could not record the authorized agents"
 saw   "and the recording is reported once, by the writer that can commit it" \
-      "approved agent(s) in governance/policies/llm-governance.md"
+      "authorized agent(s) in policies/governance.yaml"
 
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"
 never "and so is <GITHUB_ORG>" "<GITHUB_ORG>"
+# #193's acceptance, stated as the adopter reads it: a clean adoption raises NO warnings against
+# itself. It ended with "⚠ Tokens unresolved: … — tell gov-work" and "unexpected directories kept",
+# both asking to be reported. Any ⚠ line anywhere in a clean founding run is the same class of defect.
+never "#193 — a clean adoption ends with zero ⚠ lines" "⚠"
+never "and never asks the adopter to report gov's own warnings" "tell gov-work"
 
 info "#186 — the closing screen is the founder's, and it is the truth"
 saw "the ADOPTER's next steps" "Install complete — for ADOPTERS"

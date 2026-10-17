@@ -26,7 +26,7 @@ import { paint } from "../cli/format.js";
  *
  * `gh auth login` advertises "repo, read:org, admin:public_key" — gh's own minimum,
  * which knows nothing about what gov does with the token. The gap is not academic:
- * a GitHub Project board IS the project under this model (POL-044), and Projects
+ * a GitHub Project board IS the project under this model (GOV-FRM-451), and Projects
  * are behind their own `project` scope. A token that satisfies gh sails through the
  * sign-in and then fails at `gov seed`, several steps and some minutes later, on a
  * permission nobody mentioned.
@@ -43,14 +43,32 @@ export const RECOMMENDED_SCOPES: readonly { readonly scope: string; readonly why
 ];
 
 /**
- * Pull the granted scopes out of `gh auth status` output. Returns null when the
- * line is absent, which means "could not tell" — reported as unknown rather than
- * as missing, because a false alarm about permissions sends people to their
- * administrator for nothing.
+ * CAN GOV ACT ON GITHUB? (adoption walk #2, 2026-10-07). `gh auth status` exits non-zero when ANY account gh has
+ * stored is stale — even while the active token works — so it answered a different question than the one gov asks,
+ * and refused machines that could act on GitHub perfectly well. `gh api user` succeeds exactly when the active
+ * token can act, and the same endpoint with `-i` carries the token's scopes in its `X-OAuth-Scopes` header.
  */
-export function parseGrantedScopes(ghAuthStatus: string): readonly string[] | null {
-  const m = /Token scopes:\s*(.+)/.exec(ghAuthStatus);
-  if (!m?.[1]) return null;
+/**
+ * What gov tells a person to run when GitHub did not answer and their sign-in may be why (Item 10, PRJ-121 intent 05).
+ * `gov doctor` runs the same `gh api user` check gov trusts; `gh api user` is the one-line version. Never point at
+ * `gh auth status` — it fails on a stale stored account that has nothing to do with the active token. A guard test
+ * (`test/guards/no-gh-auth-status.test.ts`) keeps that text out of every string gov prints.
+ */
+export const GH_SIGNIN_HINT = "run `gov doctor` (or `gh api user`)";
+export const GH_SIGNED_IN_ARGS: readonly string[] = ["api", "user", "--jq", ".login"];
+/** `gh api -i user` — the headers carry `X-OAuth-Scopes` (classic tokens; absent for fine-grained and app tokens). */
+export const GH_SCOPES_ARGS: readonly string[] = ["api", "-i", "user"];
+
+/**
+ * Pull the granted scopes out of `gh api -i user` output (the `X-OAuth-Scopes` header) — or, for older captured
+ * output, a `gh auth status` "Token scopes:" line. Returns null when neither is present, which means "could not
+ * tell" — reported as unknown rather than as missing, because a false alarm about permissions sends people to
+ * their administrator for nothing.
+ */
+export function parseGrantedScopes(ghOutput: string): readonly string[] | null {
+  const header = /^x-oauth-scopes:[ \t]*(.*)$/im.exec(ghOutput);
+  const m = header ?? /Token scopes:\s*(.+)/.exec(ghOutput);
+  if (!m || m[1] === undefined) return null;
   return m[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).filter(Boolean);
 }
 
@@ -133,14 +151,21 @@ export function detectPackageManager(hasTool: (name: string) => boolean): Packag
 
 /** Install arguments per manager, keyed by the tool being installed. */
 const INSTALL: Readonly<Record<PackageManager, Readonly<Record<"git" | "gh", readonly string[]>>>> = {
+  // QUIET, AND SHOWN QUIET (PRJ-121, 2026-09-22). On a walk, `dnf install -y git` printed ~350 lines — every
+  // dependency, then every "Verifying" — and scrolled away the plan the person had just consented to. The flag is
+  // IN the command, so what is shown is what runs; quiet still prints prompts and errors, which matters: the
+  // alternative, capturing the output, would hide a package's own question and look like a hang. brew and pacman
+  // are already brief, and are left as they are.
   brew:   { git: ["brew", "install", "git"],                        gh: ["brew", "install", "gh"] },
-  apt:    { git: ["apt-get", "install", "-y", "git"],               gh: ["apt-get", "install", "-y", "gh"] },
-  dnf:    { git: ["dnf", "install", "-y", "git"],                   gh: ["dnf", "install", "-y", "gh"] },
-  yum:    { git: ["yum", "install", "-y", "git"],                   gh: ["yum", "install", "-y", "gh"] },
-  apk:    { git: ["apk", "add", "git"],                             gh: ["apk", "add", "github-cli"] },
+  apt:    { git: ["apt-get", "install", "-y", "-qq", "git"],        gh: ["apt-get", "install", "-y", "-qq", "gh"] },
+  dnf:    { git: ["dnf", "install", "-y", "-q", "git"],             gh: ["dnf", "install", "-y", "-q", "gh"] },
+  yum:    { git: ["yum", "install", "-y", "-q", "git"],             gh: ["yum", "install", "-y", "-q", "gh"] },
+  apk:    { git: ["apk", "add", "--quiet", "git"],                  gh: ["apk", "add", "--quiet", "github-cli"] },
   pacman: { git: ["pacman", "-S", "--noconfirm", "git"],            gh: ["pacman", "-S", "--noconfirm", "github-cli"] },
-  zypper: { git: ["zypper", "install", "-y", "git"],                gh: ["zypper", "install", "-y", "gh"] },
-  winget: { git: ["winget", "install", "--id", "Git.Git", "-e"],    gh: ["winget", "install", "--id", "GitHub.cli", "-e"] },
+  zypper: { git: ["zypper", "--quiet", "install", "-y", "git"],     gh: ["zypper", "--quiet", "install", "-y", "gh"] },
+  // PER-USER (plan 04 T12, Q6 B): no administrator needed, the same promise the MSI makes. A package with no per-user
+  // installer is refused by winget, and gov prints the machine-wide command instead — see wingetFailureLines.
+  winget: { git: ["winget", "install", "--id", "Git.Git", "-e", "--scope", "user"], gh: ["winget", "install", "--id", "GitHub.cli", "-e", "--scope", "user"] },
 };
 
 /** GitHub's own RPM repository — the RHEL-family equivalent of the apt note below. */
@@ -221,8 +246,22 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
     steps.push({
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
-      why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
-      command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
+      // THE PLAIN-TEXT WARNING, explained before gh prints it (PRJ-121 #6). On Linux gh keeps the token in the
+      // system keyring only when one is running; a container or a headless server has none, and gh says
+      // "! Authentication credentials saved in plain text" with no word on where or what to do. macOS and
+      // Windows always have one (Keychain, Credential Manager), so the sentence is for Linux only.
+      why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you." +
+        (facts.platform === "linux"
+          ? " If this machine has no keyring (a container or a headless server does not), gh will say the token was" +
+            " \"saved in plain text\": it is in ~/.config/gh/hosts.yml, readable only by you. `gh auth logout` removes it."
+          : ""),
+      // THE THREE QUESTIONS gov ALREADY KNOWS THE ANSWERS TO (PRJ-121, 2026-09-22). Bare `gh auth login` asked
+      // "Where do you use GitHub?", "HTTPS or SSH?" and "How would you like to authenticate?" — and "HTTPS or
+      // SSH" is one a new adopter cannot answer. gov's org is on github.com; gov clones over HTTPS (and a fresh
+      // machine has no SSH key); `--web` is the one-time-code route, which works from a container or over SSH
+      // because the code is typed into a browser on ANY machine. gh may still ask whether to authenticate git
+      // with these credentials — a real question, and the answer is yours.
+      command: ["gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
       sudo: false,
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: ["gh"] }),
@@ -295,6 +334,52 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
   }
 
   return { steps, manual };
+}
+
+/** winget's exit code when a package has no installer for the requested scope (APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER). */
+export const WINGET_NO_APPLICABLE_INSTALLER = 0x8A150010;
+
+/**
+ * What to say when a per-user winget install was refused because the package offers no per-user installer
+ * (plan 04 T12). The step is NOT ticked: the machine-wide command needs an administrator terminal, which gov does
+ * not open on its own. null for any other failure (the ordinary "failed — exit N" line covers it).
+ */
+export function wingetFailureLines(step: FixStep, status: number): readonly string[] | null {
+  if (step.command[0] !== "winget" || !step.command.includes("--scope")) return null;
+  if ((status >>> 0) !== WINGET_NO_APPLICABLE_INSTALLER) return null;
+  const i = step.command.indexOf("--scope");
+  const machine = [...step.command.slice(0, i), ...step.command.slice(i + 2)].join(" ");
+  return [
+    "  ✗ this package has no per-user installer, so it cannot be installed without administrator rights.",
+    "    Open a terminal as administrator and run:",
+    `      ${machine}`,
+    "    then open a new terminal and run `gov` again.",
+  ];
+}
+
+/** The `Path` value from `reg query <key> /v Path` output, or null when the key or value is absent. */
+export function parseRegQueryPath(out: string): string | null {
+  const m = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*?)\s*$/im.exec(out);
+  return m ? m[1]! : null;
+}
+
+/**
+ * gov's PATH plus any directory the registry now lists that gov's process does not have yet — so a tool winget just
+ * installed is found without opening a new terminal. `%VAR%` references are expanded from `env`; order is kept and
+ * nothing is removed (Windows file names are case-insensitive, so the comparison is too).
+ */
+export function mergeWindowsPath(current: string, registry: string, env: Readonly<Record<string, string | undefined>>): string {
+  const expand = (d: string): string => d.replace(/%([^%]+)%/g, (all, name: string) => {
+    const k = Object.keys(env).find((x) => x.toUpperCase() === name.toUpperCase());
+    return k !== undefined && env[k] !== undefined ? env[k]! : all;
+  });
+  const have = current.split(";").filter(Boolean);
+  const seen = new Set(have.map((d) => d.replace(/[\\/]+$/, "").toLowerCase()));
+  for (const d of registry.split(";").filter(Boolean).map(expand)) {
+    const key = d.replace(/[\\/]+$/, "").toLowerCase();
+    if (!seen.has(key)) { have.push(d); seen.add(key); }
+  }
+  return have.join(";");
 }
 
 /** Render a step the way it must be typed, so consent is informed. */

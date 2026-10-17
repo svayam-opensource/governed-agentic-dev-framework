@@ -17,11 +17,15 @@ import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import type { Issues } from "../lifecycle/issues.js";
+import type { BoardCloseResult, BoardStatusOutcome, BoardWriter, WorkTrackerPort } from "../ports/work-tracker.js";
+import type { VcsPort } from "../ports/vcs.js";
+import { createIntent } from "../intent/create.js";
+import { parseAutorunFlags, type AutorunFlags } from "../autorun/command.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
-import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
+import { planIssue, createPlannedIssue } from "../lifecycle/issue-create.js";
 import { agentReport, formatAgentReport, planAgentInstall } from "./agent-verb.js";
 import { seed, inspectLeftovers, applyCleanup } from "../lifecycle/seed.js";
 import { planLines } from "../lifecycle/cleanup.js";
@@ -30,15 +34,31 @@ import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
 import { sync } from "../lifecycle/sync.js";
-import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
 import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
-import { boardNumberFromProjectId } from "../lifecycle/task.js";
+import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
+import { policyGate } from "./policy-gate-io.js";
+import { approverLogins, protectRepo, type GhApi, type RuleChecksRead } from "../maintain/repo-protect.js";
+import { requiredRuleChecks } from "../maintain/rule-checks.js";
+import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
+import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
+import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens, parseGovernance } from "../config/governance.js";
+import { ROLE_LIST_PATH } from "../config/role-list.js";
+import { rules } from "./rules-verb.js";
+import { showRule } from "./rules-show.js";
+import { buildRulesAt } from "./rules-lifecycle.js";
+import { clearPending, isMutatingVerb, readPending, refuseForPendingRules, refuseForUnknownRulesState } from "../rules-pending.js";
+import type { MergeStamp, StampOutcome } from "../lifecycle/merge.js";
+import { stampFacts } from "../lifecycle/governance-stamp.js";
+import { log } from "../log.js";
+import { search, formatHits, formatList, formatDoc, hitsJson } from "../knowledge-search.js";
+import { loadDocs, resolveDoc } from "./knowledge-io.js";
 import { onboard } from "../lifecycle/onboard.js";
 
 // TOOL_FILES IS GONE (Decision 1, 2026-09-14). It listed the nine harness files for seed's
@@ -62,6 +82,25 @@ export interface CliContext {
   readonly vcs: Vcs;
   readonly fs: Fs;
   readonly issues: Issues;
+  /** The board writes — Status and closing (gadf#225). Absent → task/merge/close/cancel say the board was not touched. */
+  readonly workTracker?: BoardWriter;
+  /**
+   * The full work-tracker port (spec 03 §6), built by the adapter registry from `adapters: work_tracker` in
+   * org-config.yaml. A factory, so an id gov does not have fails only the verb that needs the port — and that verb
+   * reports it. `gov issue` writes through it. Absent → `gov issue` refuses, saying no tracker is wired.
+   */
+  readonly tracker?: () => WorkTrackerPort;
+  /**
+   * The code host (VcsPort, spec 03 §6), built by the adapter registry from `adapters: vcs` in org-config.yaml. A
+   * factory for the same reason as {@link tracker}. `gov intent` opens its change request through it. Absent →
+   * `gov intent` refuses, saying no code host is wired.
+   */
+  readonly vcsHost?: () => VcsPort;
+  /**
+   * `gov autorun`'s engine (spec 03 §3), wired by main.ts with the real ports, git, the agent runner and gov's state
+   * dir. Absent → `gov autorun` refuses, saying it is not wired.
+   */
+  readonly autorun?: (flags: AutorunFlags) => Promise<CommandResult>;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;
@@ -87,19 +126,62 @@ export interface CliContext {
    * `agent install` before routing — next to `work`, for the reason stated below.
    */
   readonly performAgentInstall?: (plan: ReturnType<typeof planAgentInstall>) => boolean;
-  /** Raise a pull request adding an agent to llm-governance.md. */
+  /** Raise a pull request adding an agent to the org's authorized_agents (org-config.yaml). */
   readonly proposeAgentApproval?: (id: string) => readonly string[];
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
   /** REQUIRED — close's test-merge gate (governance.runSuite). Always run before any push. */
   readonly gate: () => GateResult;
+  /**
+   * `git -C <repo> <args>` → stdout, or null. Used to read the organization's policy from the DEFAULT branch
+   * (`policy-gate-io.ts`) rather than from the branch a command is running on. Absent → no verb checks are
+   * found, which is the same behaviour as a workspace that has none.
+   */
+  readonly git?: (repo: string, args: readonly string[]) => string | null;
+  /**
+   * `gh <args>` → stdout, with an optional JSON body on stdin; throws on a non-zero exit. The door
+   * `gov repo protect` writes branch protection through (framework-specification.md §7.3; the controls
+   * themselves are specified in `framework/framework-specification.md` §7.3).
+   *
+   * Absent → `gov repo protect` says it has no way to call `gh` and changes nothing. Deliberately optional and
+   * deliberately NOT one of the typed ports: a port would invite other verbs to reach the API their own way,
+   * and the reason this exists at all is that installing a rule needs a REQUEST BODY (see repo-protect.ts).
+   */
+  readonly ghApi?: GhApi;
+  /**
+   * The clock, for the `rules-pending` marker and the `gov rules reload` attestation. Absent → real time.
+   *
+   * Injected rather than read, because "the rules changed at T, the person attested at T+2m" is a fact a test
+   * has to be able to assert, and a test that cannot control the clock asserts the shape of a timestamp instead
+   * of its meaning.
+   */
+  readonly now?: () => Date;
+  /** §10.10 — the three facts `gov merge` stamps into a pull request body. Absent → merge says nothing. */
+  readonly governanceStamp?: () => { readonly lines?: readonly string[]; readonly error?: string };
+  /** Put those lines in the pull request whose head is `head`, working from inside `repoDir`. */
+  readonly stampPullRequest?: (repoDir: string, head: string, lines: readonly string[]) => StampOutcome;
   readonly log?: (msg: string) => void;
 }
 
 export interface CommandResult {
   readonly code: number;
   readonly lines: readonly string[];
+  /**
+   * The asynchronous rest of a command whose writes go through a port (ports are async; `route` is not). Present
+   * only after `route` has done everything synchronous — the rules gate, parsing, planning — and accepted the
+   * command; {@link routeAsync} runs it and its result replaces this one.
+   */
+  readonly perform?: () => Promise<CommandResult>;
+}
+
+/** {@link route}, then the command's asynchronous part when it has one. The entry point `main` uses. */
+export async function routeAsync(parsed: ParsedArgs, ctx: CliContext): Promise<CommandResult> {
+  const r = route(parsed, ctx);
+  if (!r.perform) return r;
+  try { return await r.perform(); } catch (e) {
+    return { code: 1, lines: [...r.lines, `gov ${parsed.command}: ${(e as Error)?.message ?? String(e)}`] };
+  }
 }
 
 /**
@@ -127,6 +209,16 @@ const MOVED_NAMESPACES = new Set(["infra"]);
  *  `gov-infra infra`. Naming the client is still right (the verbs are its, not ours); promising an
  *  install is not. Delete an entry the day its package publishes. */
 const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
+
+/**
+ * HOW EACH RELEASED CLIENT IS INSTALLED — the real package, and the registry it is published to (adoption walk #8,
+ * 2026-10-07). `@svayam/gov-cicd` is the name in 910-GOV-CICD/package.json, but its publishConfig sends it to the
+ * Svayam registry only, so `npm i -g @svayam/gov-cicd` against the default registry 404s. An install line has to
+ * work when typed.
+ */
+const CLIENT_INSTALL: Readonly<Record<string, string>> = {
+  "gov-cicd": "npm i -g @svayam/gov-cicd --registry https://npm.svayamtech.com",
+};
 
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov ${spec}`] });
 
@@ -167,12 +259,94 @@ export function routeOrg(positionals: readonly string[], flags: ParsedArgs["flag
   }
 }
 
+/**
+ * Where the person's `state/` lives, when gov knows enough to say.
+ *
+ * Both halves are needed and either may be missing — the work root is empty in a workspace nobody has
+ * finished configuring, and the login is absent whenever `gh` cannot answer. Returning null means "no marker
+ * can be read", which is the same answer `rules-lifecycle.ts` gives for "no marker can be written": one keying
+ * rule, used by the writer and the reader, so the two can never disagree about where to look.
+ */
+function markerKey(ctx: CliContext): { workRoot: string; login: string } | null {
+  return ctx.config.agentWorkRoot && ctx.login ? { workRoot: ctx.config.agentWorkRoot, login: ctx.login } : null;
+}
+
+/**
+ * What `gov merge` says about the stamp (§10.10).
+ *
+ * IT NEVER READS AS A FAILURE, because it never is one: the merge has landed by the time this is computed. A
+ * stamp that could not be computed is stated as a fact with its reason, and the facts are printed anyway when
+ * there was no pull request to hold them — so the run log carries them even where GitHub does not.
+ */
+/**
+ * One line per issue about its board Status (gadf#225): `board: #<n> Status → <status>`, or
+ * `board: Status not set — <why> (#<n>: <detail>)`. A board that could not be updated never changes the exit code.
+ */
+export function boardStatusLines(outcomes: readonly BoardStatusOutcome[]): string[] {
+  return outcomes.map(({ issueUrl, status, result }) => {
+    const n = /\/(?:issues|pull)\/(\d+)/.exec(issueUrl)?.[1];
+    const which = n ? `#${n}` : issueUrl;
+    return result.ok ? `  board: ${which} Status → ${status}` : `  board: Status not set — ${result.why} (${which}: ${result.detail})`;
+  });
+}
+
+/** The board-close line for close/cancel — only when it did NOT close; success is already in the headline. */
+export function boardCloseLines(r: BoardCloseResult | undefined): string[] {
+  return r && !r.ok ? [`  board: not closed — ${r.why} (${r.detail})`] : [];
+}
+
+function stampReport(stamp: MergeStamp | undefined): string[] {
+  if (!stamp) return [];
+  if (stamp.error) return [`  governance stamp: not recorded — ${stamp.error} (the merge is done)`];
+  const stamped = stamp.placed.filter((p) => p.outcome === "stamped");
+  const failed = stamp.placed.filter((p) => p.outcome === "failed");
+  const facts = stampFacts(stamp.lines);
+  return [
+    stamped.length
+      ? `  governed by: ${facts.join(" · ")} — stamped into ${stamped.length} pull request(s)`
+      : `  governed by: ${facts.join(" · ")} — no pull request to stamp; recorded here and in the run log`,
+    ...failed.map((f) => `  ⚠ could not stamp the pull request in ${f.repoDir} (the merge is done)`),
+  ];
+}
+
 /** Route a parsed command to its orchestrator; returns an exit code + output. */
 export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const { command, positionals, flags } = parsed;
   const c = ctx.config;
   const projectWorkRoot = path.dirname(ctx.home);
   const ownerField = "organization" as const;
+
+  // ── A CHANGED RULE STOPS WORK UNTIL THE SESSION RESTARTS (design §8) ──────────────────────────────────────
+  //
+  // BEFORE THE SWITCH, so there is one place it is decided and no verb can be added that forgets. gov cannot
+  // replace the rules inside a session that is already running, so the only honest alternative to refusing is
+  // letting work land judged against rules that session never read — and that failure is invisible: nothing
+  // errors, the merge succeeds, and the record says the change was reviewed under the current policy.
+  //
+  // ONLY THE MUTATING VERBS. `status`, `knowledge search|show|list`, `rules` and `validate` keep working, and
+  // `doctor` and `log` never reach this function at all (main.ts answers them before resolution). A workspace
+  // where nothing can be inspected is a workspace nobody can get out of this state — bricking it would make
+  // the refusal worse than the thing it prevents.
+  {
+    const key = markerKey(ctx);
+    const mutating = isMutatingVerb(command, positionals[0]);
+    // NO KEY IS NOT NO MARKER (Policy Owner, 2026-09-30). It used to be: a key gov could not compute skipped the
+    // read entirely and the verb proceeded, so a lapsed `gh` token silently disabled the gate the specification
+    // describes as unconditional. `readPending` returning null means "nothing pending"; `markerKey` returning
+    // null means "no answer", and the two must not share an outcome.
+    if (mutating && !key) {
+      const missing = { workRoot: !ctx.config.agentWorkRoot, login: !ctx.login };
+      log("warn", "refused a mutating verb — gov cannot tell whether the rules changed", "gov-work:cli:dispatch", "route",
+        { command, ...missing });
+      return { code: 1, lines: refuseForUnknownRulesState(command, missing) };
+    }
+    const pending = key && mutating ? readPending(ctx.fs, key.workRoot, key.login) : null;
+    if (pending) {
+      log("warn", "refused a mutating verb — the rules changed since the session started", "gov-work:cli:dispatch", "route",
+        { command, hash: pending.hash, clauses: pending.clauses.length });
+      return { code: 1, lines: refuseForPendingRules(pending, command) };
+    }
+  }
 
   switch (command) {
     // `gov agent` — the door that stays open (#196). Reporting is here; installing
@@ -203,7 +377,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (sub === "approve") {
         const id = positionals[1];
         if (!id) return usage("agent approve <id>");
-        // A pull request, never an edit: the approved list is C01 (POL-136) and
+        // A pull request, never an edit: the approved list is C01 (build-specification.md §3.1) and
         // belongs to the Infrastructure Owner, not to whoever typed the command.
         return ctx.proposeAgentApproval
           ? { code: 0, lines: ctx.proposeAgentApproval(id) }
@@ -218,29 +392,97 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       const from = flagStr(flags, "from");
       const bodyFile = flagStr(flags, "body-file");
       const boardFlag = flagStr(flags, "board");
+      // No --board: the current project's, read from the project branch this workspace is on (`BRNCH-<n>-…`).
+      const currentBoard = (): number | null => {
+        try { return boardNumberFromBranch(ctx.vcs.currentBranch(ctx.home)); } catch { /* not a git checkout: no current project, so no default board — the summary says it is on none */ return null; }
+      };
       const planned = planIssue(
         {
           repo: positionals[0] ?? flagStr(flags, "repo"),
           title: flagStr(flags, "title"),
           body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
           from,
-          board: boardFlag ? Number(boardFlag) : null,
-          // POL-413: the actor, not an option with a blank default.
+          board: boardFlag ? Number(boardFlag) : currentBoard(),
+          // Every board item has an accountable assignee: the actor, not an option with a blank default.
           assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
           githubOrg: c.githubOrg,
           defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
+          intent: flagStr(flags, "intent"),
         },
         (repo, number) => ctx.issues.read(repo, number),
       );
       if (!planned.ok) return { code: 1, lines: [planned.message] };
       const plan = planned.plan;
+      if (plan.board !== null && !(Number.isInteger(plan.board) && plan.board > 0)) {
+        return { code: 1, lines: [`--board takes the board's number, as in --board 42, not '${boardFlag}'.`] };
+      }
+      if (!ctx.tracker) return { code: 1, lines: [`Could not create the issue in ${plan.repo} — no work tracker is wired into this command.`] };
+      const getTracker = ctx.tracker;
 
-      const url = ctx.issues.create(plan.repo, plan.title, plan.body, plan.assignee);
-      if (!url) return { code: 1, lines: [`Could not create the issue in ${plan.repo}. Check that you can write there.`] };
-      const added = plan.board === null ? false : ctx.issues.addToBoard(c.githubOrg, plan.board, url);
-      // A board issue that never reached the board is invisible to gov, so it is a
-      // non-zero exit even though the issue itself exists — the summary says which.
-      return { code: plan.board !== null && !added ? 1 : 0, lines: issueSummary(plan, url, added) };
+      // Writes go through the WorkTrackerPort (spec 03 §6). A failure is reported and exits non-zero; an issue
+      // created but not on its board, or not labelled, is reported as created, with the reason.
+      return {
+        code: 0, lines: [],
+        perform: async () => {
+          let tracker: WorkTrackerPort;
+          try { tracker = getTracker(); } catch (e) {
+            return { code: 1, lines: [`Could not create the issue in ${plan.repo} — ${(e as Error)?.message ?? String(e)}`] };
+          }
+          return createPlannedIssue(plan, tracker, c.githubOrg);
+        },
+      };
+    }
+
+    // `gov intent <issue-url>… [--slug s]` — draft an intent from board issues (spec 03 D3; Q3: `gov task` stays
+    // build-stage only). Synchronous here: arguments, the C01 board authorization, the ports being wired. The
+    // drafting itself — tracker, local git, the code host — runs in `perform`.
+    case "intent": {
+      if (positionals.length < 1) return usage("intent <issue-url>… [--slug <s>]");
+      const urls = positionals.flatMap((p) => p.split(",")).map((u) => u.trim()).filter(Boolean);
+      let branch: string;
+      try { branch = ctx.vcs.currentBranch(ctx.home); } catch { /* not a git checkout: no project branch, refused just below */ branch = ""; }
+      const boardNumber = boardNumberFromBranch(branch);
+      if (boardNumber === null) return { code: 1, lines: [`'${branch || ctx.home}' is not a project branch (expected BRNCH-<n>-…) — run gov intent inside the project.`] };
+      if (!ctx.authorize({ owner: c.githubOrg, ownerField, number: boardNumber })) {
+        return { code: 1, lines: [`Not authorized on GitHub Project #${boardNumber} — nothing was created.`] };
+      }
+      if (!ctx.tracker) return { code: 1, lines: ["Could not draft the intent — no work tracker is wired into this command."] };
+      if (!ctx.vcsHost) return { code: 1, lines: ["Could not draft the intent — no code host is wired into this command."] };
+      const getTracker = ctx.tracker, getHost = ctx.vcsHost;
+      const slug = flagStr(flags, "slug");
+      return {
+        code: 0, lines: [],
+        perform: async () => {
+          let tracker: WorkTrackerPort, host: VcsPort;
+          try { tracker = getTracker(); host = getHost(); } catch (e) {
+            return { code: 1, lines: [`Could not draft the intent — ${(e as Error)?.message ?? String(e)}`] };
+          }
+          return createIntent(
+            { vcs: ctx.vcs, fs: ctx.fs, tracker, host, ...(ctx.log ? { log: ctx.log } : {}) },
+            {
+              govClone: ctx.home, issueUrls: urls, assignee: ctx.login ?? "", githubOrg: c.githubOrg,
+              workspaceRepo: c.workspaceRepo, today: ctx.today, ...(slug ? { slug } : {}),
+            },
+          );
+        },
+      };
+    }
+
+    // `gov autorun …` — the lifecycle engine (spec 03 §3, D4). Synchronous here: the flags, the project branch, the
+    // C01 board authorization. The run itself — ports, git, a headless agent per item — is `ctx.autorun`.
+    case "autorun": {
+      const f = parseAutorunFlags(positionals, flags);
+      if (!f.ok) return { code: 2, lines: [f.message, "usage: gov autorun [--intent <NN>|--all] [--dry-run] [--agent <id>] [--max-minutes <n>] [--serial|--parallel <k>]"] };
+      let branch: string;
+      try { branch = ctx.vcs.currentBranch(ctx.home); } catch { /* not a git checkout: no project branch, refused just below */ branch = ""; }
+      const boardNumber = boardNumberFromBranch(branch);
+      if (boardNumber === null) return { code: 1, lines: [`'${branch || ctx.home}' is not a project branch (expected BRNCH-<n>-…) — run gov autorun inside the project.`] };
+      if (!ctx.authorize({ owner: c.githubOrg, ownerField, number: boardNumber })) {
+        return { code: 1, lines: [`Not authorized on GitHub Project #${boardNumber} — autorun did nothing.`] };
+      }
+      if (!ctx.autorun) return { code: 1, lines: ["gov autorun is not wired into this command — nothing was run."] };
+      const engine = ctx.autorun;
+      return { code: 0, lines: [], perform: () => engine(f.value) };
     }
 
     case "seed": {
@@ -258,7 +500,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         const seedCfg = {
           govHome: ctx.home, workspaceRepo: c.workspaceRepo, agentWorkRoot: c.agentWorkRoot,
           defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch,
-          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: c.orgTokens,
+          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: { ...c.orgTokens, ...governanceTokens(readGovernance(ctx.home, (p) => ctx.fs.readFile(p))) },
         };
         const seedDeps = { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding };
         const found = inspectLeftovers(seedDeps, seedCfg, { boardUrl: positionals[0] });
@@ -285,7 +527,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       }
 
       const r = seed(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding, ...(ctx.git ? { git: ctx.git } : {}) },
         {
           govHome: ctx.home,
           workspaceRepo: c.workspaceRepo,
@@ -294,7 +536,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           defaultCodeBranch: c.defaultCodeBranch,
           githubOrg: c.githubOrg,
           repoOverrides: c.repoOverrides,
-          orgTokens: c.orgTokens,
+          orgTokens: { ...c.orgTokens, ...governanceTokens(readGovernance(ctx.home, (p) => ctx.fs.readFile(p))) },
         },
         {
           boardUrl: positionals[0],
@@ -318,38 +560,67 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "task": {
       if (positionals.length < 1) return usage("task <issue-url[,issue-url...]>");
       const r = task(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
-        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultCodeBranch: c.defaultCodeBranch },
         { govClone: ctx.home, projectWorkRoot, issueUrls: positionals[0].split(","), assignee: flagStr(flags, "assignee") ?? ctx.login ?? ctx.seededBy },
       );
       return r.ok
-        ? { code: 0, lines: [`Task ${r.taskId}`, `  branched: ${r.reposBranched.length} repo(s)`, ...(r.reposSkipped.length ? [`  skipped (not cloned): ${r.reposSkipped.join(", ")}`] : [])] }
+        ? { code: 0, lines: [`Task ${r.taskId}`, `  branched: ${r.reposBranched.length} repo(s)`, ...(r.reposSkipped.length ? [`  skipped (not cloned): ${r.reposSkipped.join(", ")}`] : []), ...boardStatusLines(r.boardStatus)] }
         : { code: r.code, lines: [r.message] };
     }
 
     case "merge": {
       if (positionals.length < 1) return usage("merge <issue-url | task-branch>");
       const r = merge(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        {
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log,
+          // §10.10 — what governed this change, into the pull request body. Both ports are optional in `merge`
+          // and both are wired here, because a stamp that only exists when someone remembers to pass a flag is
+          // the same "implemented, called by nothing" state the rules compiler was in.
+          ...(ctx.governanceStamp ? { stamp: ctx.governanceStamp } : {}),
+          ...(ctx.stampPullRequest ? { stampPr: ctx.stampPullRequest } : {}),
+        },
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
         { govClone: ctx.home, projectWorkRoot, taskArg: positionals[0] },
       );
       return r.ok
-        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`] }
+        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`, ...boardStatusLines(r.boardStatus), ...stampReport(r.stamp)] }
         : { code: r.code, lines: [r.message] };
     }
 
     case "close": {
       const r = close(
         // `anchor` is what lets close read the base branch seed recorded, instead of assuming dev.
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, anchor: ctx.anchor, log: ctx.log },
+        {
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, pulls: ctx.pulls, tracker: ctx.workTracker, authorize: ctx.authorize,
+          gate: ctx.gate, anchor: ctx.anchor, log: ctx.log,
+          // The organization's own `when=verb:close` checks, read from the DEFAULT branch — the socket that
+          // replaced the hardcoded knowledge gate (2026-09-28). A workspace with no such clause has none.
+          policyGate: (projectDir) => policyGate(
+            { git: ctx.git ?? (() => null), fs: ctx.fs },
+            { repo: ctx.home, ref: c.defaultBranch, projectDir, branch: ctx.vcs.currentBranch(ctx.home) },
+            "close",
+          ),
+        },
         // envBranches: the rungs BETWEEN main and dev, so a hotfix lands in every branch below its base.
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch, envBranches: c.envBranches },
         { govClone: ctx.home, projectWorkRoot, today: ctx.today },
       );
-      return r.ok
-        ? { code: 0, lines: [`Project ${r.projectId} closed`, `  PR: ${r.prUrl ?? "(merged)"}`] }
-        : { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
+      // `(merged)` used to stand in for a null PR url, and it is no longer a state close can report: gov opens
+      // the proposal and a person merges it (Policy Owner, 2026-09-30). Saying "merged" when nobody had merged
+      // anything was the output half of the same defect as the `--admin` call that produced it.
+      if (!r.ok) return { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
+      if (r.archivedOnly) return { code: 0, lines: [`Project ${r.projectId} closed — '${r.projectBranch}' merged and archived.`] };
+      return {
+        code: 0,
+        lines: [
+          r.boardClosed?.ok === false ? `Project ${r.projectId} closed — but its board is still open` : `Project ${r.projectId} closed`,
+          ...boardCloseLines(r.boardClosed),
+          r.prUrl
+            ? `  PR: ${r.prUrl} — a human merges this; re-run \`gov close\` afterwards to archive the branch`
+            : `  the close PR could not be opened — open one for '${r.projectBranch}' → ${c.defaultBranch}, then re-run \`gov close\``,
+        ],
+      };
     }
 
     case "sync": {
@@ -361,28 +632,65 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (!r.ok) return { code: r.code, lines: [r.message] };
       // RE-MIRROR AFTER SYNC, OR THE SYNC GOVERNS NOTHING (Policy Owner, 2026-09-11).
       //
-      // `sync` merges the default branch — which is where ratified governance lives (POL-086a)
+      // `sync` merges the default branch — which is where ratified governance lives (GOV-FRM-456)
       // — into the project branch. So a sync is exactly the moment the protocol can have
       // changed. It was also the moment nothing re-copied it: the rendered files moved forward
       // in the workspace repo while the mirrored copies at the project root, the ones every
       // agent actually reads, stayed at whatever they were seeded with. A sync that updates
       // governance everywhere except where it is read is a sync that reports success and
       // changes nothing an agent sees.
-      ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
+      // A SYNC MUST NOT CLAIM WHAT IT DID NOT DO. This line was unconditional, so a structure-only
+      // organization — one that authorized no agents — was told the protocol had been re-placed when nothing
+      // was written at all, and a workspace whose harness source is missing was told the same. Both are the
+      // "reports success, changes nothing an agent sees" failure the comment above warns about.
+      // COMPILE BEFORE MIRRORING, OR THE MIRROR CARRIES THE OLD RULES (design §7, PRJ-121, 2026-09-28).
+      //
+      // `sync` has just merged the default branch — where ratified governance lives (GOV-FRM-456) — into the
+      // project branch. So this is the one moment an ORG'S OWN ratified clause can reach a project already in
+      // flight, and it was the moment nothing compiled it: the policy documents moved forward and the resident
+      // block every agent reads stayed at whatever the last hand-run of the verb produced. The order with the
+      // mirror below no longer matters: `ensureRootProtocol` copies `agent/harness/*` from the DEFAULT branch's
+      // committed render (GOV-FRM-456), never from this worktree — so what agents read is the ratified render.
+      //
+      // FROM THE DEFAULT BRANCH, never `ctx.home`'s worktree: `ctx.home` is on the PROJECT branch, and a clause
+      // edited there is a proposal (GOV-FRM-086). Compiling it would put a rule nobody ratified into the one block
+      // guaranteed to be read — by the agent whose session wrote it.
+      const built = buildRulesAt(
+        { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}), ...(markerKey(ctx) ? { marker: { ...markerKey(ctx)!, now: ctx.now ?? (() => new Date()) } } : {}) },
+        { home: ctx.home, defaultBranch: c.defaultBranch },
+        "sync",
+      );
+      const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo, { git: ctx.git ?? (() => null), defaultBranch: c.defaultBranch });
       return {
+        // A SYNC IS NOT FAILED BY A RULES PROBLEM. Every branch is merged and pushed by the
+        // time this line runs; a non-zero exit would report failure for work that landed, and an agent reading
+        // the code would re-run a sync that has nothing left to do.
         code: 0,
         lines: [
           `Synced ${r.projectBranch}`,
           `  ${r.synced.length} repo(s) up to date`,
-          `  session-start protocol re-placed at ${projectWorkRoot}`,
+          ...built.lines,
+          ...(mirror.structureOnly
+            ? ["  no agent harness placed — this organization authorized none (structure-only)"]
+            : [`  session-start protocol re-placed in ${mirror.targets.length} director${mirror.targets.length === 1 ? "y" : "ies"}`]),
+          ...mirrorWarnings(mirror),
           "",
           // THE MID-SESSION HALF OF THE GUARANTEE. gov cannot reach into a session already
           // running: the agent read its instructions file and will read it again next turn, but
           // whether it re-reads from disk is the agent's business, not gov's. What gov CAN do is
           // hand the person the one sentence that makes it certain — same mechanism for every
           // agent, no vendor hook.
-          "Governance may have changed. Paste this into your running session:",
-          "  Re-read the session-start protocol from disk; it has changed. Then continue.",
+          //
+          // AND ONCE THE MARKER IS RECORDED, THE PASTE IS NOT ENOUGH. "Ask it to re-read the file" was the best
+          // gov could do before §8; it is now the WRONG advice, because a re-read does not clear the marker and
+          // the person would follow it, find `gov merge` still refusing, and conclude gov is broken. So the two
+          // messages are mutually exclusive by construction rather than both printed and left to be reconciled.
+          ...(built.pendingRecorded
+            ? ["The rules in your agent's context changed, so work is closed until the session restarts:",
+               "  gov work            start a fresh, governed session",
+               "  gov rules reload    if you have already restarted it"]
+            : ["Governance may have changed. Paste this into your running session:",
+               "  Re-read the session-start protocol from disk; it has changed. Then continue."]),
         ],
       };
     }
@@ -462,9 +770,163 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
     }
 
+    case "repo": {
+      // INSTALLING GOV-FRM-447, rather than only reporting on it (Policy Owner, 2026-09-29). `plan` is the
+      // default because the sub-command that changes a repository's rules should be the one you TYPE — the
+      // reverse default would make a bare `gov repo protect` reconfigure a branch for somebody who wanted to
+      // look.
+      const sub = positionals[0];
+      const USAGE = "repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]";
+      if (sub !== "protect") return usage(USAGE);
+      const mode = positionals[1] ?? "plan";
+      if (mode !== "plan" && mode !== "apply") return usage(USAGE);
+      if (!ctx.ghApi) {
+        return { code: 1, lines: ["repo protect: gov has no way to call `gh` in this context, so it neither read nor wrote anything."] };
+      }
+      if (!c.githubOrg) return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's GitHub org (`github_org`) — run `gov setup`."] };
+      const named = flagStr(flags, "repo");
+      if (!named && !c.workspaceRepo) {
+        return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's governance repo (`org_gov_repo`) — run `gov setup`, or name a repo with --repo."] };
+      }
+      const repo = named ? (named.includes("/") ? named : `${c.githubOrg}/${named}`) : `${c.githubOrg}/${c.workspaceRepo}`;
+      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (build-specification.md §2.2):
+      // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
+      // would protect a branch nobody merges into and report success.
+      const namesGov = !!named && repo.toLowerCase() === `${c.githubOrg}/${c.workspaceRepo}`.toLowerCase();
+      const branch = flagStr(flags, "branch") ?? (named && !namesGov ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));
+      // The governance repo IS `ctx.home` — that clone is where the workflow has to be written. For a code repo
+      // gov will not guess at a path: an `apply` that wrote .github/workflows into the wrong clone is worse than
+      // one that tells you where the template is.
+      const repoDir = flagStr(flags, "repo-dir") ?? (named && !namesGov ? undefined : ctx.home);
+      const check = flagStr(flags, "check");
+      const governanceText = ctx.fs.readFile(path.join(ctx.home, GOVERNANCE_PATH));
+      // NAMING THE GOVERNANCE REPO WITH --repo IS STILL THE GOVERNANCE REPO: `gov check install` prints exactly that
+      // command, and reading it as a code repo would derive the wrong resource's checks.
+      const isGovernanceRepo = !named || namesGov;
+      // THE RULES' OWN GATES, read from the governance repo's DEFAULT branch — never the working tree, where an
+      // unmerged rule is a proposal (GOV-FRM-086). Each in-force gate binding on a pull request becomes a required check.
+      let ruleChecks: RuleChecksRead;
+      if (!ctx.git) {
+        ruleChecks = { ok: false, reason: "gov has no way to read git in this context" };
+      } else {
+        const ref = defaultRef(ctx.git, ctx.home, c.defaultBranch || "main");
+        const loaded = loadCheckRuleSet(ctx.git, ctx.home, ref);
+        ruleChecks = loaded.ok
+          ? { ok: true, ref, checks: requiredRuleChecks(loaded.set, isGovernanceRepo ? "governance" : "code") }
+          : { ok: false, reason: `the rules at ${ref} could not be read: ${loaded.reason}` };
+      }
+      const r = protectRepo(
+        { gh: ctx.ghApi, fs: ctx.fs },
+        {
+          repo, branch, home: ctx.home, posture: readPosture(governanceText),
+          approvers: approverLogins(governanceText, ctx.fs.readFile(path.join(ctx.home, ROLE_LIST_PATH))),
+          isGovernanceRepo, ruleChecks, runner: parseGovernance(governanceText).ci,
+          ...(repoDir ? { repoDir } : {}),
+          ...(check ? { approverCheck: check } : {}),
+        },
+        mode,
+      );
+      return { code: r.code, lines: r.lines };
+    }
+
+    case "rules": {
+      // RENDERING THE RULE STORES INTO WHAT AGENTS READ. Reads the RATIFIED branch by default: a rule row on a
+      // project branch is a proposal (GOV-FRM-086), and rendering it would put an unratified rule into the one
+      // place an agent is guaranteed to read. `--working-tree` is for an author mid-draft and says so in the output.
+      const mode = positionals[0] ?? "report";
+
+      // ── `gov rules reload` — THE HUMAN ATTESTATION THAT CLEARS THE MARKER (design §8) ────────────────────
+      //
+      // The marker has exactly two ways out, and neither is "a command succeeded":
+      //
+      //   1. A GOV-LAUNCHED SESSION. `gov work` re-places every harness file and `verifyAgentContext` refuses
+      //      to hand over a session that is not governed — so by the time an agent is running, gov KNOWS it
+      //      started after the change. That clearing is not a claim anybody makes; it is a consequence of a
+      //      launch the agent does not control. It happens in main.ts, at the launch.
+      //
+      //   2. THIS. A person says "I restarted it". gov cannot verify that, so instead of pretending to, it
+      //      makes the claim ATTRIBUTABLE: who, when, and which rules hash they were acknowledging, written to
+      //      the run log. An agent CAN type this command — nothing in a CLI can stop it — but it cannot type it
+      //      anonymously. The record names the person whose credentials ran it, and a session that cleared its
+      //      own refusal and then landed work under superseded rules is visible in the log beside the merge.
+      //      That is the whole mechanism: not prevention, attribution. Prevention is (1).
+      //
+      // It is deliberately NOT a mutating verb, so it keeps working while the marker is present — a clearing
+      // command the marker blocks would be a workspace nobody can recover.
+      if (mode === "reload") {
+        const key = markerKey(ctx);
+        if (!key) {
+          return { code: 1, lines: [
+            "gov rules reload: gov does not know whose session this is, so there is no marker to clear.",
+            `  it is keyed by your GitHub login and your work root (~/.gov/work-roots, else ~/.gov/<slug>/projects) — to see your login, ${GH_SIGNIN_HINT}.`,
+          ] };
+        }
+        const pending = readPending(ctx.fs, key.workRoot, key.login);
+        if (!pending) return { code: 0, lines: ["gov rules reload: nothing pending — the rules have not changed since your session started."] };
+        clearPending(ctx.fs, key.workRoot, key.login);
+        log("info", "a person attested that they restarted their agent session", "gov-work:cli:dispatch", "rules-reload", {
+          attestedBy: ctx.login, attestedEmail: ctx.seededBy, at: (ctx.now ?? (() => new Date()))().toISOString(),
+          hash: pending.hash, previous: pending.previous, clauses: pending.clauses, recordedBy: pending.by, recordedAt: pending.at,
+        });
+        return { code: 0, lines: [
+          `gov rules reload — ${pending.clauses.length} rule(s) changed at ${pending.at} (\`gov ${pending.by}\`):`,
+          "",
+          ...pending.clauses.map((cl) => `  ${cl}`),
+          ...(pending.clauses.length ? [""] : []),
+          `  rules ${pending.hash}${pending.previous ? ` (was ${pending.previous})` : ""}`,
+          `  attested by ${ctx.login ?? "(unknown)"} — recorded in the run log.`,
+          "",
+          "  task · merge · close · knowledge propose are open again. If your session is in fact still the old",
+          "  one, it is now working from rules it has not read — stop it and start again with `gov work`.",
+        ] };
+      }
+
+      // `gov rules show <id>` — one rule by GOV id, or a retired POL number through framework/rules/pol-aliases.yaml.
+      if (mode === "show") {
+        if (!positionals[1]) return usage("rules show <GOV-…|POL-…>");
+        return showRule((rel) => ctx.fs.readFile(path.join(ctx.home, rel)), positionals[1]);
+      }
+
+      // `gov rules propose` asks questions and waits on a model, so bin.ts routes it (main.ts runRulesPropose);
+      // reaching it here means a caller without a terminal — say where it runs rather than "unknown".
+      if (mode === "propose") return { code: 2, lines: ["gov rules propose asks its questions at a terminal: run it as `gov rules propose [--all] [--pr <n>]`."] };
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload|show|propose> [--working-tree]");
+      const r = rules(
+        { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
+        {
+          home: ctx.home, defaultBranch: c.defaultBranch, workingTree: flagBool(flags, "working-tree"),
+        },
+        mode as "build" | "check" | "report",
+      );
+      return { code: r.code, lines: r.lines };
+    }
+
     case "knowledge": {
       const sub = positionals[0], slug = positionals[1];
-      if (!["propose", "submit", "archive"].includes(sub ?? "") || !slug) return usage('knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+
+      // READING comes before WRITING (tier 0, 2026-09-23). `search`/`show`/`list` answer from the markdown that
+      // is already cloned — no index service, no network — and are the same three answers an agent gets through
+      // `--json`. They take no slug, so they are routed before the propose/submit/archive argument check.
+      if (sub === "search" || sub === "show" || sub === "list") {
+        const docs = loadDocs(ctx.fs, ctx.home);
+        const json = flagBool(flags, "json");
+
+        if (sub === "list") return { code: 0, lines: json ? [JSON.stringify({ documents: docs.map((d) => d.path) }, null, 2)] : formatList(docs, positionals[1]) };
+
+        if (sub === "show") {
+          if (!slug) return usage("knowledge show <path>");
+          const { doc, candidates } = resolveDoc(docs, slug);
+          if (doc) return { code: 0, lines: json ? [JSON.stringify({ path: doc.path, text: doc.text }, null, 2)] : formatDoc(doc) };
+          return { code: 1, lines: candidates.length ? [`'${slug}' matches ${candidates.length} documents:`, ...candidates.map((p) => `  ${p}`)] : [`No knowledge document matches '${slug}'. Try: gov knowledge search ${slug}`] };
+        }
+
+        const query = positionals.slice(1).join(" ");
+        if (!query) return usage("knowledge search <text> [--json]");
+        const hits = search(docs, query, Number(flagStr(flags, "limit")) || 20);
+        return { code: 0, lines: json ? [hitsJson(hits, query)] : formatHits(hits, query) };
+      }
+
+      if (!["propose", "submit", "archive"].includes(sub ?? "") || !slug) return usage('knowledge <search|show|list|propose|submit|archive> …');
       const kcfg = { defaultBranch: c.defaultBranch, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo };
       const r =
         sub === "propose" ? proposeKnowledge(ctx.vcs, kcfg, ctx.home, slug)
@@ -485,12 +947,12 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "cancel": {
       const fn = command === "pause" ? pause : command === "resume" ? resume : cancel;
       const r = fn(
-        { vcs: ctx.vcs, anchor: ctx.anchor, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { vcs: ctx.vcs, anchor: ctx.anchor, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log },
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
         { govClone: ctx.home },
       );
       return r.ok
-        ? { code: 0, lines: [`Project #${r.boardNumber} → ${r.status}${r.applied ? "" : " (anchor label not applied — check gh access)"}`] }
+        ? { code: 0, lines: [`Project #${r.boardNumber} → ${r.status}${r.applied ? "" : " (anchor label not applied — check gh access)"}`, ...boardCloseLines(r.boardClosed)] }
         : { code: r.code, lines: [r.message] };
     }
 
@@ -510,13 +972,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
                ...(UNRELEASED_CLIENTS.has(moved)
                  ? [`  ${moved} is not released yet — these verbs are unavailable, and there is nothing to install.`]
                  : [`  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
-                    `  (install:  npm i -g @svayam/${moved})`]),
+                    `  (install:  ${CLIENT_INSTALL[moved] ?? `npm i -g @svayam/${moved}`})`]),
                ""]
             : [`unknown command '${command}'`]),
           "bootstrap: setup org",
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
-          "repo+knowledge+org: onboard knowledge org",
+          "repo+knowledge+org: onboard repo knowledge org",
           "maintain: bump-version doctor deps publish upgrade",
         ],
       };

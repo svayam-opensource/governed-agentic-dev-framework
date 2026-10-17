@@ -5,15 +5,38 @@
 // Development Framework. It manages projects, workspaces and org registration, and shows the context
 // banner. It hosts NOTHING: `gov-cicd` (deploy) and `gov-infra` (infrastructure) are independent clients
 // invoked directly, not verbs of this one (adr-three-clients, PRJ-43).
-import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines } from "./main.js";
+import { main, runApp, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runPack, runSignal, runProject, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
+import { runEvidence } from "./evidence-run.js";
+import { runLicence } from "./licence-run.js";
+import { helpRequest } from "./help-request.js";
+import { helpJson, topicOf } from "./help-render.js";
+
+/** A concept page (gov help projects) is as valid an answer as a command page. */
+const isTopic = (name: string): boolean => topicOf(name) !== undefined;
+import { runContext } from "./run-context.js";
+import { endRun, log, pruneLogs, runDir, startRun } from "../log.js";
+import { flushPendingEvidence } from "../check-seam/evidence.js";
+import { commandOf, logsRoot } from "../state-paths.js";
+import { numberPref } from "../preferences.js";
+import { loadPreferences } from "./preferences-io.js";
 
 const argv = process.argv.slice(2);
 
 async function dispatch(): Promise<number> {
   // Meta flags — no workspace/plugin/context needed (an adopter's first commands).
   if (argv[0] === "--version" || argv[0] === "-v") { process.stdout.write(`gov ${readCliVersion()}\n`); return 0; }
-  if ((argv[0] === "--help" || argv[0] === "-h") && argv.length === 1) { for (const l of helpLines()) process.stdout.write(`${l}\n`); return 0; }
+  // HELP NEVER ACTS (PRJ-121, 2026-09-22) — `gov help [<cmd>]`, and `--help`/`-h` ANYWHERE before a `--`.
+  // Answered here, before first-run, the banner and resolution: help needs no workspace and runs nothing.
+  // `gov merge -h` used to attempt a merge. An unknown command asked about is a usage error (exit 2).
+  const help = helpRequest(argv);
+  if (help) {
+    if (help.json) { process.stdout.write(`${helpJson()}\n`); return 0; }
+    const known = !help.command || isKnownCommand(help.command) || isTopic(help.command);
+    const lines = helpLines(help.command, { ...(help.short ? { short: true } : {}), ...(help.all ? { all: true } : {}) });
+    for (const l of lines) (known ? process.stdout : process.stderr).write(`${l}\n`);
+    return known ? 0 : 2;
+  }
 
   // FIRST RUN — before the banner, which would otherwise announce "no gov workspace resolved" and hand the
   // work back with two verbs to learn.
@@ -33,7 +56,7 @@ async function dispatch(): Promise<number> {
   // repo clone URL before being told anything. They do not have one; that is what they were trying to
   // find out. A command whose whole purpose is to answer "what state am I in?" must never be replaced by
   // a question that presumes the answer.
-  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "help", "--help", "-h", "--version", "-v"]);
+  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "check", "evidence", "licence", "help", "--help", "-h", "--version", "-v"]);
   if (process.stdin.isTTY && !NO_FIRST_RUN.has(argv[0] ?? "")) {
     const first = await runFirstRunIfNeeded();
     if (first !== null) return first;   // null = already set up; anything else is this invocation's answer
@@ -43,12 +66,69 @@ async function dispatch(): Promise<number> {
   if (!(await confirmContextOrBail(argv))) return 0;
   if (argv.length === 0 && process.stdin.isTTY) return runMainMenu();
   if (argv[0] === "setup") return runSetupCommand(argv);
-  if (argv[0] === "work") return runWork(argv);   // prompts + launches — see runWork
+  if (argv[0] === "work") return runWork(argv);
+  if (argv[0] === "app") return runApp(argv);     // `setup` awaits GitHub's redirect to a loopback listener   // prompts + launches — see runWork
   // `agent install` ASKS and SPAWNS, so it belongs here for the same reason `work` does —
   // dispatch.ts says it plainly: "neither prompting nor spawning belongs in a pure router".
   // It also needs a reader of its own, and having exactly one owner is the whole of #213.
   if (argv[0] === "agent" && argv[1] === "install") return runAgentInstall(argv);
+  // `rules propose` ASKS (the interview) and waits on a model; `check` may run the proposer on a pull request.
+  // Both are asynchronous, which `main()` is not — routed here for the same reason `work` is.
+  if (argv[0] === "rules" && argv[1] === "propose") return runRulesPropose(argv);
+  if (argv[0] === "check") return runCheck(argv);
+  // `evidence verify` is the FREE verifier (Q4): an auditor runs it with no workspace, so no first run above.
+  if (argv[0] === "evidence") return runEvidence(argv);
+  // `licence login` asks for a hidden key and `install` awaits the licence service — asynchronous, like `check`.
+  if (argv[0] === "licence") return runLicence(argv);
+  if (argv[0] === "pack") return runPack(argv);
+  if (argv[0] === "signal") return runSignal(argv);
+  if (argv[0] === "project") return runProject(argv);   // the ports are async (plan 03 L06)
   return main(argv);
 }
 
-dispatch().then((code) => process.exit(code)).catch((e) => { process.stderr.write(`${(e as Error)?.stack ?? e}\n`); process.exit(1); });
+/**
+ * EVERY RUN LEAVES A FILE (PRJ-121, 2026-09-23) — started before dispatch, so a command that dies in its first
+ * line still says what was asked; ended with the exit code, so a log answers "did it work?" without the screen.
+ * The whole of it is best-effort: logging never changes what gov returns, and never takes it down.
+ */
+async function runCli(): Promise<number> {
+  const ctx = runContext();
+  try {
+    startRun({ argv, command: commandOf(argv), project: ctx.project, workRoot: ctx.workRoot, login: ctx.login, version: readCliVersion() });
+    // Retention runs here, once per invocation, where it costs one readdir and can never race a write: the
+    // folders it removes are whole days, and this run's day is not one of them.
+    if (ctx.workRoot && ctx.login) {
+      // `logs.keepDays` is the person's (default 14). Read from the file gov already has open for them.
+      pruneLogs(logsRoot(ctx.workRoot, ctx.login), new Date(), numberPref(loadPreferences().prefs, "logs.keepDays"));
+    }
+  } catch { /* a run with no log is still a run */ }
+
+  try {
+    const code = await dispatch();
+    // EVIDENCE (spec 02 §5): what the command recorded goes to the paid module if it runs, else is dropped. A quiet
+    // line at most, on stderr; never changes the exit code.
+    for (const line of await flushPendingEvidence()) process.stderr.write(`${line}\n`);
+    endRun(code);
+    return code;
+  } catch (e) {
+    // The stack goes to the LOG as well as the screen: a stack in a scrollback is gone by the time it is asked
+    // about, and this is the case where the run's own file is most worth naming.
+    try { logFatal(e); } catch { /* … */ }
+    process.stderr.write(`${(e as Error)?.stack ?? e}\n`);
+    const where = runDir();
+    if (where) process.stderr.write(`  details: ${where}\n`);
+    endRun(1);
+    return 1;
+  }
+}
+
+function logFatal(e: unknown): void {
+  const err = e as Error | undefined;
+  log("error", "unhandled failure", "gov-work:cli:bin", "runCli", { message: err?.message ?? String(e), stack: err?.stack });
+}
+
+// EXIT BY EXIT CODE, NOT `process.exit` (PRJ-121, 2026-09-23). `process.exit` kills the process where it
+// stands, and the log transport's last write goes with it: the first run under this logger left a folder with
+// the bookkeeping file and no log. Setting `exitCode` lets Node finish the flush and leave with the same code.
+// A hung handle would show up as a command that does not return, which the journey tier would catch at once.
+runCli().then((code) => { process.exitCode = code; });

@@ -1,31 +1,65 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 #
-# gov bootstrap installer — Windows (PowerShell 5.1 or newer).
+# gov bootstrap installer -- Windows (PowerShell 5.1 or newer).
 #
 #   irm https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.ps1 | iex
 #
-# The Windows half of install.sh, and it makes the same promise: nothing is
+# A MACHINE PATH, NOT A DOOR (ruling Q9 B). People on Windows install gov with the MSI or
+# winget; this script is for CI runners and Server Core without winget, and it is documented
+# only in the command reference. It speaks install.sh's vocabulary all the same (#204): named
+# phases, an arrow for under way, a tick for now true, colour only on a terminal.
+#
+# It makes install.sh's promise: nothing is
 # installed machine-wide and nothing is elevated. Node is unpacked from the
 # official zip into the user's own profile, so it cannot collide with a Node the
-# machine already has, and npm's global folder is inside that same tree — which is
+# machine already has, and npm's global folder is inside that same tree -- which is
 # what removes the permission failure the Unix side hits as EACCES.
 
 $ErrorActionPreference = 'Stop'
 
 $NodeMajor = 24
-# Overridable so a pre-release build can be tested through the SAME path an adopter
-# takes: $env:GOV_PKG = 'C:\path\to\pkg.tgz'
-$GovPkg    = if ($env:GOV_PKG) { $env:GOV_PKG } else { '@svayam-opensource/gov' }
+# WHAT TO INSTALL, AND FROM WHERE -- the two defaults each install site pins for its environment
+# (site/build.mjs), exactly as it pins GOV_PKG / GOV_REGISTRY in install.sh. Keep each on ONE line,
+# in this shape: the site's build rewrites these lines and refuses to ship if it cannot find them.
+#
+# They used to be a single hardcoded '@svayam-opensource/gov' that nothing pinned, so every site's
+# Windows installer -- dev and uat included -- installed the RELEASED client from the public registry.
+# A Windows walk of gov-dev therefore tested the code a change had just replaced. (PRJ-121, 2026-09-21)
+#
+# Still overridable, so a pre-release build can be tested through the SAME path an adopter takes:
+# $env:GOV_PKG = 'C:\path\to\pkg.tgz'
+$GovPkgDefault      = '@svayam-opensource/gov'
+$GovRegistryDefault = ''
+$GovPkg      = if ($env:GOV_PKG)      { $env:GOV_PKG }      else { $GovPkgDefault }
+$GovRegistry = if ($env:GOV_REGISTRY) { $env:GOV_REGISTRY } else { $GovRegistryDefault }
 $GovHome   = Join-Path $env:LOCALAPPDATA 'gov'
 $NodeDir   = Join-Path $GovHome 'node'
 
+# -- output --------------------------------------------------------------------
+# THE SAME MARKS AS install.sh (#204), built from code points so this file stays ASCII. Windows
+# PowerShell 5.1 reads a .ps1 with no BOM in the ANSI code page, and `irm | iex` decodes a reply
+# with no charset as ISO-8859-1: a literal arrow in the source arrives as three wrong characters.
+# test/scripts/install-output-vocabulary.test.ts compares these with install.sh's own.
+$Mark = @{ Info = [char]0x2192; Ok = [char]0x2713; Skip = [char]0x00B7; Warn = '!' }
+$Dash = [char]0x2014
+# NO_COLOR and TERM=dumb are obeyed, and output that is not a console (CI logs, a file) gets no
+# colour either -- the same three rules install.sh follows.
+$UseColor = (-not $env:NO_COLOR) -and ($env:TERM -ne 'dumb') -and (-not [Console]::IsOutputRedirected)
+
+function Paint ($text, $color) {
+  if ($UseColor -and $color) { Write-Host $text -ForegroundColor $color -NoNewline } else { Write-Host $text -NoNewline }
+}
+function Write-Mark ($mark, $color, $m) { Write-Host '  ' -NoNewline; Paint $mark $color; Write-Host " $m" }
+
 function Say  ($m) { Write-Host $m }
-function Step ($m) { Write-Host "==> $m" -ForegroundColor White }
-function Ok   ($m) { Write-Host "  [ok] $m" -ForegroundColor Green }
-function Skip ($m) { Write-Host "  [--] $m (already present)" -ForegroundColor DarkGray }
-function Warn ($m) { Write-Host "  [!]  $m" -ForegroundColor Yellow }
-function Die  ($m) { Write-Host "`nerror: $m" -ForegroundColor Red; exit 1 }
+# A NAMED PHASE, set off by blank lines -- no prefix mark.
+function Step ($m) { if ($UseColor) { Write-Host "`n$m`n" -ForegroundColor White } else { Write-Host "`n$m`n" } }
+function Info ($m) { Write-Mark $Mark.Info 'Cyan' $m }
+function Ok   ($m) { Write-Mark $Mark.Ok 'Green' $m }
+function Skip ($m) { Write-Mark $Mark.Skip 'DarkGray' "$m (already present)" }
+function Warn ($m) { Write-Mark $Mark.Warn 'Yellow' $m }
+function Die  ($m) { Write-Host ''; Paint 'error:' 'Red'; Write-Host " $m"; exit 1 }
 
 function Get-Arch {
   switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -41,7 +75,7 @@ function Get-NodeMajor {
   try { return [int]((& node -e 'process.stdout.write(process.versions.node.split(".")[0])') 2>$null) } catch { return 0 }
 }
 
-# PATH is set for the USER, not the machine — no elevation, and it survives reboots.
+# PATH is set for the USER, not the machine -- no elevation, and it survives reboots.
 function Add-UserPath ($dir) {
   $current = [Environment]::GetEnvironmentVariable('Path', 'User')
   if ($current -and ($current -split ';' | Where-Object { $_ -eq $dir })) {
@@ -62,20 +96,22 @@ function Install-Node ($arch) {
     Skip "Node $(& node -v) (installed here previously)"
     return
   }
-  if ($have -gt 0) { Warn "Node v$have is installed and too old — leaving it alone and installing Node $NodeMajor alongside it" }
+  if ($have -gt 0) { Warn "Node v$have is installed and too old $Dash leaving it alone and installing Node $NodeMajor alongside it" }
 
-  Step "Downloading Node $NodeMajor for win-$arch"
+  Step "Installing Node $NodeMajor for win-$arch"
+  Info "asking nodejs.org which version is current"
   $listing = (Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/latest-v$NodeMajor.x/").Content
   $m = [regex]::Match($listing, "node-v$NodeMajor\.[0-9.]+-win-$arch\.zip")
   if (-not $m.Success) { Die "no Node $NodeMajor build published for win-$arch" }
   $url = "https://nodejs.org/dist/latest-v$NodeMajor.x/$($m.Value)"
+  Info "downloading $($m.Value)"
 
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
   New-Item -ItemType Directory -Path $tmp -Force | Out-Null
   $zip = Join-Path $tmp 'node.zip'
   Invoke-WebRequest -UseBasicParsing $url -OutFile $zip
 
-  Step "Unpacking into $NodeDir"
+  Info "unpacking into $NodeDir"
   if (Test-Path $NodeDir) { Remove-Item -Recurse -Force $NodeDir }
   New-Item -ItemType Directory -Path $GovHome -Force | Out-Null
   Expand-Archive -Path $zip -DestinationPath $tmp -Force
@@ -89,12 +125,22 @@ function Install-Node ($arch) {
 }
 
 function Install-Gov {
-  Step "Installing $GovPkg"
+  Step "Installing the governance client $Dash $GovPkg"
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Die "npm did not come with Node — the install is incomplete. Delete $NodeDir and re-run."
+    Die "npm did not come with Node $Dash the install is incomplete. Delete $NodeDir and re-run."
   }
-  & npm install -g --silent $GovPkg
-  if ($LASTEXITCODE -ne 0) { Die "npm could not install $GovPkg — the output above says why" }
+  $npmArgs = @('install', '-g', '--silent')
+  if ($GovRegistry) {
+    $npmArgs += @('--registry', $GovRegistry)
+    # --registry ALONE LOSES to a `@<scope>:registry` mapping in any npmrc, for a scoped package -- and a
+    # developer's npmrc carries exactly that mapping. The scoped flag is what wins (same fix as install.sh).
+    # `$($Matches[1])`, never `$scope:` -- PowerShell would read that as a scope-qualified variable.
+    if ($GovPkg -match '^(@[^/]+)/') { $npmArgs += "--$($Matches[1]):registry=$GovRegistry" }
+    Say "    (from $GovRegistry)"
+  }
+  $npmArgs += $GovPkg
+  & npm @npmArgs
+  if ($LASTEXITCODE -ne 0) { Die "npm could not install $GovPkg $Dash the output above says why" }
   Ok "gov installed"
 }
 
@@ -102,7 +148,7 @@ $script:PathChanged = $false
 $arch = Get-Arch
 
 Say ""
-Say "gov installer - win-$arch"
+Say "gov installer $Dash win-$arch"
 Say "Nothing is installed machine-wide, and no administrator rights are needed."
 Say ""
 
@@ -132,9 +178,9 @@ function Finish {
 # installer's job is "get this machine ready", and Node plus gov is only part of
 # that. `gov doctor --fix` shows each command and waits for consent.
 #
-# PowerShell has no /dev/tty equivalent, and none is needed: `irm … | iex` runs the
+# PowerShell has no /dev/tty equivalent, and none is needed: `irm ... | iex` runs the
 # script as a command, not on stdin, so the console stays the user's. When there is
-# no console at all — CI, a provisioning run — report and name the command instead.
+# no console at all -- CI, a provisioning run -- report and name the command instead.
 #
 # doctor's exit code is discarded either way. It exits 1 on a machine with no
 # workspace yet, which is a correct report about the machine and not a verdict on

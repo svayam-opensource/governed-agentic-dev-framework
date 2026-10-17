@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The `Issues` port (SDD Part B, create-task) — read an issue's open/closed
- * state and reflect the task on GitHub (assign + board status). Under model A
+ * state and reflect the task on GitHub (assign). Board writes — Status and closing
+ * the board — moved to the WorkTrackerPort (`src/ports/work-tracker.ts`, gadf#225). Under model A
  * (SDD-012) the issue + its sub-branch ARE the task record; there is no
  * project.yaml tasks[]. Board reflection is best-effort. Shells to `gh`.
  */
@@ -18,14 +19,10 @@ export interface Issues {
   state(issueUrl: string): IssueState;
   /** Assign the issue (best-effort; no throw). */
   assign(issueUrl: string, assignee: string): void;
-  /** Set the issue's Status on the project board (best-effort; no throw). */
-  setBoardStatus(ref: BoardRef, issueUrl: string, status: string): void;
   /** Close an issue with a comment (best-effort; no throw). */
   close(issueUrl: string, comment: string): void;
   /** Resolve an issue number to its URL on the board, or null. */
   resolveIssueUrl(ref: BoardRef, issueNumber: number): string | null;
-  /** Close the project board (best-effort) — makes the project read as completed. */
-  closeBoard(ref: BoardRef): void;
   /** Create an issue, assigned. Returns its URL, or null when creation failed (#182). */
   create(repo: string, title: string, body: string, assignee: string): string | null;
   /** Read an upstream issue for mirroring (#194). Null when it cannot be read. */
@@ -40,11 +37,11 @@ export function createGhIssues(runGh: RunGh): Issues {
     create(repo, title, body, assignee) {
       try {
         // --assignee at CREATION, not after: an issue that exists unassigned, even
-        // for a moment, is the state POL-413 exists to prevent, and a failure
+        // for a moment, is the state an accountable assignee exists to prevent, and a failure
         // between the two calls would leave it that way permanently.
         const out = runGh(["issue", "create", "--repo", repo, "--title", title, "--body", body, "--assignee", assignee]);
         return out.trim().split(/\s+/).find((w) => w.startsWith("http")) ?? null;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;
       }
     },
@@ -61,7 +58,7 @@ export function createGhIssues(runGh: RunGh): Issues {
           state: j.state ?? "UNKNOWN",
           author: j.author?.login ?? null,
         };
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return null;
       }
     },
@@ -69,7 +66,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       try {
         runGh(["project", "item-add", String(board), "--owner", owner, "--url", issueUrl]);
         return true;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return false;
       }
     },
@@ -77,7 +74,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       let out: string;
       try {
         out = runGh(["issue", "view", issueUrl, "--json", "state", "-q", ".state"]);
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return "UNKNOWN";
       }
       const s = out.trim().toUpperCase();
@@ -90,17 +87,6 @@ export function createGhIssues(runGh: RunGh): Issues {
         /* best-effort — assign manually if this fails */
       }
     },
-    setBoardStatus(ref, issueUrl, status) {
-      // KNOWN LIMITATION (found in e2e): setting a Project single-select field via
-      // gh needs the item-id + project-id + field-id + option-id, not `--url/--field/
-      // --value` (which gh rejects). Proper impl: resolve those IDs, then
-      // `gh project item-edit --id … --project-id … --field-id … --single-select-option-id …`.
-      // Deferred; best-effort so it never blocks a command. Assignment + issue
-      // open/close (which actually drive the workflow) DO work.
-      void ref;
-      void issueUrl;
-      void status;
-    },
     close(issueUrl, comment) {
       try {
         runGh(["issue", "close", issueUrl, "--comment", comment]);
@@ -112,7 +98,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       let out: string;
       try {
         out = runGh(["project", "item-list", String(ref.number), "--owner", ref.owner, "--format", "json", "--limit", "200"]);
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;
       }
       try {
@@ -124,13 +110,6 @@ export function createGhIssues(runGh: RunGh): Issues {
         /* unparseable — give up */
       }
       return null;
-    },
-    closeBoard(ref) {
-      try {
-        runGh(["project", "close", String(ref.number), "--owner", ref.owner]);
-      } catch {
-        /* non-fatal — close the board manually if this fails */
-      }
     },
   };
 }

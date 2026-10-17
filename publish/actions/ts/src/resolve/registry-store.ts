@@ -41,7 +41,7 @@ export function createNodeRegistryStore(opts: RegistryStoreOptions = {}): Regist
   const readText = (file: string): string | null => {
     try {
       return fs.readFileSync(file, "utf8");
-    } catch {
+    } catch { /* absent or unreadable is the ordinary answer here, not a failure */
       return null;
     }
   };

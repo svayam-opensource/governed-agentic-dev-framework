@@ -5,17 +5,32 @@ name: adopter-e2e
 #   • smoke — HERMETIC (stub gh, no token/org/network). Runs for everyone, every
 #     PR. Exercises the real gov binary + shipped content (setup · org · validate
 #     · doctor · --gov-home).
-#   • live  — the full journey against REAL GitHub in an ephemeral runner. Runs
-#     ONLY when a maintainer has configured a throwaway sandbox: secret
-#     GOV_E2E_TOKEN (scopes: repo, workflow, project, read:org, delete_repo) +
-#     var GOV_E2E_ORG. Self-cleaning. Skips (never fails) when unset, so forks /
-#     contributors without a sandbox aren't blocked.
+#   • live  — two journeys against REAL GitHub in an ephemeral runner: the adopter journey and the rule-model
+#     journey (e2e/rule-model-journey.sh). Runs ONLY when a maintainer has configured a throwaway sandbox: secret
+#     TESTBED_BOT_PAT (scopes: repo, workflow, project, read:org, delete_repo) + var TESTBED_SANDBOX_ORG. The
+#     sandbox App (secrets GOV_E2E_APP_CLIENT_ID / GOV_E2E_APP_PRIVATE_KEY) enables the rule-model journey's
+#     code-repo assertion. Self-cleaning. When a secret is missing it FAILS on a manual dispatch and on PRs into /
+#     pushes to dev and main, naming what is missing (ruling Q2, PRJ-121 intent 05); it skips — visibly, never as
+#     green evidence — only where no gate depends on it. One-time setup: publish/actions/ts/e2e/README.md.
+#
+# GREEN IS COMPUTED: `bash publish/actions/ts/e2e/green-streak.sh <branch> [n]` reads every job of the branch's runs
+# (docs/testing-the-adopter-path.md, "What green means").
 
 on:
   # PRs: NO path filter — so the hermetic `smoke` job always runs + reports,
   # letting it be a REQUIRED status check (a path-filtered required check blocks
   # PRs that don't touch the paths, since the check never runs). It's cached + fast.
   pull_request:
+    # `labeled` IS LOAD-BEARING, and its absence made the os-tier escape hatch a no-op.
+    #
+    # The os-tier job reads `contains(github.event.pull_request.labels.*.name, 'os-tier')`, which is
+    # evaluated against the payload of the event that STARTED the run. A bare `pull_request:` means
+    # types [opened, synchronize, reopened] — so labelling an existing PR fires nothing, and the run
+    # that already exists was created when the label was not there. The job skipped whatever anyone
+    # did, and the skip looked like the ordinary "not labelled" case rather than a broken gate.
+    # Found 2026-09-21 by labelling PR #258 and watching it skip anyway. (The label did not exist in
+    # the repository either — both halves of the documented hatch were dead.)
+    types: [opened, synchronize, reopened, labeled]
   # Pushes: the LONG-LIVED branches only — a branch with an open PR is already covered
   # by `pull_request`, and firing on both ran every job twice per commit.
   push:
@@ -23,7 +38,17 @@ on:
     paths:
       - "publish/**"
       - ".github/workflows/adopter-e2e.yml"
-  workflow_dispatch: {}
+      - "packages/msi/**"
+  workflow_dispatch:
+    inputs:
+      real_model:
+        description: "rule-model journey: propose with the REAL model (gemini, GEMINI_API_KEY) instead of the stub — costs a call"
+        type: boolean
+        default: false
+      bridge:
+        description: "bridge rehearsal: run e2e/bridge-journey.sh LIVE on svayam-e2e/svm-prj-work-rehearsal (resets it to H01's snapshot first). Off: its hermetic dry run"
+        type: boolean
+        default: false
 
 # ONE RUN PER COMMIT — see the note in node-ci.yml. `github.ref` differs between the push and
 # pull_request events for the same commit, so a ref-keyed group never deduplicated them.
@@ -51,6 +76,31 @@ jobs:
       - name: Hermetic adopter smoke (no token / org / network)
         run: npm run test:adopter:smoke
 
+  # CiIdentityPort, LIVE (PRJ-121 intent 03, L04): the GitHub adapter obtains this job's OIDC token and prints its
+  # CLAIMS — never the token (e2e/ci-identity-claims.mjs). Its own job so `id-token: write` is granted here and to
+  # nothing else. A fork PR gets no id-token permission; the script then says "not available" and passes.
+  ci-identity:
+    name: CI identity claims (OIDC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: publish/actions/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Print the OIDC claims (not the token)
+        run: node e2e/ci-identity-claims.mjs gov-e2e
+
   # THE TIER THAT ANSWERS QUESTIONS. `smoke` drives the same binary and never types, so it
   # reaches only what gov exposes non-interactively — and every defect between #197 and #209
   # lived behind a prompt. Runs on the OS images an adopter actually arrives on, because a
@@ -68,9 +118,14 @@ jobs:
           - { distro: debian, image: "debian:stable-slim", install: "apt-get update -qq && apt-get install -y -qq expect git perl curl ca-certificates" }
           - { distro: fedora, image: "fedora:latest",      install: "dnf install -y -q expect git perl nodejs npm" }
     steps:
-      - uses: actions/checkout@v4
+      # Tools FIRST: these images ship no git, and actions/checkout without git falls back to a REST download —
+      # no .git, no tags. Scenario 48 builds its older template with `git archive` at the newest release tag on an
+      # older layout, so it needs a real clone with the tags (fetch-depth 0), and fails, never skips, without them.
       - name: Tools this image does not ship
         run: ${{ matrix.install }}
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # Node 24 on the images whose own repositories do not carry it. Deliberately AFTER the
       # image's own attempt, so a distro that ships it is exercised with the one it ships.
       - uses: actions/setup-node@v4
@@ -119,40 +174,374 @@ jobs:
       - name: Bare-machine journey (${{ matrix.image }})
         run: bash publish/actions/ts/e2e/os-tier.sh ${{ matrix.label }}
 
-  live:
-    name: adopter-journey (live GitHub)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  # THE WINDOWS DOOR, end to end (PRJ-121 plan 04 T16; spec 04 §4.5, ruling Q11 B). Until this job, nothing ran an
+  # agent install on Windows — the #223 blind spot: every `gov agent install` died with ENOENT because npm is a .cmd.
+  # It installs the MSI an adopter gets (built by the same script gov-cicd's msi-build.yml runs, test-signed here
+  # with a certificate made inside this job and gone with it), then uses ONLY what the MSI left: the runner's Node
+  # is stripped from PATH before the install, and every check runs in a fresh process with the PATH a new terminal
+  # would get. Nothing here needs a secret, so it runs everywhere `smoke` does.
+  windows:
+    name: windows (MSI, per-user)
+    runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # BUILD TOOLS ONLY — Node to pack gov and run the build script, WiX to make the MSI. Hidden before the install.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: use Git Bash for npm scripts
+        run: npm config set script-shell bash
+      - name: pack gov (the exact artifact)
+        id: pack
+        shell: bash
+        run: |
+          out="$(bash packages/msi/ci/pack-gov.sh "" "$RUNNER_TEMP/pkg")"
+          echo "tgz=$(echo "$out" | sed -n 1p)" >> "$GITHUB_OUTPUT"
+          echo "version=$(echo "$out" | sed -n 2p)" >> "$GITHUB_OUTPUT"
+      - name: unit tests of the MSI build (packages/msi)
+        working-directory: packages/msi
+        run: npm test
+      - name: install WiX
+        shell: pwsh
+        run: ./packages/msi/ci/setup-wix.ps1
+      - name: build the MSIs (x64 to install here; arm64 to prove it builds)
+        id: msi
+        shell: bash
+        env:
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          for arch in x64 arm64; do
+            node packages/msi/scripts/build.mjs --version "$VERSION" --arch "$arch" --out "$RUNNER_TEMP/msi" --gov-tgz "$TGZ"
+          done
+          echo "x64=$RUNNER_TEMP/msi/gov-$VERSION-x64.msi" >> "$GITHUB_OUTPUT"
+      # P1 REVISED (Policy Owner, 2026-10-14): prod ships the MSI UNSIGNED until a production certificate exists, so
+      # the bytes this job installs are the UNSIGNED build, exactly as gov-cicd's promote releases them. The test
+      # signature lives only on a separate TESTER copy (D5: named testers at uat), checked here and never installed.
+      - name: test-sign a separate TESTER copy (certificate made in this job, private key never exported)
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+        run: |
+          $dir = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'msi-tester')
+          $copy = Join-Path $dir (Split-Path $env:GOV_MSI -Leaf)
+          Copy-Item $env:GOV_MSI $copy
+          node packages/msi/scripts/sign.mjs --signer "pwsh -NoProfile -File packages/msi/ci/sign-test.ps1 {file}" "$copy"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $sig = Get-AuthenticodeSignature $copy
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch [regex]::Escape('CN=Svayam (TEST - CI only)') -or -not $sig.TimeStamperCertificate) {
+            Write-Error "tester copy: signature $($sig.Status), subject '$($sig.SignerCertificate.Subject)'"; exit 1 }
+          $orig = Get-AuthenticodeSignature $env:GOV_MSI
+          if ($orig.Status -ne 'NotSigned') { Write-Error "the released MSI must stay unsigned; it is $($orig.Status)"; exit 1 }
+          Write-Host "tester copy Valid (TEST, timestamped); released MSI NotSigned"
+      # T15: the listing gov-cicd's prod promote would send, rendered from the UNSIGNED bytes it releases. winget
+      # validates it where the runner image has winget; where it has none, the step says so (a notice), it does not
+      # pass silently.
+      - name: winget manifests for Svayam.Gov, from the unsigned MSI prod ships
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+        # MSI/winget carry CLEAN releases only; pre-releases (`@next`) are npm-only (Policy Owner, 2026-10-16). On a
+        # pre-release head the TEST MSI above is still built, test-signed and installed below; only the listing is not
+        # rendered. Ended green with a notice, not `if:` — a skipped step would break green-streak.sh's "no step skipped".
+        run: |
+          if ($env:GOV_MSI_VERSION -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Host "::notice::winget manifests not rendered: $($env:GOV_MSI_VERSION) is a pre-release — MSI/winget carry clean releases only; pre-releases are npm-only"
+            exit 0
+          }
+          $dir = node packages/msi/scripts/winget.mjs --version $env:GOV_MSI_VERSION --out "$env:RUNNER_TEMP\winget" $env:GOV_MSI | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+          $want = (Get-FileHash $env:GOV_MSI -Algorithm SHA256).Hash
+          if (-not (Select-String -Path (Join-Path $dir 'Svayam.Gov.installer.yaml') -SimpleMatch "InstallerSha256: $want" -Quiet)) { Write-Error "manifest hash is not the unsigned MSI's ($want)"; exit 1 }
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget validate --manifest $dir
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          } else { Write-Host "::notice::winget is not on this runner image: manifest checked for shape and hash only" }
+      - name: hide the runner's Node
+        shell: pwsh
+        run: |
+          # By name AND by content: the image has node.exe in folders whose names say nothing (found by this job).
+          $hasNode = { param($d) $d -match 'nodejs|\\node(\\|$)|nvm|hostedtoolcache' -or (Test-Path -LiteralPath (Join-Path $d 'node.exe')) -or (Test-Path -LiteralPath (Join-Path $d 'node.cmd')) }
+          $dirs = @($env:PATH -split ';' | Where-Object { $_ })
+          $dirs | Where-Object { & $hasNode $_ } | ForEach-Object { Write-Host "hidden: $_" }
+          $clean = ($dirs | Where-Object { -not (& $hasNode $_) }) -join ';'
+          # Not PATH itself: the runner PREPENDS every GITHUB_PATH entry (setup-node's among them) to each later step's
+          # PATH, so a PATH written here comes back with Node in front (found by this job). Each later step starts
+          # from this one instead.
+          "GOV_CLEAN_PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: prove this machine has no Node
+        shell: pwsh
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $n = Get-Command node -All -ErrorAction SilentlyContinue
+          if ($n) { $n | ForEach-Object { Write-Host "found: $($_.Source)" }; Write-Error "node is still on PATH"; exit 1 }
+          Write-Host "no node on PATH: gov has to bring its own"
+      - name: Pester 5
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: install the MSI per-user — msiexec /i /qn — and assert its shape (unsigned, as prod ships it)
+        id: install
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+          GOV_MSI_EXPECT_UNSIGNED: "1"
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'packages/msi/test/install.Tests.ps1'; $c.Filter.Tag = 'Install'
+          $c.Run.Exit = $true; $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+      - name: setup against the gh double, REAL agent install, claude via the bin\ shim
+        shell: pwsh
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          ./publish/actions/ts/e2e/windows/adopter-windows.ps1
+      - name: uninstall — app\ node\ bin\ and the PATH entry gone, ~/.gov kept
+        if: always() && steps.install.outcome != 'skipped'
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'packages/msi/test/install.Tests.ps1'; $c.Filter.Tag = 'Uninstall'
+          $c.Run.Exit = $true; $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+      # always(), not failure(): a step skipped on a green run would break green-streak.sh's "no step skipped".
+      - name: the MSI install and uninstall logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi-logs
+          path: ${{ runner.temp }}/gov-msi-*.log
+          if-no-files-found: ignore
+
+  live:
+    name: adopter + joiner + signal + rule-model journeys (live GitHub)
+    # PRs into the long-lived branches only (the project branch's PR into dev is where the sandbox run gates —
+    # rule-model-design.md "sandbox CI"); a PR between feature branches does not spend half an hour in the sandbox.
+    if: github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    # 50, not 20: the adopter journey takes ~10 minutes and the rule-model journey waits on ~10 workflow runs in
+    # the sandbox (each installs the packed gov), capped at E2E_DEADLINE_SECS=2100 (35 min) of waiting. The cap
+    # sits inside the timeout so the journey's own trap — not a killed runner — deletes its repos. 60 since the joiner
+    # journey (~5 min: install, join, work, task, merge as bot B) runs between the adopter's two phases (T15); 70 since
+    # the signal round-trip (~5 min, L09) runs after it.
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      # THE NAMES THE REPO ACTUALLY HOLDS. This job read GOV_E2E_TOKEN / GOV_E2E_ORG while the repository holds
+      # TESTBED_BOT_PAT / TESTBED_SANDBOX_ORG, so it never ran and skipped green (rule-model-design.md, "sandbox CI").
+      # Since PRJ-121 intent 05 (ruling Q2) a missing value FAILS a dispatch and a PR into / push to dev or main, naming
+      # each one; only a feature-branch push may skip, and it says so. The logic is e2e/live-guard.sh, so a test can run
+      # it with the secrets unset (test/e2e/live-gate.test.ts).
       - name: Guard — is a sandbox org + token configured?
         id: guard
         env:
-          TOK: ${{ secrets.GOV_E2E_TOKEN }}
-          ORG: ${{ vars.GOV_E2E_ORG }}
-        run: |
-          if [ -n "$TOK" ] && [ -n "$ORG" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::live adopter-journey skipped — set secret GOV_E2E_TOKEN + var GOV_E2E_ORG (a throwaway org you own) to enable."
-          fi
+          TOK: ${{ secrets.TESTBED_BOT_PAT }}
+          ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          APP_ID: ${{ secrets.GOV_E2E_APP_CLIENT_ID }}
+          APP_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
+          GEMINI: ${{ secrets.GEMINI_API_KEY }}
+          # The second identity (PRJ-121 intent 05, Item 4; Policy Owner prerequisite P1): required like the rest on
+          # a strict run — a skipped joiner journey fails a dispatch and a PR into dev/main (ruling Q2).
+          JOINER_TOK: ${{ secrets.TESTBED_JOINER_PAT }}
+          JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          REAL_MODEL: ${{ inputs.real_model && 'true' || 'false' }}
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: bash publish/actions/ts/e2e/live-guard.sh
+      # IS THE JOINER A USABLE SECOND IDENTITY? Seconds, before the adopter journey's minutes: the token authenticates,
+      # as TESTBED_JOINER_LOGIN, not as the adopter bot, and is an active org member (e2e/joiner-identity.sh). Its
+      # failure does not stop the adopter and rule-model journeys (continue-on-error); the joiner then does not run,
+      # and the verdict fails the job naming it.
+      - name: Joiner identity — a second, active svayam-e2e account?
+        id: identity
+        if: steps.guard.outputs.run == 'true' && steps.guard.outputs.joiner == 'true'
+        continue-on-error: true
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          JOINER_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          ADOPTER_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+        run: bash publish/actions/ts/e2e/joiner-identity.sh
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.run == 'true'
         with:
           node-version: "24"
+      # THE NAME npm pack PRINTS, not a glob: a tracked svayam-opensource-gov-1.2.2.tgz sits in the same folder, and
+      # `ls …-*.tgz | head -1` sorted it first — both journeys would have tested an old release, not this commit.
       - name: Build + pack gov (test the exact artifact)
+        id: pack
         if: steps.guard.outputs.run == 'true'
         working-directory: publish/actions/ts
-        run: npm ci && npm run build && npm pack
-      - name: Run adopter journey (real GitHub, self-cleaning)
+        run: |
+          npm ci && npm run build
+          echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
+      # THE ADOPTER JOURNEY IN TWO PHASES AROUND THE JOINER (PRJ-121 intent 05, Item 4 — T15). The work phase (bot A)
+      # creates the org's gov repo, board and code repo, seeds → task → merge, then opens issue #2 for bot B and grants
+      # bot B write on both repos and the board; it deletes nothing. The joiner (bot B) works in that project. The
+      # finish phase closes the project and tears down — ONE final teardown, `always()`, so the repos outlive the joiner
+      # and are deleted whatever failed. The handoff file carries names between the three steps (no token in it).
+      - name: Run adopter journey — work phase (real GitHub)
+        id: adopter
         if: steps.guard.outputs.run == 'true'
         env:
-          E2E_ORG: ${{ vars.GOV_E2E_ORG }}
-          GH_TOKEN: ${{ secrets.GOV_E2E_TOKEN }}
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_PHASE: work
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          # The login the TOKEN authenticates as (joiner-identity.sh's output), not the declared secret. When the two are
+          # equal Actions withholds the output (it matches a secret), so the secret — then known right — stands in.
+          E2E_JOINER_LOGIN: ${{ steps.identity.outcome == 'success' && (steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN) || '' }}
         run: |
           # The ephemeral runner IS the clean slate — run the journey directly
           # (node 24 + gh are present); no container needed in CI.
-          TARBALL="$(ls publish/actions/ts/svayam-opensource-gov-*.tgz | head -1)"
-          GOV_TARBALL="$PWD/$TARBALL" CONTENT_DIR="$PWD/publish/content" \
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
             bash publish/actions/ts/e2e/adopter-journey.sh
+      # Bot B, in a HOME of its own, with its own token: join → work → task → merge (e2e/joiner-journey.sh). It asserts it
+      # is a SECOND account — its login is TESTBED_JOINER_LOGIN and not bot A's — and fails loudly otherwise.
+      - name: Run joiner journey (second identity, real GitHub)
+        id: joiner
+        if: steps.guard.outputs.run == 'true' && steps.identity.outcome == 'success' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          E2E_JOINER_LOGIN: ${{ steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN }}
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
+          GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
+        run: bash publish/actions/ts/e2e/joiner-journey.sh
+      # THE SIGNAL ROUND-TRIP (PRJ-121 intent 03, L09, gadf#287): two projects seeded by bot A; bot A sends ask, depends,
+      # notice, handover, merge to the one bot B joined; bot B's `gov signal list` — its session manifest's lines —
+      # must show each as "Incoming signals", bot B answers, and bot A's Outgoing line drops it. A person sends (spec 03
+      # Q6): each send/ack runs in a pseudo-terminal and answers the confirmation. Needs the joiner's machine, so it runs
+      # only when the joiner did; before the finish phase deletes the org's gov repo.
+      - name: Run signal round-trip (two identities, real GitHub)
+        id: signal
+        if: steps.guard.outputs.run == 'true' && steps.identity.outcome == 'success' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          E2E_JOINER_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          E2E_JOINER_LOGIN: ${{ steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN }}
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
+          GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
+        run: bash publish/actions/ts/e2e/signal-journey.sh
+      - name: Run adopter journey — close + teardown (always)
+        id: finish
+        if: always() && steps.guard.outputs.run == 'true'
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_PHASE: finish
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+        run: |
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+            bash publish/actions/ts/e2e/adopter-journey.sh
+      # Its own step, run even when the adopter journey failed: the two prove different things.
+      - name: Run rule-model journey (real GitHub, self-cleaning)
+        id: rulemodel
+        if: steps.guard.outputs.run == 'true' && !cancelled()
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_APP_CLIENT_ID: ${{ secrets.GOV_E2E_APP_CLIENT_ID }}
+          E2E_APP_PRIVATE_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
+          # The real model (and its key) only on a dispatch that asks for it; every other run uses the stub.
+          E2E_REAL_MODEL: ${{ inputs.real_model && '1' || '0' }}
+          GEMINI_API_KEY: ${{ inputs.real_model && secrets.GEMINI_API_KEY || '' }}
+          E2E_DEADLINE_SECS: "2100"
+          # THE SANDBOX'S RUNNER (Policy Owner, 2026-10-17): the sandbox org's Actions spending limit is $0, so every
+          # workflow in its ephemeral repos must ask for its self-hosted runner — written as ci.runs_on in the journey's
+          # governance.yaml. A repo variable overrides the default; without a runner online the checks stay queued and
+          # the journey says so (explain_wait).
+          E2E_RUNS_ON: ${{ vars.E2E_RUNS_ON || '[self-hosted, linux, svayam-e2e]' }}
+          # Every skipped assertion is written here by name; the verdict reads it (a skip is never a silent pass).
+          E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
+        run: |
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+            bash publish/actions/ts/e2e/rule-model-journey.sh
+      # ONE VERDICT PER JOURNEY, at the job's end. The rule-model journey runs after a failed adopter journey, and on
+      # 2026-10-07 its closing "31 passed, ok" banner was the last thing the log said — a failed job that read green.
+      # e2e/live-verdict.sh names each journey's outcome and every skipped assertion (log + run summary), and fails the
+      # job when a journey did not succeed — or, on a strict run (ruling Q2), when one is incomplete.
+      - name: Live journeys — verdict
+        if: always() && steps.guard.outputs.run == 'true'
+        env:
+          # `unconfigured`: the guard found no joiner secrets — allowed only where the guard allowed it (ruling Q2).
+          JOURNEYS: >-
+            adopter:${{ steps.adopter.outcome }}
+            joiner:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.joiner.outcome || 'identity-failed') || 'unconfigured' }}
+            signal:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.signal.outcome || 'identity-failed') || 'unconfigured' }}
+            adopter-close:${{ steps.finish.outcome }}
+            rule-model:${{ steps.rulemodel.outcome }}
+          STRICT: ${{ steps.guard.outputs.strict }}
+          E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
+        run: bash publish/actions/ts/e2e/live-verdict.sh
+
+  # THE BRIDGE REHEARSAL (PRJ-121 intent 01, B09; spec 01 §4.3 step 2). bridge: deleted in D01 with the bridge.
+  #
+  # DISPATCH-ONLY. With the `bridge` input it resets the rehearsal copy (svayam-e2e/svm-prj-work-rehearsal) to H01's
+  # snapshot and runs the whole migration LIVE against it: upgrade --pr → CI green → merge → propose --all (stub model)
+  # → rules build → protect apply → check install → doctor → seed/join/work/task/merge → a gov-cicd dry run.
+  #
+  # WITHOUT the input it runs the SAME script hermetically (--dry-run: every call printed, none made) — never a skipped
+  # job or step. green-streak.sh reads every job of a dispatch and counts a skipped one as a failure (I05.1), so a
+  # job that skipped whenever nobody asked for the rehearsal would break every streak. One step decides the mode; the
+  # verdict (live-verdict.sh) names it, and the run summary says which ran.
+  bridge:
+    name: bridge rehearsal (dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # The rehearsal waits on the upgrade PR's and the policy PR's CI (each installs the packed gov), capped at
+    # E2E_DEADLINE_SECS=2700 (45 min) of waiting, inside the timeout so the script's own trap cleans up.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build + pack gov (test the exact artifact)
+        id: pack
+        working-directory: publish/actions/ts
+        run: |
+          npm ci && npm run build
+          echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
+      - name: Bridge journey (live when dispatched with bridge, else its dry run)
+        id: bridge
+        env:
+          LIVE: ${{ inputs.bridge && '1' || '0' }}
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          GOV_CICD_PACKAGE: ${{ vars.GOV_CICD_PACKAGE }}
+          E2E_DEADLINE_SECS: "2700"
+          E2E_SKIPS_FILE: ${{ runner.temp }}/bridge-skips.tsv
+          E2E_RUNS_ON: ${{ vars.E2E_RUNS_ON || '[self-hosted, linux, svayam-e2e]' }}
+        run: |
+          if [ "$LIVE" = 1 ]; then
+            # A live rehearsal needs the sandbox; missing either is a failure on a dispatch (ruling Q2), named.
+            [ -n "$E2E_ORG" ] && [ -n "$GH_TOKEN" ] || { echo "::error::bridge rehearsal: missing var:TESTBED_SANDBOX_ORG or secret:TESTBED_BOT_PAT"; exit 1; }
+            echo "### Bridge rehearsal: LIVE on $E2E_ORG/svm-prj-work-rehearsal" >> "$GITHUB_STEP_SUMMARY"
+            GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" bash publish/actions/ts/e2e/bridge-journey.sh
+          else
+            echo "### Bridge rehearsal: dry run (dispatch with \`bridge\` for the live rehearsal)" >> "$GITHUB_STEP_SUMMARY"
+            env -u GH_TOKEN -u E2E_ORG -u GOV_CICD_PACKAGE GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+              bash publish/actions/ts/e2e/bridge-journey.sh --dry-run
+          fi
+      - name: Bridge rehearsal — verdict
+        if: always()
+        env:
+          JOURNEYS: bridge:${{ steps.bridge.outcome }}
+          STRICT: "true"
+          E2E_SKIPS_FILE: ${{ runner.temp }}/bridge-skips.tsv
+        run: bash publish/actions/ts/e2e/live-verdict.sh

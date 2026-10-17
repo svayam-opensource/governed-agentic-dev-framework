@@ -16,18 +16,19 @@ const board = (repoUrls: string[] = [CODE_REPO]): Board => ({
 });
 const fsPresent = (present: boolean): FsProbe => ({ pathExists: () => present });
 
-function fakeVcs(opts: { conflict?: boolean; dirty?: boolean } = {}) {
+function fakeVcs(opts: { conflict?: boolean; dirty?: boolean; dirtyPaths?: string[] } = {}) {
   const log: string[] = [];
   const vcs: Vcs = {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h", refExists: () => false,
     lsRemoteHeads: () => [],
     // The base exists; no project branch yet — the ordinary case the preflight sees.
     lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null,
-    currentBranch: () => "BRNCH-43-governance-common-project", isAncestor: () => false, isClean: () => !opts.dirty,
+    currentBranch: () => "BRNCH-43-governance-common-project", isAncestor: () => false, isClean: () => !opts.dirty && !(opts.dirtyPaths?.length),
+    dirtyPaths: () => opts.dirtyPaths ?? (opts.dirty ? ["src/main.ts"] : []),
     remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`), worktreeRemove: () => {}, branchDelete: () => {},
     push: (r, _rm, b) => log.push(`push ${r} ${b}`), pushDelete: () => {}, clone: () => {},
-    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), setIdentity: () => {},
+    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), fetchDefault: () => "remote-sha", setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`), checkoutNew: () => {},
     mergeNoEdit: () => (opts.conflict ? "conflict" : "merged"), tag: () => {},
   };
@@ -52,6 +53,14 @@ describe("prj-work Phase 2 — sync", () => {
   it("stops on a conflict (rc=2) and refuses a dirty tree", () => {
     expect(sync({ board: board(), authorize: () => true,vcs: fakeVcs({ conflict: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, code: 2, reason: "merge-conflict" });
     expect(sync({ board: board(), authorize: () => true,vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, reason: "dirty" });
+  });
+
+  it("Q7: gov's own harness files never block a sync; a developer's file is named", () => {
+    const harness = sync({ board: board(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: ["AGENTS.md", ".cursor/rules/agent.mdc"] }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput);
+    expect(harness.ok).to.equal(true);
+    const user = sync({ board: board(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: ["AGENTS.md", "src/main.ts"] }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput);
+    expect(user).to.include({ ok: false, reason: "dirty" });
+    if (!user.ok) expect(user.message).to.equal(`Uncommitted changes in ${GOV}: src/main.ts — commit or stash first.`);
   });
 
   it("refuses off a non-project branch", () => {

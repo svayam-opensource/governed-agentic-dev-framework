@@ -1,0 +1,65 @@
+# Governed Agentic Development Framework — Organization Configuration
+#
+# Single source of truth for this organization's identity, defaults, and roles.
+# The gov-work CLI and agents read these values at runtime — no placeholder
+# substitution — so this file is the only thing that diverges from the upstream
+# framework template. Re-run `gov setup` to update; avoid editing by hand.
+
+# Full legal name of your organization
+org_name: "Svayam Infoware Private Limited"
+
+# Short display name (used in headings and prose)
+org_short_name: "Svayam"
+
+# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
+org_slug: "SVM"
+
+# Lowercase derivation of org_slug — used for filesystem paths. Auto-derived.
+org_slug_lower: "svm"
+
+# Full URL of this workspace repository. 'origin' will be set to this.
+org_repo_url: "git@github.com:Svayamtech/svm-prj-work.git"
+
+# GitHub organization or username (derived from org_repo_url)
+github_org: "Svayamtech"
+
+# Name of this workspace repository (derived from org_repo_url)
+workspace_repo: "svm-prj-work"
+
+# Default branch name for this workspace repo
+default_branch: "main"
+
+# Default base branch for code repositories (used by seed)
+default_code_branch: "dev"
+
+# Per-project workspaces are created under this path.
+agent_work_root: "~/.gov/svm/projects"
+
+
+# Policy Owner details (initial holder of all policy roles at launch)
+policy_owner_email: "policy-owner@example.invalid"
+policy_owner_github: "svayam-rkant"
+
+# Other role GitHub handles (update as roles are formally assigned)
+legal_owner_github: "svayam-rkant"
+infra_owner_github: "svayam-rkant"
+system_arch_owner_github: "svayam-rkant"
+data_arch_owner_github: "svayam-rkant"
+
+# Effective date of the policy (YYYY-MM-DD)
+policy_effective_date: "2026-05-15"
+
+# Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
+gov_account: "1000"
+
+# ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
+#    Per-user secrets/tokens go to Vault via `gov-cicd creds`, NOT here. gov-work itself needs NEITHER:
+#    it authenticates with your own git + gh. vault/oidc/jenkins/npm/docker are read by the deploy
+#    clients (gov-cicd, gov-infra) — fill them as you adopt deploy.
+services:
+  vault: "https://vault.svayamtech.com"
+  oidc: "https://security.svayamtech.com/ident/oidc"
+  oidc_client_id: "gov"
+  jenkins: "https://jenkins.svayamtech.com"
+  npm: "https://npm.svayamtech.com"
+  docker: "https://docker.svayamtech.com"

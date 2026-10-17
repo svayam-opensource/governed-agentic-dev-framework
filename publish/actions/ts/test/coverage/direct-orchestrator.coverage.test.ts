@@ -14,7 +14,7 @@ import type { Issues } from "../../src/lifecycle/issues.js";
 
 const CONFIG: TaskConfig = { githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work", remote: "origin" };
 const board: Board = { fetchProject: () => ({ id: "P", title: "T", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
-const issues: Issues = { state: () => "OPEN", assign() {}, setBoardStatus() {}, close() {}, resolveIssueUrl: () => null, closeBoard() {} };
+const issues: Issues = { state: () => "OPEN", assign() {}, close() {}, resolveIssueUrl: () => null };
 const fs: FsProbe = { pathExists: () => true };
 function vcsOn(branch: string): Vcs {
   const noop = () => {};

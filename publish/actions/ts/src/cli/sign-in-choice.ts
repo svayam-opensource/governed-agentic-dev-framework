@@ -141,3 +141,30 @@ export function afterSkip(f: SignInFacts, method: "browser-at-start" | "login-co
   }
   return lines;
 }
+
+/**
+ * What to say just before asking for the key — AFTER the person chose "paste an API key" (PRJ-121, 2026-09-22).
+ *
+ * This runs only once that choice is made: `captureAgentKey` has one caller, and it is the menu's `api-key`
+ * branch. It used to open, for an agent that signs itself in, with
+ *
+ *     IBM Bob signs in through a browser. gov cannot tell whether this machine has one …
+ *       · paste an API key now and gov will store it
+ *       · or press Enter, and sign in when IBM Bob starts
+ *
+ * — the old disclaimer the menu had already replaced (#213/#221), CONTRADICTING the menu line printed seconds
+ * earlier ("gov sees no desktop here"), and offering again the choice just made. Found on a walk.
+ *
+ * So: nothing for an agent that signs itself in — the menu has said everything. For an agent that ONLY takes a
+ * key, say where it will go, because the menu does not.
+ */
+export function apiKeyIntro(tool: string, signsInItself: boolean, envVar: string): readonly string[] {
+  if (signsInItself) return [];
+  return [
+    "",
+    `  ${tool} signs in with an API key rather than a browser.`,
+    `  gov does not know where ${tool} keeps its config, so it will not guess:`,
+    `  the key goes in your environment as ${envVar}.`,
+    "",
+  ];
+}

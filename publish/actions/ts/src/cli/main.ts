@@ -7,23 +7,36 @@
  * external tools; no bash/python. This is the integration seam; the pure router
  * (dispatch.ts) is exhaustively unit-tested.
  */
+import { LIFECYCLE_POLICY_PATH } from "../intent/lifecycle-policy.js";
+import { AGENT_SESSION_ENV } from "../signal/model.js";
+import { signalCommand } from "./signal-verb.js";
+import { repoNameFromUrl } from "../lifecycle/repo.js";
+import { projectCommand } from "./project-verb.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { execFileSync, spawnSync, spawn } from "node:child_process";
+// `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
+// goes through run-process.ts so it is logged. The two launches log themselves at the call site.
+import { spawn } from "node:child_process";
+import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
+import type { SpawnPlan } from "../win-spawn.js";
+import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
-import { log, closeLog } from "../log.js";
+import { log, closeLog, cacheLogin, cachedLogin, phase } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, INHERITED_FILES, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, selectSetupContent, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
+import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, kickoffPrompt, HEADLESS_EXEC, type AgentKind } from "./work-flow.js";
+import { autorunCommand } from "../autorun/command.js";
+import { recordStamp } from "../autorun/record.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
-import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
-import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
+import { credentialNotice, planCredentialWrites, credentialsPathFor, storedCredential, storeIsPrivate } from "./agent-credentials.js";
+import { snapshotGovernance } from "../lifecycle/governance-snapshot.js";
+import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, apiKeyIntro, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor, wrap, type Reporter } from "./format.js";
 import { desktopHint, preferCli, browserCaveat } from "./desktop.js";
@@ -36,48 +49,99 @@ import { AGENT_CATALOG, harnessFileFor, type AgentCandidate } from "./agent-cata
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
-import { parseOrgConfig } from "../config/org-config.js";
+import { loadOrgConfigText } from "../config/work-root.js";
+import { ORG_CONFIG_SCHEMA_PATH, orgConfigLoadNotes, defaultWorkRoot, parseOrgConfig } from "../config/org-config.js";
+import { GOVERNANCE_PATH, readPosture, readGovernance, frameworkOwners } from "../config/governance.js";
+import { checkCommand, renderForRepo } from "./check-verb.js";
+import { createNodeActionExecutor } from "../rules/checks/executor.js";
+import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
+import { startLoopback } from "./app-loopback.js";
+import { randomBytes } from "node:crypto";
+import { checkCommandAsync } from "./check-verb.js";
+import { packCommand } from "./pack-verb.js";
+import { createKeychain } from "../security/keychain.js";
+import { ensureCheckModule, evidenceDoctorRow, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
+import { discoverModule } from "../check-seam/loader.js";
+import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
+import { keyNameFor } from "./secret-reach.js";
+import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
+import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
+import { proposeOnPullRequest } from "./rules-propose-ci.js";
+import { openPrBranch, botIdentity } from "./pr-branch-io.js";
+import { terminalChannel } from "../rules/propose/interview.js";
+import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
+import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
+import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
+import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
+import { fsTree } from "../rules/policy-pr/tree.js";
+import type { ModelSettings } from "../rules/propose/model-settings.js";
+import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
-import { createGhBoard, type RunGh } from "../lifecycle/gh-board.js";
+import { createGhBoard, retryTransient, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
+import { createGithubBoardWriter, ghRunFrom } from "../adapters/github/work-tracker.js";
+import { builtInProviders, pickAdapter } from "../adapters/registry.js";
 import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { createGhProjects } from "../lifecycle/project-list.js";
+import { readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { runSuite } from "../governance/suite.js";
+import { policyChecks } from "./diff-check-io.js";
+import { formatDiffChecks } from "../rules/diff-check.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
-import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes, GH_SIGNED_IN_ARGS, GH_SCOPES_ARGS, wingetFailureLines, parseRegQueryPath, mergeWindowsPath } from "../maintain/fix-env.js";
+import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
-import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
-import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
+import { runUpgradeSync, runUpgradePr, fetchTemplateContent } from "../maintain/upgrade-run.js";
+import { readBuildIdentity, selectUpgradeContent, type BuildIdentity } from "../maintain/build-identity.js";
+import { contentLayoutOf, staleArtifactsIn } from "../maintain/upgrade-sync.js";
+import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
+import { coerce, formatPreferences, specFor, stringPref, type Preferences } from "../preferences.js";
+import { didYouMean, helpFor, overview } from "./help-render.js";
+import { COMMAND_SPECS } from "./help-spec.js";
+import { pickerSettingsFromPreferences } from "./project-picker.js";
+import { recogniseAccountFailure } from "./agent-account.js";
+import { loadPreferences, savePreference } from "./preferences-io.js";
+import { ensureLogin, runContext } from "./run-context.js";
+import { logsRoot, redactArgv, newRunId, stateDir as personStateDir } from "../state-paths.js";
+import { gatherGovernanceFacts, stampLines, withStamp } from "../lifecycle/governance-stamp.js";
+import { buildRulesAt } from "./rules-lifecycle.js";
+import { rulesFacts } from "./rules-verb.js";
+import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
-import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
-import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
-import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
+import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
+import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
+import { bashStdin, fetchVerifyRun, httpsFetch, scriptStepLine } from "./vendor-script.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
-import { parseArgv, flagStr } from "./args.js";
-import { route, routeOrg, type CliContext } from "./dispatch.js";
+import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
+import { firstPush, REMOTE_MOVED_HINT } from "../setup/first-push.js";
+import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
+import { parseArgv, flagStr, flagBool } from "./args.js";
+import { route, routeOrg, type CliContext, type CommandResult } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
-import { PACKAGE_NAME } from "../index.js";
+import { PACKAGE_NAME } from "../package-identity.js";
 
 /** Run a command, swallowing failures (returns undefined). */
+/** Every `git`/`gh` probe in this file. Goes through the logged runner (run-process.ts), so a slow or
+ *  surprising answer is on the record rather than on someone's screen. */
 function tryRun(cmd: string, args: string[]): string | undefined {
-  try {
-    return execFileSync(cmd, args, { encoding: "utf8" }).trim();
-  } catch {
-    return undefined;
-  }
+  return tryRunProcess(cmd, args, { pgm: "gov-work:cli:main" });
 }
+
+/** Is a tool gov's checks need on PATH? Asked once per tool per `gov check` run in GitHub Actions (check-verb.ts). */
+const toolOnPath = (tool: "git" | "gh"): boolean => okProcess(tool, ["--version"], { pgm: "gov-work:cli:check", fn: "toolOnPath" });
 
 /**
  * What GitHub says about this adopter's standing in a repo (#194): may they push,
@@ -132,16 +196,26 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     sayAll(r0.phase(`Installing ${plan.agent.tool}`));
     // SHOWN BEFORE ANYTHING RUNS, with WHERE IT COMES FROM (#201). An adopter who approved a
     // vendor can only refuse a package that is not theirs if they are told which one it is.
-    for (const s of plan.steps) say(r0.step(s.command.join(" ")));
+    for (const s of plan.steps) say(r0.step(s.script ? scriptStepLine(s.script) : s.command.join(" ")));
     if (plan.agent.install?.url) say(r0.step(`Vendor: ${plan.agent.install.url}`));
     say("");
 
     let ok = true;
     for (const s of plan.steps) {
       say(r0.step(`${s.what}…`));
+      if (s.script) {
+        // DOWNLOADED ONCE, VERIFIED, AND THOSE BYTES RUN (#205, Q16 C) — see vendor-script.ts.
+        const r = await fetchVerifyRun(s.script, {
+          fetch: httpsFetch, run: bashStdin, say,
+          ...(headless ? {} : { ask: (q: string) => ask.line(q) }),
+        });
+        if (!r.ran) { ok = false; say(r0.fail(r.message)); continue; }
+        if (r.status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
+        continue;
+      }
       const [bin, ...rest] = s.command;
-      const r = spawnSync(bin!, rest, { stdio: "inherit" });
-      if (r.status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
+      const status = runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "fix-step", meta: { step: s.what } });
+      if (status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
     }
     if (!ok) return false;
 
@@ -162,6 +236,7 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     // gathered, and "Bob Shell 2.0.2 installed" is a claim a reader can check.
     say("");
     say(r0.ok(`${plan.agent.tool}${version ? ` ${version.trim().split("\n")[0]}` : ""} installed and runnable`));
+    phase("agent-ready", "gov-work:cli:main", { agent: plan.agent.tool });   // the walk's step 5 ends (#276)
     // AND RUNNABLE AFTER GOV EXITS (#209). It ran a moment ago only because gov's own process
     // has its private Node directory on PATH. A plain login shell does not, and must not — that
     // directory is private so gov's Node never becomes the machine's Node. `install.sh` solved
@@ -218,7 +293,7 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     if (chosen === "login-command" && plan.signIn) {
       process.stdout.write(`\n  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
       const [bin, ...rest] = plan.signIn;
-      spawnSync(bin!, rest, { stdio: "inherit" });
+      runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "agent-sign-in", meta: { agent: plan.agent } });
       return true;
     }
     // TIER 2: GOV HANDLES THE KEY (#196 Q6, wired in #200, made unconditional in #213).
@@ -250,6 +325,30 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
  * ENTER IS A REAL ANSWER. Someone who has not created an account yet is told exactly how to finish,
  * naming the variable and the verb — the alternative is the dead end this replaces.
  */
+/**
+ * LOAD A STORED KEY INTO THIS PROCESS'S ENVIRONMENT — for the agent gov is about to start (Policy Owner,
+ * 2026-09-22: credentials are stored in, and loaded from, the preferences credentials file). Only when the
+ * variable is not already set: a key the person exported themselves always wins. The value is never printed;
+ * gov says only that it used the stored key, and where from. A store others can read is refused, not loaded.
+ */
+function loadStoredKey(agentId: string, tool: string, envVar: string, workRoot: string, login: string, out: NodeJS.WriteStream): boolean {
+  if (!envVar || process.env[envVar] || !workRoot || !login) return false;
+  const at = credentialsPathFor(expandHome(workRoot), login);
+  let text: string;
+  try {
+    if (!storeIsPrivate(fsSync.statSync(at).mode, process.platform)) {
+      out.write(`\n  ! gov will not load ${at} — other users on this machine can read it.\n    Fix with:  chmod 600 ${at}\n`);
+      return false;
+    }
+    text = fsSync.readFileSync(at, "utf8");
+  } catch { return false; }   // no store yet — the ordinary case, not an error
+  const key = storedCredential(text, envVar, agentId);
+  if (!key) return false;
+  process.env[envVar] = key;
+  out.write(`\n  ✓ Using the ${tool} key gov stored for you (${at}).\n`);
+  return true;
+}
+
 async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<boolean> {
   const envVar = agent.credentialEnv;
 
@@ -280,29 +379,25 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
   }
 
   const me = tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || "";
+  rememberLogin(me || null);
   const r = prjResolveGov(createNodeEnv());
   const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
     ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-  const workRoot = cfgText ? parseOrgConfig(cfgText).agentWorkRoot : "";
+  const workRoot = cfgText ? loadOrgConfigText(cfgText).agentWorkRoot : "";
   // No work root and no login means nowhere to keep the backup — say so rather than inventing a path.
   const prefsDir = workRoot && me ? path.join(expandHome(workRoot), "preferences", me) : null;
+  // A key already in the store is used, not asked for again (Policy Owner, 2026-09-22).
+  if (loadStoredKey(agent.id, agent.tool, envVar, workRoot, me, process.stdout)) return true;
   // Verified per vendor or absent. A guessed config path fails at the worst moment, silently, and
   // the same caution is already recorded for the extension ids.
   const configPath = agent.credentialFile ? expandHome(agent.credentialFile) : null;
 
   if (configPath && prefsDir) {
     for (const line of credentialNotice(agent.id, configPath, prefsDir)) process.stdout.write(`${line}\n`);
-  } else if (agent.signsInItself) {
-    // The browser is the vendor's preferred route and gov does not pretend to know whether it
-    // is available. Both ways out are named, and neither is presented as the fallback.
-    process.stdout.write(`\n  ${agent.tool} signs in through a browser. gov cannot tell whether this machine\n`);
-    process.stdout.write("  has one, and does not need to guess:\n\n");
-    process.stdout.write(`    · paste an API key now and gov will store it${agent.signupUrl ? ` — get one at ${agent.signupUrl}` : ""}\n`);
-    process.stdout.write(`    · or press Enter, and sign in when ${agent.tool} starts\n\n`);
   } else {
-    process.stdout.write(`\n  ${agent.tool} signs in with an API key rather than a browser.\n`);
-    process.stdout.write(`  gov does not know where ${agent.tool} keeps its config, so it will not guess:\n`);
-    process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
+    // The person has ALREADY chosen "paste an API key" — this is the menu's api-key branch, its only caller.
+    // No re-offer, no disclaimer; see apiKeyIntro.
+    for (const line of apiKeyIntro(agent.tool, !!agent.signsInItself, envVar)) process.stdout.write(`${line}\n`);
   }
 
   const key = await ask.secret(`  Paste the ${envVar} (hidden), or press Enter to skip: `);
@@ -325,7 +420,9 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
     return false;
   }
 
-  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "");
+  // Merged into what the backup already holds — see planCredentialWrites.
+  const existingBackup = prefsDir ? ((): string | null => { try { return fsSync.readFileSync(path.join(prefsDir, "credentials"), "utf8"); } catch { return null; } })() : null;
+  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "", envVar, existingBackup);
   let wrote = 0;
   for (const w of writes) {
     if (!w.path || w.path === "/credentials") continue;         // no destination for this half
@@ -333,6 +430,13 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
       fsSync.mkdirSync(path.dirname(w.path), { recursive: true, mode: 0o700 });
       fsSync.writeFileSync(w.path, w.contents, { mode: w.mode });
       fsSync.chmodSync(w.path, w.mode);                          // an existing file keeps its old mode otherwise
+      // WINDOWS HAS NO MODE BITS (plan 04 T11): an owner-only ACL instead, and SAID when it cannot be set.
+      if (process.platform === "win32") {
+        const acl = ownerOnlyAclArgv(w.path, process.env);
+        if (!acl || !okProcess(acl[0]!, acl.slice(1), { pgm: "gov-work:cli:main", fn: "credential-acl" })) {
+          process.stdout.write(`  ! could not limit ${w.path} to your account — other users of this PC may be able to read it.\n`);
+        }
+      }
       process.stdout.write(`  ✓ written: ${w.path}\n`);
       wrote++;
     } catch (e) {
@@ -452,6 +556,25 @@ export function linkOutcomeLines(o: LinkOutcome, cmd: string, r: Reporter): read
 
 function linkAgentIntoPath(cmd: string): LinkOutcome {
   const nodeBin = path.dirname(process.execPath);
+  // WINDOWS (plan 04 T11): a `<agent>.cmd` in gov's own bin directory — the one directory the MSI put on the user
+  // PATH (GOV_BIN_DIR, set by the launcher) — proved with `--version` before anything is claimed, as below.
+  if (process.platform === "win32") {
+    const isFile = (p: string): boolean => { try { return fsSync.statSync(p).isFile(); } catch { return false; } };
+    const wp = windowsLinkPlan({ cmd, nodeBin, env: process.env, isFile });
+    if (wp.kind !== "write") {
+      log(wp.kind === "not-ours" ? "debug" : "warn", `no wrapper written (${wp.kind})`, "gov-work:cli:main", "linkAgentIntoPath", { cmd, nodeBin });
+      return wp;
+    }
+    try {
+      fsSync.mkdirSync(wp.dir, { recursive: true });
+      fsSync.writeFileSync(wp.shim, wp.content, "utf8");
+      if (tryRun(wp.shim, ["--version"]) === undefined) {
+        fsSync.rmSync(wp.shim, { force: true });
+        return { kind: "wrapper-failed", dir: wp.dir, nodeBin };
+      }
+      return { kind: "linked", dir: wp.dir };
+    } catch { return { kind: "wrapper-failed", dir: wp.dir, nodeBin }; }
+  }
   const target = path.join(nodeBin, cmd);
   // BOTH REFUSALS, NAMED. This function returns null for two entirely different reasons and the
   // adopter sees the same nothing either way — which is how #209's guard no-opped the fix
@@ -514,6 +637,11 @@ function expandHome(p: string): string {
  * looks answered. If this is ever reached, something is asking from a place that has no
  * terminal, and a stack trace is the useful answer.
  */
+/** `work.agent.ask` for the work flow: `always` (the default) lists every approved agent; `never` picks silently. */
+function agentAskFromPreferences(prefs: Preferences): { agentAsk: "always" | "never" } {
+  return { agentAsk: stringPref(prefs, "work.agent.ask") === "never" ? "never" : "always" };
+}
+
 const neverAsks: AskFns = {
   line: () => { throw new Error("asked a question from a read-only path"); },
   secret: () => { throw new Error("asked for a secret from a read-only path"); },
@@ -534,8 +662,14 @@ function firstRunNote(agent: string): readonly string[] | null {
     // a viewer", read off Bob's own wording. It does not — on a machine with no desktop Enter
     // does nothing observable at all, which is worse than the note described and is the whole
     // reason someone sits there pressing it. Say only what was seen.
+    // THE TRUST QUESTION COMES FIRST, and the walk (PRJ-121 #11) met it unwarned. It is the person's security
+    // decision, so gov explains it and does NOT pass `--trust`. "Trust folder" is enough: the governing files
+    // are snapshotted INTO the project (governance-snapshot.ts), so nothing the protocol reads is outside it.
     return [
-      "On first run IBM Bob shows its licence screen. Press `y` to accept.",
+      "On first run IBM Bob asks \"Do you trust this folder?\" — your decision; gov does not answer it for you.",
+      "  1. Trust folder (this project) is all the session needs: the governing files are copied into it.",
+      "  Use ↑/↓ and Enter to choose. \"Don't trust\" stops Bob running the commands it suggests.",
+      "Then it shows its licence screen. Press `y` to accept.",
       "Enter appears to do nothing there — it is not the key that continues.",
     ];
   }
@@ -618,7 +752,7 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
   const quietGh = (args: readonly string[]): string | null => {
-    try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    try { return runProcess("gh", [...args], { pgm: "gov-work:cli:main" }).trim(); }
     catch { return null; }                        // a 404 while the template copies is EXPECTED, not news
   };
   const io: CreateIo = {
@@ -712,6 +846,24 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
 }
 
 /**
+ * `gov setup --ref <commit|tag|branch>` / `--from <dir>` (F21) — the same overrides `gov upgrade` takes, for the
+ * content setup seeds (and the old-layout upgrade it runs first). Both need a value; both together is ambiguous.
+ */
+export function setupContentFlags(flags: Readonly<Record<string, string | boolean>>): { flags: { from?: string; ref?: string }; argv: string[] } | { error: string } {
+  for (const f of ["ref", "from"]) {
+    if (f in flags && typeof flags[f] !== "string") return { error: `--${f} needs a value (--ref <commit|tag|branch>, --from <dir>)` };
+  }
+  const ref = flagStr(flags, "ref");
+  const fromRaw = flagStr(flags, "from");
+  if (ref !== undefined && fromRaw !== undefined) return { error: "pass --ref or --from, not both" };
+  const from = fromRaw !== undefined ? path.resolve(expandTilde(fromRaw)) : undefined;
+  return {
+    flags: { ...(ref !== undefined ? { ref } : {}), ...(from !== undefined ? { from } : {}) },
+    argv: [...(ref !== undefined ? ["--ref", ref] : []), ...(from !== undefined ? ["--from", from] : [])],
+  };
+}
+
+/**
  * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
  * (readline prompts), so bin.ts routes it here instead of through resolution.
  * Runs in cwd (the cloned framework repo), before any resolution.
@@ -727,13 +879,47 @@ export async function runSetupCommand(
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
   let createdHome: string | null = null;
+  let templateRemovedFromCreate: string[] = [];
+  // The MANIFEST of the content setup SEEDED — what the new repo is meant to contain. Never the template copy's own
+  // publish/content/MANIFEST.yaml: that is the template's default branch, which can be OLDER than this gov, and judging
+  // "stray" root entries by it deleted the framework/ and policies/ the seed had just written (svm-geneva walk,
+  // 2026-10-07 — tests could not see it, because there the template and this gov are the same tree).
+  let seededManifestText = "";   // framework root entries the clean slate removed (reported below)
   let createdSlug: string | null = null;
 
   // ONE VERB, THE ARGUMENT DECIDES (#159). A positional `<org>/<repo>` means CREATE; its absence means
   // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
+  // THE JOINER'S MACHINE PATH (PRJ-121 intent 05, Item 4, ruling Q5): `--join <github_org>/<repo>` clones that org's
+  // governance repo to ~/.gov/<slug>/gov_repo, registers and activates it — the interactive B path, asking nothing.
+  if (!("error" in parsed) && flagBool(parsed.flags, "join")) {
+    const target = flagStr(parsed.flags, "join") ?? positional[0];
+    if (!target || (typeof parsed.flags["join"] === "string" && positional.length > 0)) {
+      process.stderr.write("gov setup --join: name exactly one <github_org>/<repo> — e.g. gov setup --join acme/acme-gov\n");
+      return 2;
+    }
+    return (await runFirstRunIfNeeded(now, target)) ?? 0;
+  }
+  const setupContent = setupContentFlags("error" in parsed ? {} : parsed.flags);
+  if ("error" in setupContent) {
+    process.stderr.write(`gov setup: ${setupContent.error}\n`);
+    return 2;
+  }
   if (positional.length > 0 && !nonInteractiveFlag) {
+    // THE SEED IS THE CONTENT THIS GOV CARRIES (Policy Owner, 2026-10-07, option B): its bundle, or a source
+    // checkout's own publish/content — or, deliberately, `--ref`/`--from` (F21), checked against this build. Chosen
+    // BEFORE the repository exists, so a refusal creates nothing.
+    const seedContent = selectSetupContent(cliBuildIdentity(), setupContent.flags, (template, ref) => {
+      process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+      return fetchTemplateContent(template, ref);
+    }, { verb: "setup", line: `gov setup ${positional[0]}` });
+    if (!seedContent.ok) {
+      for (const l of seedContent.lines) process.stderr.write(`${l}\n`);
+      process.stderr.write("  Nothing was created.\n");
+      return 1;
+    }
+    try {
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
@@ -742,22 +928,17 @@ export async function runSetupCommand(
     // from publish/, so drop the inherited copies and seed from the manifest before setup configures
     // anything (#159 finding 6c, publish-folder model). Seeding here also means a brand-new workspace is
     // never "behind the CLI" — the CLI that created it did the seeding.
-    for (const d of [...PUBLISHER_ONLY_DIRS, ...INHERITED_DIRS]) {
-      const dir = path.join(created.home, d);
-      if (fsSync.existsSync(dir)) fsSync.rmSync(dir, { recursive: true, force: true });
-    }
-    // AND THE FRAMEWORK'S OWN ROOT FILES — see INHERITED_FILES for what this cost.
-    // Without this the template's AGENTS.md survived the seed (no baseline on a first seed
-    // means scaffold-prompt calls it a conflict and skips it), and codex and ibm-bob were
-    // governed by this repository's contributor notes instead of the protocol.
-    for (const f of INHERITED_FILES) {
-      const file = path.join(created.home, f);
-      if (fsSync.existsSync(file)) fsSync.rmSync(file, { force: true });
-    }
-    const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
+    // CLEAN SLATE, then seed (PRJ-121, 2026-09-22 — see cleanSlateEntries). The template copy is the whole
+    // framework repo; everything but `.git` and the seed source goes, so a framework file can reach the adopter
+    // only by being in the manifest. This replaced two hand-kept lists that had gone stale.
+    const templateRemoved = cleanSlateEntries(fsSync.readdirSync(created.home));
+    for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
+    templateRemovedFromCreate = templateRemoved;
+    seededManifestText = fsSync.readFileSync(path.join(seedContent.contentDir, "MANIFEST.yaml"), "utf8");
+    const seed = runUpgradeSync(seedContent.contentDir, created.home, { apply: true, seed: true });
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
-      process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
+      process.stderr.write(`gov setup: could not seed the content this gov was built with. The repo exists — re-run to resume.\n`);
       return 1;
     }
     // THE ORGANIZATION'S AGENT POLICY, WRITTEN BEFORE THE COMMIT (#196).
@@ -772,25 +953,15 @@ export async function runSetupCommand(
     // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
     // remove, reintroduced by an ordering mistake rather than by a decision.
     //
-    // Q10 collects the answer before anything is created, so it is available here, which is the
+    // Q12 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
-    if (pre?.agents?.length) {
-      const policy = path.join(created.home, "governance", "policies", "llm-governance.md");
-      const before = fsSync.existsSync(policy) ? fsSync.readFileSync(policy, "utf8") : null;
-      const after = before === null ? null : withApprovedAgents(before, pre.agents);
-      if (after === null) {
-        // LOUD, because a silent failure here is a governance hole: every joiner would fall
-        // back to gov's own list and nobody would know the policy had not been recorded.
-        process.stderr.write("gov setup: could not record the approved agents in governance/policies/llm-governance.md.\n");
-        process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
-      } else {
-        fsSync.writeFileSync(policy, after, "utf8");
-        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in governance/policies/llm-governance.md\n`);
-      }
-    }
+    // The org's authorized agents are recorded AFTER the workspace is configured — further down, just before
+    // the commit. Writing them here put them in a file the configure step then rewrote: gov said "recorded"
+    // and the list was not there (caught by journey 30, 2026-09-23).
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
     // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
     createdSlug = created.slug;
+    } finally { seedContent.cleanup(); }
   }
 
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
@@ -798,6 +969,9 @@ export async function runSetupCommand(
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
+  // F17: what was already changed before setup touched anything — so setup lands only what IT changed.
+  // Untrimmed: porcelain's first column is significant (" M file").
+  const statusBefore = createdHome === null ? runResult("git", ["-C", cwd, "status", "--porcelain", "-uall"], { pgm: "gov-work:cli:main", fn: "setup-land" }).stdout : "";
   const existingText = fs.readFile(path.join(cwd, "org-config.yaml"));
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
@@ -811,16 +985,19 @@ export async function runSetupCommand(
         ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
         gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
         today: now.slice(0, 10),
-        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        existing: { ...(existingText ? readExistingOrgConfig(existingText, fs.readFile(path.join(cwd, GOVERNANCE_PATH))) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
         interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
+        // ADOPTION WALK #4 + #14: on a repo setup cannot write (the old layout), the same `gov upgrade --apply` a
+        // person would type, on THIS repository — run before the first question, never after an answer.
+        upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd, ...setupContent.argv], now),
         setOriginRemote: (url) => {
           try {
-            execFileSync("git", ["-C", cwd, "remote", "set-url", "origin", url], { stdio: "ignore" });
+            runProcess("git", ["-C", cwd, "remote", "set-url", "origin", url], { pgm: "gov-work:cli:main" });
           } catch {
             try {
-              execFileSync("git", ["-C", cwd, "remote", "add", "origin", url], { stdio: "ignore" });
+              runProcess("git", ["-C", cwd, "remote", "add", "origin", url], { pgm: "gov-work:cli:main" });
             } catch {
               /* leave remote as-is */
             }
@@ -838,7 +1015,7 @@ export async function runSetupCommand(
     // is gone.
     if (createdHome !== null && rc === 0) {
       const env = createNodeEnv();
-      const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p) };
+      const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) };
       const cfg = env.govConfigAt(createdHome);
       const manifest: ManifestLine[] = [{ what: "Created", detail: `${createdHome} (from the framework template)` }];
       let activeNote = "";
@@ -857,6 +1034,11 @@ export async function runSetupCommand(
           activeNote = `active org left as '${priorActive}' — switch when you want it:  gov org use ${cfg.org}`;
         }
         manifest.push({ what: "Registered", detail: `${cfg.org} → ${createdHome}${activeNote ? "" : " (active)"}` });
+        // YOUR PREFERENCES FILE, at the moment the org becomes yours (Policy Owner, 2026-09-22: "created by the
+        // install / org creation process"). It arrives with gov's defaults, so nothing must be decided now; the
+        // person is simply told it exists, which is how they learn there is one place to change these things.
+        const madePrefs = loadPreferences();
+        if (madePrefs.file) manifest.push({ what: "Preferences", detail: `${madePrefs.file} (gov's defaults — \`gov preferences\`)` });
       }
 
       // PRUNE publisher scaffolding (6c), then COMMIT AND PUSH (6b) — neither is an optional decision the
@@ -867,10 +1049,12 @@ export async function runSetupCommand(
       // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
       // finds <ORG_NAME> in is the first impression this whole change exists to fix.
       const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
-      // From the FILE, not from parseOrgConfig: that interface carries only the keys
-      // gov-work reads, so the owner handles and the effective date had no values and
-      // survived into the adopter's policy documents (#193).
-      const values = tokenValuesFromOrgConfig(cfgText);
+      const govPath = path.join(createdHome, GOVERNANCE_PATH);
+      const govText = fsSync.existsSync(govPath) ? fsSync.readFileSync(govPath, "utf8") : null;
+      // From the FILES, not from parseOrgConfig: that interface carries only the keys gov-work reads, so the owner
+      // handles and the effective date had no values and survived into the adopter's policy documents (#193). Since
+      // the org-config split the governance values come from policies/governance.yaml (setupTokenValues).
+      const values = setupTokenValues(cfgText, govText, now.slice(0, 10));
       const leftovers = new Map<string, string>();     // token → first file it survived in
       let swept = 0;
       const sweepDir = (dir: string): void => {
@@ -902,7 +1086,9 @@ export async function runSetupCommand(
       //
       // Root FILES only, never a recursive root sweep: `publish/` must stay untouched — it is
       // the copy source — and the directories are handled just above.
-      const SWEEP_DIRS = [...INHERITED_DIRS, "governance"];
+      // `policies/` too: the org's seed-once documents carry org tokens — and the role list's handles
+      // (policies/common/authorized-representatives.md §4) are filled from the answers setup just wrote.
+      const SWEEP_DIRS = [...INHERITED_DIRS, "governance", "policies"];
       for (const d of SWEEP_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
       for (const e of fsSync.readdirSync(createdHome, { withFileTypes: true })) {
         if (e.isDirectory()) continue;
@@ -918,17 +1104,15 @@ export async function runSetupCommand(
       }
       manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${SWEEP_DIRS.join("/ ")}/ and the root files (publish/ untouched)` });
 
-      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts for why
-      // it is no longer shipped, and for the deviation from Decision 13's letter (handles must
-      // stay in org-config.yaml, because the policy is scaffold-auto and would overwrite them).
-      // `tokenValuesFromOrgConfig` keys by TOKEN (`POLICY_OWNER_GITHUB`), not by config key —
-      // passing it straight in made every handle undefined, so `renderCodeowners` returned null
-      // and setup aborted with "names no policy_owner_github" on a config that named one.
-      const handles = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
-      const owners = renderCodeowners(handles);
+      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts. The Policy and Check
+      // Owners come from policies/governance.yaml; every other role from the role list the sweep above just filled
+      // in (policies/common/authorized-representatives.md).
+      const roleListFile = path.join(createdHome, ROLE_LIST_PATH);
+      const orgRoles = resolveRoles(fsSync.existsSync(roleListFile) ? fsSync.readFileSync(roleListFile, "utf8") : null);
+      const owners = renderCodeowners(frameworkOwners(readGovernance(createdHome)), orgRoles.roles);
       if (owners === null) {
-        process.stderr.write("gov setup: org-config.yaml names no policy_owner_github, so CODEOWNERS\n");
-        process.stderr.write("  cannot be generated and governance/ would be unprotected. Set it, then re-run.\n");
+        process.stderr.write(`gov setup: ${GOVERNANCE_PATH} names no Policy Owner (policy_owner.github), so CODEOWNERS\n`);
+        process.stderr.write("  cannot be generated and nothing would route to an approver. Set it, then re-run.\n");
         return 1;
       }
       const leftInOwners = unresolvedTokens(owners.text);
@@ -941,9 +1125,12 @@ export async function runSetupCommand(
       fsSync.writeFileSync(path.join(createdHome, "CODEOWNERS"), owners.text, "utf8");
       manifest.push({
         what: "Generated",
-        detail: owners.unheld.length
-          ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
-          : `CODEOWNERS — every role held`,
+        detail: [
+          owners.vacant.length
+            ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.vacant.join(", ")} (the Policy Owner approves their folders)`
+            : `CODEOWNERS — every role held`,
+          ...(owners.escalated.length ? [`vacant, so the Policy Owner approves instead: ${owners.escalated.join(", ")}`] : []),
+        ].join("; "),
       });
       // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
       // tell you where to look, which is the only part that lets anyone act.
@@ -953,26 +1140,101 @@ export async function runSetupCommand(
           detail: `unresolved: ${[...leftovers].map(([t2, f]) => `${t2} (${f})`).join(", ")} — tell gov-work; these should not reach an adopter`,
         });
       }
-      const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
-      const manifestText = fsSync.existsSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"))
-        ? fsSync.readFileSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"), "utf8")
-        : null;
-      const expected = expectedDirs(manifestText);
-      const unexpected = left.filter((d) => !expected.includes(d));
-      if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
+      // ONLY WHAT THE MANIFEST PRODUCED IS COMMITTED — `publish/`, the seed's source, included in what goes.
+      // This used to print "unexpected directories kept: … — tell gov-work" and keep them: svm-geneva-gov
+      // got the framework's site/ and 436 files of publish/ that way.
+      const manifestText = seededManifestText;
+      const stray = manifestText ? strayRootEntries(fsSync.readdirSync(createdHome), manifestText) : [];
+      for (const e of stray) fsSync.rmSync(path.join(createdHome, e), { recursive: true, force: true });
+      const dropped = [...new Set([...templateRemovedFromCreate, ...stray])].sort();
+      if (dropped.length) manifest.push({ what: "Removed", detail: `the framework's own files from the template copy: ${dropped.join(" ")}` });
 
-      const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
+      const git = (...a: string[]): boolean => okProcess("git", ["-C", createdHome, ...a], { pgm: "gov-work:cli:main" });
+      // THE ORG'S AUTHORIZED AGENTS, in policies/governance.yaml, once the file is FINAL (Policy Owner, 2026-09-23;
+      // governance.yaml since the org-config split). This is the last point before the commit, which is what makes it
+      // the right one: the configure step has written governance.yaml, and nothing else will.
+      //
+      // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
+      // `pre?.agents?.length`, so an organization that chose "none" at Q12 had its decision
+      // silently dropped: the key never appeared, `readAuthorizedAgents` said "unset", and every
+      // joiner was governed by gov's own list — which is precisely the unowned state the question
+      // exists to remove, reached by answering it. `withAuthorizedAgents` writes
+      // `authorized_agents: none` for an empty list, so the decision survives the commit.
+      if (pre?.agents) {
+        const cfgPath = path.join(createdHome, GOVERNANCE_PATH);
+        const before = fsSync.existsSync(cfgPath) ? fsSync.readFileSync(cfgPath, "utf8") : null;
+        const after = before === null ? null : withAuthorizedAgents(before, pre.agents);
+        if (after === null) {
+          // LOUD: a silent failure here is a governance hole — every joiner would fall back to gov's own list
+          // and nobody would know the org's choice had not been recorded.
+          process.stderr.write(`gov setup: could not record the authorized agents in ${GOVERNANCE_PATH}.\n`);
+          process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
+        } else {
+          fsSync.writeFileSync(cfgPath, after, "utf8");
+          manifest.push({
+            what: "Agents",
+            detail: pre.agents.length
+              ? `recorded ${pre.agents.length} authorized agent(s) in ${GOVERNANCE_PATH}`
+              : `recorded \`authorized_agents: none\` in ${GOVERNANCE_PATH} — this organization runs no AI agents`,
+          });
+        }
+      }
+
+      // ── COMPILE THE POLICIES INTO THE HARNESS, BEFORE THE COMMIT (design §7, PRJ-121, 2026-09-28) ─────────
+      //
+      // THE ADOPTER'S FIRST COPY. Everything above this line put the organization's policy documents on disk;
+      // this is what turns the rule stores into the nine files every approved agent actually reads, plus the rule map. An
+      // adopter must never have to know `gov rules build` exists for their own policy to reach their agents —
+      // and until this ran here, they did: the verb was implemented and called by nothing.
+      //
+      // HERE AND NOT EARLIER. The token sweep above resolves `<ORG_NAME>` and the rest inside `framework/
+      // policies/` and `policies/`; compiling before it would render `<ORG_NAME>` verbatim into all nine files,
+      // which is the exact defect Decision 7 fixed for the mirrored harness. HERE AND NOT LATER: the next lines
+      // commit and push, and generated files that miss that commit are generated files nobody has.
+      //
+      // FROM THE WORKING TREE, deliberately. The seeded policies are not on any branch yet — a default-branch
+      // read would compile the template's own un-substituted documents instead, and the adopter's first harness
+      // would be rendered from text that is not their policy. See `rules-lifecycle.ts` for the full account.
+      //
+      // NO MARKER at setup: there is no running session to invalidate, and a workspace whose first `gov task`
+      // refuses would read as gov being broken on first contact.
+      const compiled = buildRulesAt({ fs }, { home: createdHome, defaultBranch: "", workingTree: true }, "setup");
+      manifest.push({
+        what: compiled.skipped ? "Rules" : compiled.failed ? "⚠ Rules" : "Compiled",
+        detail: compiled.skipped
+          ? "no rule store to render — your agents read the session protocol only, until the framework's rules are installed"
+          : compiled.failed
+            ? `the harness was NOT rendered from your rules — every agent would read the framework's shipped copy. ${compiled.lines.join(" ").trim()}`
+            : `the nine agent files + the rule map, from the rule stores (rules ${compiled.hash})`,
+      });
+
       git("add", "-A");
       const committed = git("commit", "-m", "configure the framework for this org");
-      const pushed = committed && git("push", "-u", "origin", "HEAD");
-      manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
+      // FETCH BEFORE THE FIRST PUSH, NEVER FORCE (gadf#180). A remote that moved while setup ran stops here with
+      // the pull hint; the bare push it replaced failed and told the adopter to run the same push again.
+      const push = committed
+        ? firstPush((a) => runResult("git", a, { pgm: "gov-work:cli:main", fn: "setup-first-push" }), createdHome)
+        : null;
+      manifest.push({
+        what: push?.kind === "remote-moved" ? "⚠ Committed" : "Committed",
+        detail: !committed ? "nothing to commit"
+          : push?.kind === "pushed" ? "and pushed to the default branch"
+          : `locally only — ${push?.message ?? "push failed, run: git push"}`,
+      });
+      const remoteMoved = push?.kind === "remote-moved";
 
       for (const line of renderManifest(manifest, [
-        "governance/policies/org-ai-agent-governance-policy.md   — make the policy yours",
+        "framework/ — the framework's, replaced on upgrade   ·   policies/ — yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
       ])) process.stdout.write(`${line}\n`);
+      // STOP, rather than close as though the org were set up: its configuration exists only in this clone.
+      if (remoteMoved) {
+        process.stderr.write(`gov setup: nothing was pushed — ${REMOTE_MOVED_HINT}.\n`);
+        process.stderr.write(`  Your commit is kept in ${createdHome}; gov never force-pushes over someone else's commits.\n`);
+        return 1;
+      }
 
       // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
       // answered was abstract — a name, a slug, a branch — and this is the only place
@@ -988,10 +1250,31 @@ export async function runSetupCommand(
           // A REAL URL, not the `#org-config.yaml` fragment the design sketch used:
           // a fragment on a repo page scrolls nowhere. This one opens the file.
           configUrl: `${base}/blob/${written.defaultBranch || "main"}/org-config.yaml`,
-          projectsPath: written.agentWorkRoot || path.join(os.homedir(), ".gov"),
+          projectsPath: defaultWorkRoot(written.orgSlug ?? "") || path.join(os.homedir(), ".gov"),
         })) process.stdout.write(`${line}\n`);
+        phase("adopt-done", "gov-work:cli:main", { org: pOrg ?? null });     // "what now exists": the walk's step 4 ends (#276)
       }
     }
+    // CONFIGURE-IN-PLACE ENDS WITH ITS CHANGES LANDED THE GOVERNED WAY (F17 + F20). CODEOWNERS follows the owners setup
+    // just wrote, in the same change; then a branch and a pull request — never the default branch with uncommitted
+    // governance changes and no word about them.
+    if (createdHome === null && rc === 0) {
+      for (const line of finishInPlace(cwd)) process.stdout.write(`${line}\n`);
+      const written = loadOrgConfigText(fs.readFile(path.join(cwd, "org-config.yaml")) ?? "");
+      const landed = await landSetupChanges({
+        git: (args) => { const r = runResult("git", ["-C", cwd, ...args], { pgm: "gov-work:cli:main", fn: "setup-land" }); return r.status === 0 ? r.stdout : null; },
+        gh: (args) => { const r = runResult("gh", [...args], { pgm: "gov-work:cli:main", fn: "setup-land", cwd }); return r.status === 0 ? r.stdout : null; },
+        print: (l) => process.stdout.write(`${l}\n`),
+        ...(!nonInteractiveFlag && process.stdin.isTTY ? { prompt: ask } : {}),
+      }, {
+        defaultBranch: written.defaultBranch || "main",
+        today: now.slice(0, 10),
+        before: statusBefore,
+        setupPaths: ["org-config.yaml", GOVERNANCE_PATH, "CODEOWNERS", ROLE_LIST_PATH],
+      });
+      if (landed !== 0) return landed;
+    }
+    if (rc === 0) process.stdout.write("\nNext: run `gov app setup` so checks in your code repos can read the governance rules.\n");
     return rc;
   } finally {
     rl.close();
@@ -1005,7 +1288,11 @@ export async function runSetupCommand(
  * Everything interesting lives in bootstrap.ts, which knows nothing about git, disks or terminals. This
  * function is the part that cannot be unit-tested, so it is kept to plumbing with no decisions in it.
  */
-export async function runFirstRunIfNeeded(now: string = new Date().toISOString()): Promise<number | null> {
+export async function runFirstRunIfNeeded(
+  now: string = new Date().toISOString(),
+  /** `gov setup --join <github_org>/<repo>`: join THAT org without a terminal, whatever is registered (Q5). */
+  joinTarget?: string,
+): Promise<number | null> {
   const store = createNodeRegistryStore();
   const homes = store.readHomes();
   const facts = {
@@ -1014,8 +1301,8 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     interactive: process.stdin.isTTY === true,
   };
   // The common path: decided from the registry alone, before a readline interface is opened.
-  if (facts.active && facts.orgs.includes(facts.active)) return null;
-  if (facts.orgs.length === 1) return null;
+  if (joinTarget === undefined && facts.active && facts.orgs.includes(facts.active)) return null;
+  if (joinTarget === undefined && facts.orgs.length === 1) return null;
 
   const env = createNodeEnv();
 
@@ -1046,7 +1333,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     const cfg = env.govConfigAt(repoDir);
     if (!cfg) return null;
     const text = fsSync.readFileSync(path.join(repoDir, "org-config.yaml"), "utf8");
-    const slug = parseOrgConfig(text).orgSlug;
+    const slug = loadOrgConfigText(text).orgSlug;
     return slug ? { org: cfg.org, orgSlug: slug } : null;
   };
   const io: FirstRunIo = {
@@ -1056,16 +1343,16 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     prompt: ask,
     print: (l) => process.stderr.write(`${l}\n`),
     tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
-    clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    clone: (url, dest) => { runProcess("git", ["clone", url, dest], { pgm: "gov-work:cli:main", fn: "clone", meta: { dest } }); },
     // For a repo GOV found (#197). `gh` resolves the protocol and carries the token, so a private
     // governance repo clones on a machine whose only credential is `gh auth login` — the same call
     // `gov setup` makes for the repo it creates.
-    cloneRepo: (nameWithOwner, dest) => { execFileSync("gh", ["repo", "clone", nameWithOwner, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    cloneRepo: (nameWithOwner, dest) => { runProcess("gh", ["repo", "clone", nameWithOwner, dest], { pgm: "gov-work:cli:main", fn: "cloneRepo", meta: { repo: nameWithOwner } }); },
     // Asked before the adopter's remaining questions, so a joiner is never made to answer them
     // (#197). Unverified is NOT "clear": it reports exactly that, and the flow says nothing.
     probeGovernance: (org) => {
       const probeIo: CreateIo = {
-        gh: (args) => { try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } },
+        gh: (args) => { try { return runProcess("gh", [...args], { pgm: "gov-work:cli:main" }).trim(); } catch { return null; } },
         home: os.homedir(),
         exists: (p) => fsSync.existsSync(p),
         print: () => { /* the caller does the talking */ },
@@ -1083,16 +1370,16 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // already know the name of.
     finalStatus: (role) => {
       const r = prjResolveGov(createNodeEnv());
-      const policyPath = r.ok ? path.join(r.home, "governance", "policies", "llm-governance.md") : null;
+      const policyPath = r.ok ? path.join(r.home, GOVERNANCE_PATH) : null;
       const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
       const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-      const c = cfgText ? parseOrgConfig(cfgText) : null;
+      const c = cfgText ? loadOrgConfigText(cfgText) : null;
       const gitCfg2 = (k: string): string | null => tryRun("git", ["config", "--global", "--get", k]) ?? null;
       return finalStatus(checklist({
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: true,
         gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
         workspaceResolves: r.ok,
@@ -1103,7 +1390,9 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         // "create the governance repository", "choose which agents this org allows" — against their
         // own name, as things they had failed to do rather than things not theirs to do.
         role,
-        approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
+        approvedAgents: (parseAuthorizedAgents(policy) ?? []).map((a) => a.id),
+        // ANSWERED IS THE QUESTION, not "answered with at least one" — `none` ticks 8b too.
+        agentsChosen: readAuthorizedAgents(policy).kind !== "unset",
       }), stdoutColor());
     },
     adopterNextSteps: () => {
@@ -1112,21 +1401,37 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
-      const c = parseOrgConfig(text);
+      const c = loadOrgConfigText(text);
       return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
-    joinerNextSteps: () => {
+    joinerNextSteps: (currency) => {
       const r = prjResolveGov(createNodeEnv());
       if (!r.ok) return [];
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
-      const c = parseOrgConfig(text);
-      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
+      const c = loadOrgConfigText(text);
+      // F15: only the paths this repository has, and no "start working" when it cannot be started in.
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor(), {
+        exists: (rel) => fsSync.existsSync(path.join(r.home, rel)),
+        ...(currency ? { canStartWork: currency.canStartWork } : {}),
+      });
     },
+    // F15: the cloned repository against this gov — its layout and its content VERSION.
+    frameworkCurrency: (home) => assessFrameworkCurrency(
+      (rel) => fsSync.existsSync(path.join(home, rel)),
+      fsSync.existsSync(path.join(home, "VERSION")) ? fsSync.readFileSync(path.join(home, "VERSION"), "utf8") : null,
+      readCliVersion(),
+    ),
+    policyOwner: (home) => {
+      const read = (rel: string): string | null => (fsSync.existsSync(path.join(home, rel)) ? fsSync.readFileSync(path.join(home, rel), "utf8") : null);
+      return policyOwnerFacts(read(GOVERNANCE_PATH), read("org-config.yaml"), tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null);
+    },
+    // The same `gov upgrade --pr` the Policy Owner would type, on the repository just cloned.
+    openUpgradePr: (home) => main(["upgrade", "--pr", "--gov-home", home], now),
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
-    // one, which is what decides whether Q10 is asked; it is not a second writer.
+    // one, which is what decides whether Q12 is asked; it is not a second writer.
     recordsApprovals: true,
     createStarterProject: () => {
       // Reads the terminal directly rather than through `ask`, because this hook is
@@ -1134,7 +1439,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       // question.
       const askHere = (q: string): string => {
         try {
-          const fd = fsSync.openSync("/dev/tty", "r");
+          const fd = fsSync.openSync(ttyDevice(process.platform), "r");   // CONIN$ on Windows (plan 04 T11)
           try {
             process.stdout.write(q);
             const buf = Buffer.alloc(64);
@@ -1166,21 +1471,22 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
           ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
         if (!text) return null;
-        const c = parseOrgConfig(text);
+        const c = loadOrgConfigText(text);
         return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
       })();
       if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
 
-      const spec = starterProject(cfg.org, cfg.repo);
-      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
-        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
-      const issues = createGhIssues((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
-      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
-      if (boardUrl && issueUrl) {
-        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
-        if (n) issues.addToBoard(cfg.org, n, issueUrl);
-      }
-      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+      // REUSED WHEN ONE IS OPEN (adoption walk #5): every run used to make another — the walk found 17.
+      const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+      const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+      const outcome = ensureStarterProject({
+        listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
+        createBoard: (owner, title) => tryRun("gh", ["project", "create", "--owner", owner, "--title", title, "--format", "json"])
+          ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null,
+        createIssue: (repo, title, body) => issues.create(repo, title, body, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")),
+        addToBoard: (owner, n, url) => { issues.addToBoard(owner, n, url); },
+      }, cfg.org, cfg.repo);
+      return ["", "Starter project:", ...starterSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
     // `gov` -> 1. Work -> pick the review project, reached from the question that
@@ -1203,7 +1509,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       try {
         return await runWorkFlow(
           { ...workDeps, prompt: ask2, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl2, ask2) },
-          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
+          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true, ...agentAskFromPreferences(loadPreferences().prefs) },
         );
       } finally { rl2.close(); }
     },
@@ -1226,18 +1532,18 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       today: now.slice(0, 10),
     }),
     register: (org, home) => {
-      const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
+      const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) };
       const added = orgAdd(deps, org, home);
       if (!added.ok) return { ok: false, message: added.message };
       const used = orgUse(deps, org);
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
     activate: (org) => {
-      const used = orgUse({ store, govConfigAt: (p: string) => env.govConfigAt(p) }, org);
+      const used = orgUse({ store, govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) }, org);
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
   };
-  return await runFirstRun(io);
+  return joinTarget === undefined ? await runFirstRun(io) : await joinNamed(io, joinTarget);
 }
 
 /** Read the CLI's own version from its package.json. Walks up from this module
@@ -1262,6 +1568,24 @@ export function readCliVersion(): string {
   return "?";
 }
 
+/**
+ * THIS gov's build identity (maintain/build-identity.ts): the package root found by walking up from this module,
+ * read as a build when running from `lib/`, as a source checkout when running from `src/` (tsx).
+ */
+export function cliBuildIdentity(): BuildIdentity | null {
+  const moduleDir = fileURLToPath(new URL(".", import.meta.url));
+  const fs = createNodeFs();
+  for (let dir = moduleDir, i = 0; i < 6; i++) {
+    const raw = fs.readFile(path.join(dir, "package.json"));
+    try { if (raw && (JSON.parse(raw) as { name?: string }).name === PACKAGE_NAME) return readBuildIdentity(dir, { built: !moduleDir.includes(`${path.sep}src${path.sep}`) }); }
+    catch { /* not ours — keep walking */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 /** Gather the best-effort banner context for the interactive menu (all optional). */
 export async function gatherMenuContext(): Promise<MenuContext> {
   const fs = createNodeFs();
@@ -1277,7 +1601,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
     mode = "governed";
     const cfg = fs.readFile(path.join(resolve.home, "org-config.yaml"));
     if (cfg) {
-      const c = parseOrgConfig(cfg);
+      const c = loadOrgConfigText(cfg);
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
@@ -1292,6 +1616,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
     if (seg) { mode = "project"; project = seg; }
   }
   const user = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? undefined;
+  rememberLogin(tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || null);
   let workspaceCount: number | undefined;
   try {
     workspaceCount = createNodeRegistryStore().readHomes().length;
@@ -1320,13 +1645,13 @@ export async function gatherMenuContext(): Promise<MenuContext> {
 function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0], "ask"> | null {
   const fs = createNodeFs();
   const env = createNodeEnv();
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const runGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:main", fn: "gh" }));
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
   const cfgPath = path.join(resolved.home, "org-config.yaml");
   const cfgText = fs.readFile(cfgPath);
   if (!cfgText) return null;
-  const config = parseOrgConfig(cfgText);
+  const config = loadOrgConfigText(cfgText);
   // The fork question's two halves: what seed proposed, and how to record it. The
   // ASKING belongs to runWorkFlow, which owns the terminal (#194).
   const pendingRepoOverridesFn = (): readonly { readonly from: string; readonly to: string }[] => pendingRepoOverrides;
@@ -1339,7 +1664,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     pendingRepoOverrides = [];
     return true;
   };
+  setEvidenceFor(resolved.home, config.githubOrg);
+  // The quiet evidence notice under the session manifest (spec 02 A19): the subscription decides (D6) — whenever the
+  // paid module is not installed here. File look-ups only.
+  const evidenceNotice = (): string | null =>
+    !discoverModule({ env: process.env }) ? noticeOnce("manifest", process.env) : null;
   return {
+    evidenceNotice,
     projects: createGhProjects(runGh),
     anchor: createGhAnchor(runGh),
     fs,
@@ -1348,25 +1679,42 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // set (presence only — never the value), and what this org has approved.
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"))),
-    // The person's own choice, from the lowest knowledge layer (C03). Read every
-    // time, and validated against the org's list at launch — not at write time.
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(resolved.home, GOVERNANCE_PATH))),
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
     installAgent: async (id: string, ask: AskFns) => {
-      const policy = fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"));
-      const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+      const policy = fs.readFile(path.join(resolved.home, GOVERNANCE_PATH));
+      const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
       return await performAgentInstallReal(plan, ask);
     },
-    agentPreference: () => {
-      const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
-      return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
-    },
+    // THE GOVERNING FILES, COPIED FROM THE DEFAULT BRANCH INTO THE PROJECT (PRJ-121, 2026-09-22) — so an agent that
+    // sandboxes its reads to the project folder can read them. See lifecycle/governance-snapshot.ts.
+    snapshotGovernance: (projectDir: string) => snapshotGovernance({
+      git: (args) => tryRunProcess("git", [...args], { pgm: "gov-work:cli:main", fn: "snapshot-git" }) ?? null,
+      write: (file, content, mode) => {
+        fsSync.mkdirSync(path.dirname(file), { recursive: true });
+        // Last launch's copy is read-only (0444): make it writable, replace it, then set the mode again.
+        try { fsSync.chmodSync(file, 0o644); } catch { /* not there yet */ }
+        fsSync.writeFileSync(file, content, "utf8");
+        fsSync.chmodSync(file, mode);
+      },
+      now: () => new Date(),
+    }, projectDir, config.workspaceRepo, config.defaultBranch || "main"),
     applyRepoOverrides,
-    // govHome is the default-branch clone — POL-086a requires governance be read from there,
+    // F16: a governance repository on an older framework layout cannot seed a project — checked before one is offered.
+    seedBlocked: () => {
+      const home = resolved.home;
+      const c = assessFrameworkCurrency((rel) => fsSync.existsSync(path.join(home, rel)), null, readCliVersion());
+      if (c.canStartWork) return null;
+      const owner = policyOwnerFacts(fs.readFile(path.join(home, GOVERNANCE_PATH)), cfgText, me);
+      return cannotStartWorkLines(c.gaps, owner);
+    },
+    // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
-    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home },
+    config: { orgName: config.orgName || undefined, githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },
+    // The harness mirror reads the default branch through this (GOV-FRM-456).
+    git: (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null,
     me,
     canWriteBoard: (n) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
@@ -1390,6 +1738,10 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // Only agents gov claims to govern are gated: `harnessFileFor` returning null means gov
       // never promised anything for that target (`--agent shell`, chatgpt-web), and the loud
       // "nothing governs its session yet" further down is the honest answer there.
+      // THE SESSION IS AN AGENT'S (plan 03 L07, Q6): everything it starts inherits the marker, so `gov signal` run
+      // from inside the agent refuses to send and points at a draft instead. Set on gov's own environment because the
+      // agent's spawn inherits it, and gov exits when the agent does.
+      process.env[AGENT_SESSION_ENV] = agent;
       const gate = harnessFileFor(agent);
       if (gate) {
         const v = verifyAgentContext(fs, cwd, gate);
@@ -1412,6 +1764,35 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write("  from your governance repo. To take the current protocol:  gov upgrade\n");
         }
       }
+
+      // ── A GOV-LAUNCHED SESSION CLEARS `rules-pending` (design §8) ────────────────────────────────────────
+      //
+      // THE ONE CLEARING AN AGENT CANNOT PERFORM. `ensureRootProtocol` has just re-placed every harness file
+      // from the governance repo, and `verifyAgentContext` above refused to hand over a session that is not
+      // governed — so at this line gov KNOWS the session about to start will read the current rules. Clearing
+      // is not a claim anybody makes here; it is a consequence of a launch the agent does not control, which is
+      // exactly what §8 asks for: "either a launch it does not control, or an attribution to a person".
+      //
+      // `gov rules reload` is the attribution half, and it lives in `dispatch.ts`. An agent typing THAT is
+      // recorded by name in the run log; an agent cannot reach THIS one at all, because reaching it means
+      // having been started by it.
+      //
+      // Cleared BEFORE the launch, not after: `spawnSync` blocks until a terminal agent exits, so clearing
+      // afterwards would leave every mutating verb refusing for the whole session — the one the clearing exists
+      // to unblock.
+      if (me && config.agentWorkRoot) {
+        const pending = readPending(fs, config.agentWorkRoot, me);
+        if (pending) {
+          clearPending(fs, config.agentWorkRoot, me);
+          log("info", "a gov-launched session cleared the pending rules marker", "gov-work:cli:main", "launch",
+            { agent, login: me, hash: pending.hash, clauses: pending.clauses.length, recordedBy: pending.by });
+          const rp = reporter(stdoutColor());
+          process.stderr.write(`\n${rp.step(`${pending.clauses.length} rule(s) changed since your last session — this one starts with the new ones.`)}\n`);
+          for (const cl of pending.clauses.slice(0, 6)) process.stderr.write(`    ${cl}\n`);
+          if (pending.clauses.length > 6) process.stderr.write(`    … and ${pending.clauses.length - 6} more\n`);
+        }
+      }
+
       const s = agentLaunchSpec(agent, cwd, inject);
       // NO SILENT SHELL (#199). An agent gov cannot start is said out loud, with the directory, so
       // the person can start it themselves. Substituting a shell here is what let five approved
@@ -1495,24 +1876,71 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // THE LAUNCH, AND WHETHER THE KEY WENT WITH IT. #213's last wrong fix stored the key
       // correctly and then launched the agent without it — and gov's output is identical
       // either way, because storing and passing are different acts and only one of them shows.
-      // The env var's PRESENCE is recorded, never its value (POL-427 is C01).
+      // The env var's PRESENCE is recorded, never its value (no secret in a log).
       const credEnv = AGENT_CATALOG.find((a) => a.id === agent)?.credentialEnv;
+      // A LATER SESSION GETS THE KEY TOO. It used to start without it whenever the person had not exported it
+      // themselves — so a key pasted once was gone the moment gov exited (walk, 2026-09-21).
+      if (credEnv) loadStoredKey(agent, AGENT_CATALOG.find((a) => a.id === agent)?.tool ?? agent, credEnv, config.agentWorkRoot, me ?? "", process.stderr);
+      // `args` WENT IN UNREDACTED while every other logged invocation passed through `redactArgv`
+      // (run-process.ts). For eight of ten agents `args` is the whole session-start prompt, so anything a prompt
+      // carries went to the log with it — and the inconsistency was invisible, because this is the one place that
+      // logs an invocation without going through `runProcess`.
+      phase("agent-launch", "gov-work:cli:main", { agent });                  // the walk's step 6 ends at the manifest (#276)
       log("info", "launching the agent", "gov-work:cli:main", "launch", {
-        agent, cmd: s.cmd, args: s.args, cwd, detached: s.detached === true,
+        agent, cmd: s.cmd, args: redactArgv(s.args), cwd, detached: s.detached === true,
         promptDelivery: s.promptToPaste ? "paste" : "argv",
         ...(credEnv ? { credentialEnv: credEnv, credentialPresent: Boolean(process.env[credEnv]) } : {}),
       });
       closeLog();                              // spawnSync blocks until the agent exits; flush first
-      if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+      if (s.detached) {
+        // A desktop agent (`code`, `cursor`) is a .cmd shim on Windows — resolved like every other spawn (#223).
+        let dp: SpawnPlan;
+        try { dp = planSpawn(s.cmd, s.args); } catch (e) { process.stderr.write(`  ${(e as Error).message}\n`); return 1; }
+        spawn(dp.file, [...dp.args], { cwd, stdio: "ignore", detached: true, ...(dp.verbatim ? { windowsVerbatimArguments: true } : {}) }).unref();
+        return 0;
+      }
 
       const runIt = (args: readonly string[]): { status: number; error: boolean; ms: number } => {
         const at = Date.now();
-        const rr = spawnSync(s.cmd, [...args], { cwd, stdio: "inherit" });
-        return { status: rr.status ?? 0, error: Boolean(rr.error), ms: Date.now() - at };
+        const rr = { status: runInteractive(s.cmd, [...args], { cwd, pgm: "gov-work:cli:main", fn: "agent-launch", meta: { agent: s.cmd } }) };
+        return { status: rr.status, error: rr.status !== 0, ms: Date.now() - at };
       };
 
-      let r = runIt(s.args);
+      // A ONE-SHOT FIRST MESSAGE IS READ AS IT RUNS, NOT HIDDEN (PRJ-121, 2026-09-22). An agent with `resume`
+      // prints a task id we need; so its output is passed straight through to the terminal AND kept, and the id
+      // is found in the copy. Capturing without passing through was rejected: a licence screen or a sign-in URL
+      // in that run would be invisible, and the launch would look hung.
+      const runCapture = (args: readonly string[]): Promise<{ status: number; error: boolean; ms: number; out: string }> =>
+        new Promise((resolve) => {
+          const at = Date.now();
+          let out = "";
+          let done = false;
+          const finish = (v: { status: number; error: boolean; ms: number; out: string }): void => { if (!done) { done = true; resolve(v); } };
+          const keep = (b: Buffer, to: NodeJS.WriteStream): void => { to.write(b); out = (out + b.toString("utf8")).slice(-65536); };
+          let cp: SpawnPlan;
+          try { cp = planSpawn(s.cmd, args); } catch (e) { process.stderr.write(`  ${(e as Error).message}\n`); finish({ status: 127, error: true, ms: Date.now() - at, out }); return; }
+          const child = spawn(cp.file, [...cp.args], { cwd, stdio: ["inherit", "pipe", "pipe"], ...(cp.verbatim ? { windowsVerbatimArguments: true } : {}) });
+          child.stdout?.on("data", (b: Buffer) => keep(b, process.stdout));
+          child.stderr?.on("data", (b: Buffer) => keep(b, process.stderr));
+          child.on("error", () => finish({ status: 1, error: true, ms: Date.now() - at, out }));
+          child.on("close", (code) => finish({ status: code ?? 0, error: false, ms: Date.now() - at, out }));
+        });
+      const firstRun = async (args: readonly string[]): Promise<{ status: number; error: boolean; ms: number; out?: string }> =>
+        s.resume ? await runCapture(args) : runIt(args);
+
+      let r: { status: number; error: boolean; ms: number; out?: string } = await firstRun(s.args);
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
+
+      // AN ACCOUNT, NOT A FIRST RUN (F24, 2026-10-08). IBM Bob exited "Your Free trial has expired … Upgrade your plan
+      // to continue", and the first-run text below called it "accepting a licence, or signing in" and offered to open
+      // Bob again — a loop nobody on this machine can leave. A trial, a quota or a rejected key is between the person
+      // and the vendor: the work flow says so and offers the other approved agents. Only output gov CAPTURED can be
+      // read (an agent that owns the terminal shows its own error); a licence or sign-in still takes the path below.
+      const acct = r.status !== 0 ? recogniseAccountFailure(agent, r.out ?? "") : null;
+      if (acct) {
+        log("warn", "the agent's account stopped it", "gov-work:cli:main", "launch", { agent, reason: acct.reason, status: r.status });
+        return { blocked: "account" as const, reason: acct.reason };
+      }
 
       // A FIRST-RUN GATE THE ADOPTER HAS JUST READ — see IMMEDIATE_EXIT_MS above for why this
       // reacts to an exit rather than to a parsed error, and why the offer is to hand over THIS
@@ -1534,7 +1962,9 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write(`\n${r3.step(`${agent} has the terminal. Quit it when you are done.`)}\n\n`);
           runIt([]);
           process.stderr.write(`\n${r3.step(`Handing ${agent} the session-start protocol again.`)}\n\n`);
-          r = runIt(s.args);
+          r = await firstRun(s.args);
+          const again = r.status !== 0 ? recogniseAccountFailure(agent, r.out ?? "") : null;
+          if (again) return { blocked: "account" as const, reason: again.reason };
         }
         // STILL NO, AND SAID SO. A retry that fails silently would leave an adopter believing
         // the session is governed when nothing was ever delivered.
@@ -1577,6 +2007,22 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write(`${s.promptText}\n\n`);
         }
       }
+      // THE PROTOCOL WAS ANSWERED — NOW HAND OVER THE SESSION (PRJ-121, 2026-09-22). For an agent whose first-
+      // message mode exits, stopping here left the person at a shell under a manifest ending "Awaiting: your
+      // direction". Reopen that conversation instead: the protocol and its answer are in its history.
+      if (s.resume && r.status === 0) {
+        const r4 = reporter(stdoutColor());
+        const id = s.resume.taskIdPattern.exec(r.out ?? "")?.[1];
+        if (id) {
+          process.stderr.write(`\n${r4.step(`${agent} has answered the protocol. Reopening that conversation so you can carry on in it.`)}\n\n`);
+          r = runIt(s.resume.argv.map((a) => a.replaceAll("{taskId}", id)));
+        } else {
+          // No id is not a reason to leave the person at a shell, and not a licence to guess one.
+          process.stderr.write(`\n${r4.warn(`${agent} answered the protocol, but gov could not find its task id.`)}\n`);
+          process.stderr.write(`  Opening ${agent}'s list of tasks — the newest is the one gov just ran.\n\n`);
+          r = runIt(s.resume.pickerArgv);
+        }
+      }
       return r.status;
     },
   };
@@ -1608,8 +2054,8 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   const r = prjResolveGov(createNodeEnv());
   if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
   const fs = createNodeFs();
-  const policy = fs.readFile(path.join(r.home, "governance", "policies", "llm-governance.md"));
-  const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+  const policy = fs.readFile(path.join(r.home, GOVERNANCE_PATH));
+  const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
   if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -1617,6 +2063,327 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   try {
     return await performAgentInstallReal(plan, askFns(rl, prompt)) ? 0 : 1;
   } finally { rl.close(); }
+}
+
+/**
+ * `gov app setup|check` — the org's GitHub App, through which code repos' checks read the governance rules
+ * (app-verb.ts). Out of the synchronous router because `setup` waits on a browser: GitHub's redirect comes back to a
+ * loopback listener, which is an await.
+ */
+export async function runApp(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const override = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  const r = override ? null : prjResolveGov(createNodeEnv());
+  if (r && !r.ok) { process.stderr.write(`${resolveFailureMessage(r)}\n`); return r.code; }
+  const home = override ? path.resolve(expandTilde(override)) : (r as { home: string }).home;
+  const fs = createNodeFs();
+  const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
+  if (cfgText === null) { process.stderr.write(`gov app: no org-config.yaml at ${home}\n`); return 1; }
+  const config = parseOrgConfig(cfgText);
+  const codeRepos = appCodeRepos(fs, home, config, flagStr(parsed.flags, "project"), "gov-work:cli:app");
+  const res = await appCommand(parsed.positionals, parsed.flags, {
+    gh: ghRunner("gov-work:cli:app"),
+    loopback: startLoopback,
+    readFile: (f) => fs.readFile(f),
+    writeFile: (f, t) => fs.writeFile(f, t),
+    say: (l) => process.stdout.write(`${l}\n`),
+    newState: () => randomBytes(16).toString("hex"),
+    codeRepos,
+    // The key is read once and handed to gh's stdin; it is never logged (run-process logs neither stdin nor stdout).
+    readStdin: () => fsSync.readFileSync(0, "utf8"),
+    removeFile: (f) => fsSync.rmSync(f),
+  }, {
+    home, githubOrg: config.githubOrg, orgSlugLower: config.orgSlugLower,
+    workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch,
+  }, parsed.positionals[0] === "check" ? { codeRepos: codeRepos(), modelKey: approvedModelKey(home, config.defaultBranch) } : undefined);
+  for (const line of res.lines) process.stdout.write(`${line}\n`);
+  return res.code;
+}
+
+/**
+ * The project's linked CODE repositories, which need the App's secrets: the board named by `--project`, or by the
+ * governance repo's project branch. Read lazily — `gov app setup` asks only once it holds the key.
+ */
+function appCodeRepos(fs: ReturnType<typeof createNodeFs>, home: string, config: { githubOrg: string; workspaceRepo: string },
+  project: string | undefined, pgm: string, timeoutMs?: number): () => LinkedRepos {
+  return () => {
+    const branch = tryRun("git", ["-C", home, "symbolic-ref", "--quiet", "--short", "HEAD"])?.trim() ?? "";
+    const n = project !== undefined ? boardNumberFromProjectId(project) : boardNumberFromBranch(branch);
+    if (n === null) {
+      return { ok: false, reason: project !== undefined
+        ? `'${project}' is not a project id`
+        : `the governance repo is on ${branch || "no branch"}, not a project branch — pass --project <id> to name one` };
+    }
+    return checkScopeDeps(fs, config, pgm, timeoutMs).linkedRepos(n);
+  };
+}
+
+/** The secret the org's approved model needs in the governance repo — from the DEFAULT branch, only when CI may use it. */
+function approvedModelKey(home: string, defaultBranch: string): string | null {
+  const git = (repo: string, args: readonly string[]): string | null => tryRun("git", ["-C", repo, ...args]) ?? null;
+  return keyNameFor(settingsAt(git, home, defaultRef(git, home, defaultBranch || "main")));
+}
+
+/**
+ * REMEMBER WHO THIS IS, for the next run's log folder (PRJ-121, 2026-09-23).
+ *
+ * The folder is keyed by the GitHub login, and asking `gh` costs a process — so a log must never ask. Whoever
+ * has just paid for the answer writes it down, and the next run reads the file. Best effort throughout: an
+ * unknown login only means the run logs to `~/.gov/logs/` instead.
+ */
+function rememberLogin(login: string | null | undefined): void {
+  try { const slug = runContext().orgSlug; if (login && slug) cacheLogin(slug, login); } catch { /* next time */ }
+}
+
+/** The gov home and its org-config, resolved the way {@link main} resolves them — for the async verbs. */
+function resolveHomeConfig(flags: Record<string, string | boolean>): { home: string; config: ReturnType<typeof parseOrgConfig> } | number {
+  const override = flagStr(flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  let home: string;
+  if (override) home = path.resolve(expandTilde(override));
+  else {
+    const resolved = prjResolveGov(createNodeEnv());
+    if (!resolved.ok) { process.stderr.write(`${resolveFailureMessage(resolved)}\n`); return resolved.code; }
+    home = resolved.home;
+  }
+  const text = createNodeFs().readFile(path.join(home, "org-config.yaml"));
+  if (text === null) { process.stderr.write(`gov: no org-config.yaml at ${home}\n`); return 1; }
+  return { home, config: parseOrgConfig(text) };
+}
+
+/**
+ * A model key for `gov rules propose`: the environment first, then the person's credentials store (the file
+ * `gov agent install <agent>` writes, loaded only when nobody else can read it). Never printed, never logged.
+ */
+function modelKey(envVar: string, agentId: string): string | null {
+  const fromEnv = process.env[envVar]?.trim();
+  if (fromEnv) return fromEnv;
+  const ctx = runContext();
+  if (!ctx.workRoot || !ctx.login) return null;
+  const at = credentialsPathFor(expandHome(ctx.workRoot), ctx.login);
+  try {
+    if (!storeIsPrivate(fsSync.statSync(at).mode, process.platform)) {
+      process.stderr.write(`  ! gov will not load ${at} — other users on this machine can read it (chmod 600 ${at}).\n`);
+      return null;
+    }
+    return storedCredential(fsSync.readFileSync(at, "utf8"), envVar, agentId);
+  } catch { return null; /* no store yet — the ordinary case */ }
+}
+const anthropicKey = (): string | null => modelKey(ANTHROPIC_KEY_ENV, "claude-code");
+const geminiKey = (): string | null => modelKey(GEMINI_KEY_ENV, "gemini-code-assist");
+
+/** `models.command`, run with the request on stdin, through the run-process chokepoint. Ten minutes at most. */
+const runModelCommand = (cmd: string, args: readonly string[], input: string): string =>
+  runProcess(cmd, args, { pgm: "gov-work:rules:propose:command", fn: "complete", input, timeoutMs: 600_000 });
+
+const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, {
+  ci, anthropicKey, geminiKey, runCommand: runModelCommand,
+  ...(ci && process.env.GITHUB_REPOSITORY ? { repository: process.env.GITHUB_REPOSITORY } : {}),
+});
+
+/**
+ * `gov rules propose [--all] [--pr <n>]` — ASKS at the terminal, so it is routed here and not through `route()`
+ * (which neither prompts nor waits). One readline, borrowed by the interview through {@link askFns}.
+ */
+export async function runRulesPropose(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const prFlag = flagStr(parsed.flags, "pr");
+  if (prFlag !== undefined && !/^\d+$/.test(prFlag)) { process.stderr.write(`usage: gov ${PROPOSE_USAGE}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
+  try {
+    const ask = askFns(rl, prompt);
+    const r = await rulesPropose({
+      git,
+      head: fsTree(at.home),
+      channel: terminalChannel(ask.line),
+      model: (s) => lazyModel(() => modelChoiceFor(s, false), (d) => process.stderr.write(`  reading with ${d}\n`)),
+      currentPr: () => {
+        const n = tryRunProcess("gh", ["pr", "view", "--json", "number", "--jq", ".number"], { pgm: "gov-work:cli:main", fn: "propose-pr", cwd: at.home });
+        return n && /^\d+$/.test(n) ? Number(n) : undefined;
+      },
+    }, {
+      home: at.home, defaultBranch: at.config.defaultBranch, all: flagBool(parsed.flags, "all"),
+      ...(prFlag !== undefined ? { pr: Number(prFlag) } : {}),
+      today: localDate(new Date()),
+      author: ensureLogin(runContext()) ?? "unknown",
+    });
+    for (const line of r.lines) process.stdout.write(`${line}\n`);
+    return r.code;
+  } finally { rl.close(); }
+}
+
+const localDate = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * What `gov check install --all` and `gov check status` read beyond one repository: the project's linked code repos
+ * from its board (through `gh`, bounded by `timeoutMs` when given — doctor must not hang offline), and the disk.
+ */
+function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg: string; workspaceRepo: string }, pgm: string, timeoutMs?: number): ScopeDeps {
+  const runGh: RunGh = (args) => runProcess("gh", args, { pgm, fn: "gh", ...(timeoutMs ? { timeoutMs } : {}) });
+  return {
+    linkedRepos: boardLinkedRepos(createGhBoard(timeoutMs ? runGh : retryTransient(runGh)), config.githubOrg, config.workspaceRepo),
+    pathExists: (p) => fs.pathExists(p),
+    listDir: (d) => fs.readdir(d),
+    removeFile: (p) => fs.rm(p),
+  };
+}
+
+/**
+ * `gov signal …` — one project to another (plan 03 L07, spec 03 §4). Asynchronous (WorkTrackerPort) and it ASKS
+ * (a person confirms each send, Q6), so it is routed from bin.ts like `check` and `work`.
+ */
+export async function runSignal(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const fs = createNodeFs();
+  const branch = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? "";
+  const projectBranch = branch.replace(/\.ISSUE-.*$/i, "");
+  const r = await signalCommand(parsed.positionals, parsed.flags, {
+    tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker),
+    govRepo: { owner: config.githubOrg, name: config.workspaceRepo },
+    owner: config.githubOrg,
+    login: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? cachedLogin(config.orgSlugLower) ?? "",
+    project: /^brnch-\d+-/i.test(projectBranch) ? projectBranch.replace(/^brnch-/i, "PRJ-") : null,
+    env: process.env,
+    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
+    confirm: (q) => askYes(q),
+    readFile: (f) => fs.readFile(path.isAbsolute(f) ? f : path.join(process.cwd(), f)),
+    merge: {
+      // gov's owner test, as `gov task` and `gov merge` use it (C01): write access to the project board.
+      isOwner: async (p) => tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${p.owner}`, "-F", `n=${p.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
+      repos: async (p) => {
+        try {
+          const b = createGhBoard(retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:signal", fn: "gh" }))).fetchProject({ owner: p.owner, ownerField: "organization", number: p.number });
+          return { ok: true, value: b.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo) };
+        } catch (e) {
+          // Reported, not thrown: merge says the repositories must be checked by hand.
+          return { ok: false, reason: (e as Error).message, retryable: true };
+        }
+      },
+    },
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
+}
+
+/**
+ * `gov check run|install` with the proposer wired in: a rule binding `gov-builtin/rules-propose` runs it first
+ * (asynchronously — a model, the pull request's comments, a push). Called from bin.ts; `main()` keeps the
+ * synchronous path for everything else.
+ */
+/**
+ * WHERE THIS PROCESS'S EVIDENCE RECORDS BELONG (spec 02 §5): the governance repo, the surface, and how to learn the
+ * org's numeric id — asked only if the paid module runs (CI has it in the environment; locally `gh` is asked).
+ */
+function setEvidenceFor(home: string, githubOrg: string): void {
+  setEvidenceContext({
+    keychain: createKeychain(),
+    surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local",
+    govHome: home,
+    env: process.env,
+    govVersion: readCliVersion(),
+    orgId: async () => {
+      const fromEnv = Number(process.env.GITHUB_REPOSITORY_OWNER_ID);
+      if (Number.isSafeInteger(fromEnv) && fromEnv > 0) return fromEnv;
+      const out = githubOrg ? tryRunProcess("gh", ["api", `orgs/${githubOrg}`, "--jq", ".id"], { pgm: "gov-work:cli:main", fn: "evidenceOrgId" }) : null;
+      const n = Number((out ?? "").trim());
+      return Number.isSafeInteger(n) && n > 0 ? n : null;
+    },
+  });
+}
+
+/**
+ * `gov pack list | add <id>` (spec 02 §3.5) — asynchronous (it starts the paid module), so routed here like `check`.
+ * `add` proposes the pack in a policy pull request from a temporary worktree; it never writes the default branch.
+ */
+export async function runPack(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const r = await packCommand(parsed.positionals, {
+    home,
+    defaultBranch: config.defaultBranch,
+    today: new Date().toISOString().slice(0, 10),
+    tmpDir: () => path.join(fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-pack-")), "wt"),
+    git: (cwd, args) => tryRun("git", ["-C", cwd, ...args]) ?? null,
+    gh: (cwd, args) => tryRunProcess("gh", args, { pgm: "gov-work:cli:pack", fn: "gh", cwd }) ?? null,
+    writeFile: (abs, text) => createNodeFs().writeFile(abs, text),
+    removeDir: (abs) => fsSync.rmSync(path.dirname(abs), { recursive: true, force: true }),
+    packs: async () => {
+      const m = await ensureCheckModule({ surface: "local", govHome: home, env: process.env, govVersion: readCliVersion() }, { keychain: createKeychain() });
+      return m.state === "active" ? m.module.packs : null;
+    },
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
+}
+
+/**
+ * `gov project <name> [--repo r] [--seed]` — the board and its anchor issue together (plan 03 L06, gadf#182).
+ * Asynchronous (the ports), so it is routed from bin.ts like `check`; `--seed` hands to the synchronous `gov seed`.
+ */
+export async function runProject(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { config } = at;
+  return projectCommand(parsed.positionals, parsed.flags, {
+    tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker),
+    vcs: pickAdapter(builtInProviders, "vcs", config.adapters.vcs),
+    owner: config.githubOrg,
+    govRepo: { owner: config.githubOrg, name: config.workspaceRepo },
+    defaultCodeBranch: config.defaultCodeBranch,
+    print: (line) => process.stdout.write(`${line}\n`),
+    seed: (boardUrl) => main(["seed", boardUrl]),
+  });
+}
+
+export async function runCheck(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const fs = createNodeFs();
+  const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
+  const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
+  const bot = botIdentity(process.env);
+  setEvidenceFor(home, config.githubOrg);
+  const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
+    git, gh, env: process.env, toolOnPath,
+    paidModule: () => ensureCheckModule({ surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local", govHome: home, env: process.env, govVersion: readCliVersion() }, { keychain: createKeychain() }),
+    readFile: (f) => fs.readFile(f),
+    writeFile: (f, t) => fs.writeFile(f, t),
+    scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
+    executor: createNodeActionExecutor(),
+    proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, {
+      git, gh, repoDir,
+      repository: process.env.GITHUB_REPOSITORY ?? "",
+      // The org's model setting from the DEFAULT branch: a pull request cannot approve its own model.
+      settings: settingsAt(git, home, defaultRef(git, home, config.defaultBranch)),
+      model: (s) => modelChoiceFor(s, true),
+      openBranch: (sha, ref) => openPrBranch(repoDir, sha, ref, bot),
+      self: process.env.GOV_BOT_LOGIN || bot.name,
+      today: new Date().toISOString().slice(0, 10),
+    }),
+  }, {
+    home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
+    githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,
+    runner: readGovernance(home).ci, govVersion: readCliVersion(),
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
 }
 
 export async function runWork(argv: readonly string[]): Promise<number> {
@@ -1628,6 +2395,9 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   };
   const me = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? null;
   const deps = buildWorkDeps(me);
+  // REMEMBER WHO THIS IS, for the next run's log path (PRJ-121, 2026-09-23). The log folder is keyed by the
+  // GitHub login, and asking `gh` costs a process — so whoever has just paid for the answer writes it down.
+  rememberLogin(me);
   if (!deps) {
     // Reachable only when the first run was skipped or declined (see runFirstRunIfNeeded), or when the
     // registry resolves but org-config.yaml does not.
@@ -1639,6 +2409,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const positional = argv.slice(1).find((a) => !a.startsWith("--"));
   const pattern = flagOf("project") ?? positional;
   const agent = flagOf("agent");
+  const current = projectFromPath(deps.config.agentWorkRoot, process.cwd(), path.sep);
   const interactive = process.stdin.isTTY === true;
   // Prompts and progress go to STDERR; stdout is reserved for `--print-prompt`'s single line.
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -1649,12 +2420,27 @@ export async function runWork(argv: readonly string[]): Promise<number> {
     {
       ...(pattern ? { projectPattern: pattern } : {}),
       ...(agent ? { agent: agent as AgentKind } : {}),
+      // Standing in a project → continue it, unless a project was named (a walk, 2026-09-22).
+      ...(!pattern && current ? { currentProject: current } : {}),
+      // ALL FOUR picker settings, not just the page size. Three of them (`localFirst`, `localOrder`,
+      // `searchThreshold`) landed with defaults that were correct and a reader that never looked at the person's
+      // file — a preference gov defines, documents and then ignores is worse than one it does not offer.
+      ...pickerSettingsFromPreferences(loadPreferences().prefs),
+      ...agentAskFromPreferences(loadPreferences().prefs),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
+      noLaunch: argv.includes("--no-launch"),
       interactive,
       },
     );
   } finally { rl.close(); }
+}
+
+/** The usage line for a preferences subcommand, with the settings listed under it. */
+function usageLines(usage: string, loaded: { file: string; prefs: Parameters<typeof formatPreferences>[0] }): number {
+  process.stderr.write(`usage: ${usage}\n`);
+  for (const l of formatPreferences(loaded.prefs, loaded.file)) process.stderr.write(`${l}\n`);
+  return 2;
 }
 
 /** Route any command (setup / normal) — used by the menu. There is no plugin routing: `auth`, `creds`,
@@ -1662,79 +2448,40 @@ export async function runWork(argv: readonly string[]): Promise<number> {
  *  (adr-three-clients, PRJ-43). */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
+  if (argv[0] === "project") return runProject(argv);
   return main(argv);
 }
 
 /** The command reference (git-help style): one-line description per command + optional usage args. */
+// HELP_GROUPS / CMD_DESC / CMD_USAGE were retired 2026-09-23 for help-spec.ts: three hand-kept tables that no
+// parser read, covering half the commands between them. One spec per command now feeds every surface.
+
+/** All commands in reference order. */
+export const helpCommandNames = (): string[] => COMMAND_SPECS.map((c) => c.name);
+
+/** A command gov actually has — documented or not. `gov help <x>` for anything else is a usage error. */
+export const isKnownCommand = (c: string): boolean => helpCommandNames().includes(c);
+
 /**
- * The command reference, grouped by WHO TYPES IT (PRJ-43 CLI-surface walkthrough, 2026-08-07).
+ * HELP, FROM THE SPECS (help-spec.ts / help-render.ts) — Policy Owner, 2026-09-22/23.
  *
- * It used to be four groups of ~27 verbs, all presented as equally yours. Almost none of them are: a
- * developer works inside an agent session, and the lifecycle verbs are what the AGENT runs when asked. So
- * the reference now says which is which, rather than making everyone learn the difference by trying.
- *
- * Nothing is removed — every verb still runs. `seed`, `join`, `task`, `merge` and the rest are reachable
- * for recovery, for scripts, and for the day the agent cannot start. They are simply no longer taught as
- * the way in.
+ * This used to be three hand-kept tables (HELP_GROUPS, CMD_DESC, CMD_USAGE) that no parser read: 13 of ~25
+ * commands had a description, six had a usage line, none had an example. One source now feeds the overview,
+ * every command's page, `-h`, the topics and `--json`, and a test refuses a command with no spec.
  */
-const HELP_GROUPS: Record<string, string[]> = {
-  "Your commands": ["work", "org", "doctor", "upgrade"],
-  "Your agent runs these (you can too)": [
-    "seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel",
-    "manage", "anchor", "knowledge", "onboard", "validate", "list", "list-all", "status",
-  ],
-  "Framework maintainers": ["bump-version", "publish"],
-};
-const CMD_DESC: Record<string, string> = {
-  seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
-  work: "Start a session on a project — picks it up wherever it is, and launches your agent",
-  task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
-  sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
-  close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
-  manage: "Project access — assign / unassign owners", anchor: "Show the current project's anchor issue",
-  knowledge: "Propose / submit / archive org knowledge changes", onboard: "Onboard a repository into the framework",
-  org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
-  list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
-  doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
-  issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
-  agent: "Which AI agents your org approves, what is installed, and how to add one",
-  upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
-};
-const CMD_USAGE: Record<string, string> = {
-  agent: "[list | install <id> | approve <id>]",
-  issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
-  seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
-  knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
-  org: "add <github_org> --home <path> | use|list|remove <github_org>",
-  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", "bump-version": "<x.y.z>",
-};
-
-/** All commands in reference order (for the Help → "help for one command" picker). */
-export const helpCommandNames = (): string[] => Object.values(HELP_GROUPS).flat();
-
-/** The command reference shown under the Help menu (git-help style), or per-command help. */
-export function helpLines(command?: string): string[] {
-  if (command) {
-    const desc = CMD_DESC[command];
-    if (!desc) return ["", `  Unknown command '${command}'. Run \`gov help\` for the reference.`, ""];
-    const out = ["", `  gov ${command} — ${desc}.`];
-    if (CMD_USAGE[command]) out.push(`  usage: gov ${command} ${CMD_USAGE[command]}`);
-    out.push("");
-    return out;
-  }
-  const out = ["", "  usage: gov <command> [<args>]", "", "  These are the gov commands used in various situations:", ""];
-  for (const [g, cmds] of Object.entries(HELP_GROUPS)) {
-    out.push(`  ${g}`);
-    for (const c of cmds) out.push(`     ${c.padEnd(14)} ${CMD_DESC[c] ?? ""}`);
-    out.push("");
-  }
-  out.push("  See `gov help <command>` for a specific command (or menu → Help → help for one command).", "");
-  return out;
+export function helpLines(command?: string, opts: { short?: boolean; all?: boolean } = {}): string[] {
+  if (!command) return overview(opts.all === true);
+  const page = helpFor(command, opts.short ? { short: true } : {});
+  if (page) return page;
+  const near = didYouMean(command);
+  return ["", `  gov: no command or topic '${command}'.`,
+    ...(near.length ? [`  did you mean:  ${near.map((n) => `gov help ${n}`).join("   ·   ")}`] : []),
+    "  `gov help` lists the commands.", ""];
 }
 
 /** Build + run the interactive main menu (no-args TTY). Async — routed from bin.ts. */
 export async function runMainMenu(): Promise<number> {
-  const ctx = await gatherMenuContext();
+  const ctx = { ...(await gatherMenuContext()), headerEvery: stringPref(loadPreferences().prefs, "display.menuHeader") === "always" };
   // fs/env/runGh moved into buildWorkDeps with the deps they served — the menu itself needs none of them.
   const workDeps = buildWorkDeps(ctx.user ?? null);
 
@@ -1742,17 +2489,20 @@ export async function runMainMenu(): Promise<number> {
     runCommand: runAny,
     runWork: async (io) => {
       if (!workDeps) {
-        io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
+        // Orgs registered → choosing one is the fix, not setup (a walk, 2026-09-22).
+        io.print((ctx.workspaceCount ?? 0) > 0
+          ? "  No working org is active. Choose one: press o at the menu, or Admin → org → use."
+          : "  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
         return 1;
       }
       // The MENU owns the reader here, and it stays open for the whole loop — which is why a
       // second one inside the agent install lost the race on a real walk while the direct
       // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
-      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask });
+      // PROJECT context → Work continues THIS project, as the menu line says (a walk, 2026-09-22).
+      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask },
+        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), ...pickerSettingsFromPreferences(loadPreferences().prefs), ...agentAskFromPreferences(loadPreferences().prefs) });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
-    help: (command) => helpLines(command),
-    helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
     // `myProjects` reads boards and asks nothing, so the asker it will never reach is a stub —
     // one that THROWS rather than returning "", because reaching it would mean a question was
@@ -1771,7 +2521,7 @@ export async function runMainMenu(): Promise<number> {
  * The `gov-work` entry point. Returns a process exit code. `now` is injected (an
  * ISO-8601 instant) so the composition stays deterministic + testable.
  */
-export function main(argv: readonly string[], now: string = new Date().toISOString()): number {
+export function main(argv: readonly string[], now: string = new Date().toISOString()): number | Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) {
     process.stderr.write(`${parsed.error}\n`);
@@ -1790,6 +2540,73 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
     process.stderr.write(`${r.error}\n`);
     return r.code;
+  }
+
+  // `gov preferences` — YOUR settings: the one place a person changes how gov behaves for them (Policy Owner,
+  // 2026-09-22). JSON carries no comments, so the listing is the documentation: every key, its value, whether
+  // it is yours or gov's default, and one line on what it does.
+  if (parsed.command === "preferences" || parsed.command === "prefs") {
+    const sub = parsed.positionals[0] ?? "list";
+    const loaded = loadPreferences((file) => process.stderr.write(`  created your preferences file at ${file}\n`));
+    if (!loaded.file) {
+      process.stderr.write("gov preferences: no organization on this machine yet — run `gov` first; it sets one up.\n");
+      return 1;
+    }
+    if (sub === "path") { process.stdout.write(`${loaded.file}\n`); return 0; }
+    if (sub === "list") { for (const l of formatPreferences(loaded.prefs, loaded.file)) process.stdout.write(`${l}\n`); return 0; }
+
+    const key = parsed.positionals[1];
+    const spec = key ? specFor(key) : undefined;
+    if (sub === "set" || sub === "reset") {
+      if (!key) return usageLines(`gov preferences ${sub} <key>${sub === "set" ? " <value>" : ""}`, loaded);
+      if (!spec) {
+        process.stderr.write(`gov preferences: no setting '${key}'. \`gov preferences\` lists them.\n`);
+        return 2;
+      }
+      if (sub === "reset") {
+        savePreference(loaded.file, loaded.prefs, key, undefined);
+        process.stdout.write(`  ${key} → ${String(spec.def ?? "—")}  (gov's default)\n`);
+        return 0;
+      }
+      const typed = parsed.positionals.slice(2).join(" ");
+      const got = coerce(spec, typed);
+      if ("error" in got) { process.stderr.write(`gov preferences: ${got.error}\n`); return 2; }
+      savePreference(loaded.file, loaded.prefs, key, got.value);
+      process.stdout.write(`  ${key} → ${String(got.value ?? "—")}  (yours)\n`);
+      return 0;
+    }
+    process.stderr.write(`gov preferences: unknown subcommand '${sub}' — list · set · reset · path\n`);
+    return 2;
+  }
+
+  // `gov log` — find this machine's run logs (PRJ-121, 2026-09-23). One file per run is only useful if the
+  // files can be found; a failure names a run's folder, and this is how you get back to it later.
+  if (parsed.command === "log") {
+    const ctx = runContext();
+    // Before gov knows the person's GitHub login, runs are logged to `~/.gov/logs` (log.ts `runDirFor`), so
+    // that is where `gov log` looks too — a log you cannot find is the same as no log. This command may ask
+    // `gh` once for the name, which the logging path itself must never do.
+    const who = ensureLogin(ctx);
+    const root = ctx.workRoot && who ? logsRoot(ctx.workRoot, who) : path.join(os.homedir(), ".gov", "logs");
+    const listFs = { list: (d: string): string[] => { try { return fsSync.readdirSync(d); } catch { return []; } } };
+    const runs = selectRuns(listRuns(listFs, root), {
+      ...(parsed.positionals[0] ? { runId: parsed.positionals[0] } : {}),
+      ...(flagStr(parsed.flags, "project") ? { project: flagStr(parsed.flags, "project")! } : {}),
+      last: "last" in parsed.flags,
+      limit: Number(flagStr(parsed.flags, "limit") ?? 20),
+    });
+    // One run asked for by id, or `--last`: print WHERE it is, and its lines. Otherwise the list.
+    if ((parsed.positionals[0] || "last" in parsed.flags) && runs[0]) {
+      const dir = runs[0].dir;
+      process.stdout.write(`  ${dir}\n`);
+      for (const f of listFs.list(dir).filter((n) => n.endsWith(".log"))) {
+        process.stdout.write(fsSync.readFileSync(path.join(dir, f), "utf8"));
+      }
+      return 0;
+    }
+    for (const line of formatRuns(runs)) process.stdout.write(`${line}\n`);
+    if (runs.length) process.stdout.write("\n  one run:  gov log <run-id>   ·   the newest:  gov log --last\n");
+    return 0;
   }
 
   // `gov deps` — report runtime prerequisites (git/gh); pre-resolve.
@@ -1830,28 +2647,80 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }
         home = resolved.home;
       }
-      let contentDir: string;
-      let cleanup = (): void => {};
-      if (from) {
-        contentDir = path.resolve(expandTilde(from));
-      } else {
-        const template = flagStr(parsed.flags, "template") ?? DEFAULT_TEMPLATE;
-        const ref = flagStr(parsed.flags, "ref") ?? "main";
-        process.stderr.write(`fetching content from ${template}@${ref} …\n`);
-        try {
-          const fetched = fetchTemplateContent(template, ref);
-          contentDir = fetched.contentDir;
-          cleanup = fetched.cleanup;
-        } catch (e) {
-          process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
-          return 1;
-        }
-      }
+      // THE CONTENT IS THIS GOV'S OWN BUILD (adoption walk #9): fetched at the commit gov was built from — never
+      // `main` by default — and whatever arrives is checked against the build's content fingerprint before a byte
+      // is written. A client and content from different builds are refused, naming both and the fix.
+      let selected: ReturnType<typeof selectUpgradeContent>;
       try {
+        selected = selectUpgradeContent(cliBuildIdentity(), {
+          ...(from !== undefined ? { from: path.resolve(expandTilde(from)) } : {}),
+          ...(flagStr(parsed.flags, "ref") !== undefined ? { ref: flagStr(parsed.flags, "ref") } : {}),
+          ...(flagStr(parsed.flags, "template") !== undefined ? { template: flagStr(parsed.flags, "template") } : {}),
+        }, (template, ref) => {
+          process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+          return fetchTemplateContent(template, ref);
+        });
+      } catch (e) {
+        process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
+        return 1;
+      }
+      if (!selected.ok) {
+        for (const line of selected.lines) process.stderr.write(`${line}\n`);
+        return 1;
+      }
+      const { contentDir, cleanup } = selected;
+      try {
+        // ── RE-RENDER THE HARNESS FROM THE CLAUSES THIS UPGRADE WROTE (design §7) ───────────────────────────
+        //
+        // `gov upgrade` exists to put the framework's new clause text on disk. The resident block every agent
+        // reads is COMPILED from that text, so without this the policies move forward and the rules in context
+        // stay behind — the "reports success, changes nothing an agent sees" failure `gov sync` already had.
+        //
+        // `--pr` calls it through the port so the render lands in the commit that carries the clauses (a render
+        // in a later commit, or in nobody's commit, is a pull request whose prose and whose rules disagree).
+        // `--apply` calls it after the write. A dry run writes nothing and so renders nothing.
+        //
+        // THE MARKER IS RECORDED ONLY FOR `--apply`: that is the mode that puts the new rules into force in a
+        // workspace somebody is working in, whose session read the old ones. `--pr` ratifies nothing yet.
+        const compileRules = (withMarker: boolean) => (dir: string): readonly string[] => {
+          const who = withMarker ? ensureLogin(runContext()) : null;
+          const cfg = loadOrgConfigText(fs.readFile(path.join(dir, "org-config.yaml")) ?? "");
+          const built = buildRulesAt(
+            { fs, ...(who && cfg.agentWorkRoot ? { marker: { workRoot: cfg.agentWorkRoot, login: who, now: () => new Date() } } : {}) },
+            { home: dir, defaultBranch: cfg.defaultBranch || "main", workingTree: true },
+            "upgrade",
+          );
+          return built.failed
+            ? ["  ⚠ the harness was NOT re-rendered — the new rule rows and the resident rules now disagree:", ...built.lines]
+            : built.lines;
+        };
+
+        // The gov that applies a relocation is named in the workspace's record of it (framework/upgrade-moves.json).
+        const cliVersion = readCliVersion();
+        const govVersion = cliVersion === "?" ? {} : { govVersion: cliVersion };
+        // THE INSTALLED WORKFLOWS (Q9): gov-checks.yml re-rendered as `gov check install` renders it for this gov repo —
+        // the rules from its default branch — installing the gov that wrote it (or `--gov-package`).
+        const upCfg = loadOrgConfigText(fs.readFile(path.join(home, "org-config.yaml")) ?? "");
+        const gitRead = (repo: string, args: readonly string[]): string | null => tryRun("git", ["-C", repo, ...args]) ?? null;
+        const renderGovChecks = (govPackage: string): string | null => {
+          const loaded = loadCheckRuleSet(gitRead, home, defaultRef(gitRead, home, upCfg.defaultBranch || "main"));
+          const r = renderForRepo(true, loaded, {
+            home, defaultBranch: upCfg.defaultBranch || "main", defaultCodeBranch: upCfg.defaultCodeBranch, githubOrg: upCfg.githubOrg,
+            workspaceRepo: upCfg.workspaceRepo, posture: null, govPackage,
+            // The runner as governance.yaml says it AFTER this upgrade's migrations — read here, when the render runs.
+            runner: readGovernance(home).ci,
+          });
+          return r.ok ? r.files[0]?.text ?? null : null;
+        };
+        const govPackage = flagStr(parsed.flags, "gov-package");
+        const workflows = { renderGovChecks, ...(govPackage ? { govPackage } : {}) };
         const res = "pr" in parsed.flags
-          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch") })
-          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
+          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false), ...govVersion, ...workflows })
+          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags, ...govVersion, ...workflows });
         for (const line of res.lines) process.stdout.write(`${line}\n`);
+        if (res.code === 0 && "apply" in parsed.flags && !("pr" in parsed.flags)) {
+          for (const line of compileRules(true)(home)) process.stdout.write(`${line}\n`);
+        }
         return res.code;
       } finally {
         cleanup();
@@ -1902,17 +2771,66 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
-    // One call answers both questions — signed in, and with which permissions. gh
-    // writes the status to stderr, so it has to be captured, not just tested.
+    // CAN GOV ACT ON GITHUB — `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY
+    // stored account is stale, while the active token works. The scopes come from the same endpoint's headers.
     const ghStatus = ghPresent ? ((): string | null => {
-      try { return execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
-      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+      try { return runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" }); }
+      catch { return null; }
     })() : null;
-    const ghAuthed = ghPresent && ((): boolean => {
-      try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
-    })();
+    const ghAuthed = ghPresent && okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" });
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
+    // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
+    // probe needs it to know which repo and branch framework-specification.md §7.3 is about.
+    const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
+    const doctorCfg = doctorCfgText ? loadOrgConfigText(doctorCfgText) : null;
+    // GOV-FRM-448, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
+    // names its governance repo — otherwise there is no question, and a row about a fact nobody gathered is
+    // worse than no row. The read itself distinguishes "no protection" from "gh could not tell me".
+    const protection = ghAuthed && doctorCfg?.githubOrg && doctorCfg.workspaceRepo
+      ? ((): { repo: string; branch: string; facts: ProtectionFacts | null; why?: string } => {
+          const repo = `${doctorCfg.githubOrg}/${doctorCfg.workspaceRepo}`;
+          const branch = doctorCfg.defaultBranch || "main";
+          const read = readProtection(repo, branch);
+          return { repo, branch, facts: read.facts, ...(read.why ? { why: read.why } : {}) };
+        })()
+      : undefined;
+    // THE RULES, by the same plan `gov rules check` makes — counts from `summariseRuleSet`, read from the ratified
+    // branch. Only in a workspace with a rule store; a facts error is no rows rather than a guess.
+    const doctorRules = (!!doctorHomeOverride || resolve.ok) && gitPresent
+      ? rulesFacts({ fs, git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null }, { home, defaultBranch: doctorCfg?.defaultBranch || "main" })
+      : undefined;
+    // THE ORG'S GITHUB APP — the same check `gov app check` runs, bounded so an offline machine is told
+    // "cannot tell" in seconds rather than hanging. Not signed in is also cannot-tell: gov could not ask.
+    const githubApp = doctorCfg?.githubOrg && doctorCfg.workspaceRepo
+      ? ghAuthed
+        ? appCheck(ghRunner("gov-work:cli:doctor", 15_000), {
+            home, githubOrg: doctorCfg.githubOrg, orgSlugLower: doctorCfg.orgSlugLower,
+            workspaceRepo: doctorCfg.workspaceRepo, defaultBranch: doctorCfg.defaultBranch,
+          }, readGithubApp(doctorCfgText), {
+            codeRepos: appCodeRepos(fs, home, doctorCfg, undefined, "gov-work:cli:doctor", 15_000)(),
+            modelKey: approvedModelKey(home, doctorCfg.defaultBranch),
+          })
+        : { verdict: "cannot-tell" as const, summary: "gh is not signed in, so GitHub could not be asked", lines: [] }
+      : undefined;
+    // THE CHECK WORKFLOWS — `gov check status` as one row: the governance repo and, on a project branch, its linked
+    // code repos (the board through gh, bounded). Not signed in leaves the code repos cannot-tell, never ok.
+    const checksInstall = (!!doctorHomeOverride || resolve.ok) && gitPresent && doctorCfg
+      ? checksDiagnostic(checkStatusReport({}, {
+          git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+          gh: () => null, env: process.env,
+          readFile: (f) => fs.readFile(f), writeFile: () => { /* status never writes */ },
+          scope: ghAuthed
+            ? checkScopeDeps(fs, doctorCfg, "gov-work:cli:doctor", 15_000)
+            : { ...checkScopeDeps(fs, doctorCfg, "gov-work:cli:doctor", 15_000), linkedRepos: () => ({ ok: false, reason: "gh is not signed in, so the board could not be read" }) },
+        }, {
+          home, defaultBranch: doctorCfg.defaultBranch || "main", defaultCodeBranch: doctorCfg.defaultCodeBranch,
+          githubOrg: doctorCfg.githubOrg, workspaceRepo: doctorCfg.workspaceRepo, agentWorkRoot: doctorCfg.agentWorkRoot, posture: null,
+          runner: readGovernance(home).ci,
+        }))
+      : undefined;
     const report = doctor({
+      ...(checksInstall ? { checksInstall } : {}),
+      ...(githubApp ? { githubApp } : {}),
       gitPresent,
       ghPresent,
       ghAuthenticated: ghAuthed,
@@ -1920,16 +2838,33 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       gitIdentity,
       resolve,
       activeOrg: env.readActiveOrg(),
+      registeredOrgs: (() => { try { return createNodeRegistryStore().readHomes().map((h) => h.org); } catch { return []; } })(),
       cliVersion,
-      contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
-      // `install.sh` is BOTH a retired adopter artifact (the vendored bash CLI's
-      // installer) and the framework repo's own bootstrap installer (#186). In an
-      // adopter workspace the retire rule is right; in the framework checkout it is
-      // a false alarm aimed at maintainers. publish/content/MANIFEST.yaml exists
-      // only in the source repo, so it tells the two apart.
-      staleArtifacts: fs.pathExists(path.join(home, "publish", "content", "MANIFEST.yaml"))
-        ? []
-        : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
+      // Only a WORKSPACE has a content VERSION. With none resolved, `home` is just the cwd (see staleArtifactsIn).
+      workspaceChecked: !!doctorHomeOverride || resolve.ok,
+      contentVersion: (!!doctorHomeOverride || resolve.ok) ? (fs.readFile(path.join(home, "VERSION"))?.trim() ?? null) : undefined,
+      // Only a WORKSPACE has old-world artifacts to retire. With none resolved, `home` is just the cwd — on a
+      // fresh machine the adopter's home dir, holding the install.sh our own install command saved there.
+      contentLayout: contentLayoutOf((rel) => fs.pathExists(path.join(home, rel))),
+      staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
+      orgConfigText: doctorCfgText,
+      // The governance choices and the schema org-config is checked against — only beside an org-config, so a
+      // directory that is not a workspace gets no rows about files it was never meant to have.
+      ...(doctorCfgText !== null ? {
+        governanceText: fs.readFile(path.join(home, GOVERNANCE_PATH)),
+        orgConfigSchemaText: fs.readFile(path.join(home, ORG_CONFIG_SCHEMA_PATH)),
+      } : {}),
+      // The role list and CODEOWNERS, read only where a workspace was examined (as org-config is).
+      ...((!!doctorHomeOverride || resolve.ok) ? {
+        roleListText: fs.readFile(path.join(home, ROLE_LIST_PATH)),
+        codeownersText: fs.readFile(path.join(home, "CODEOWNERS")),
+        lifecycleText: fs.readFile(path.join(home, LIFECYCLE_POLICY_PATH)),
+        projectFiles: (tryRun("git", ["-C", home, "ls-files", "projects"]) ?? "").split("\n").filter(Boolean),
+      } : {}),
+      ...(protection ? { protection } : {}),
+      ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
+      // Evidence (spec 02): file look-ups only — doctor never starts the paid module.
+      evidence: evidenceDoctorRow({ found: discoverModule({ env: process.env }) }),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
@@ -2027,7 +2962,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       const sudoNoPassword = haveSudo && ((): boolean => {
         // Silent on purpose: `sudo: a password is required` on stderr IS the answer,
         // not an error to show the reader in the middle of a plan.
-        try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); return true; } catch { return false; }
+        return okProcess("sudo", ["-n", "true"], { pgm: "gov-work:cli:main" });
       })();
       const needElevation = plan.steps.some((s) => s.sudo) && !amRoot;
       // Say what the plan will ASK OF THEM before the first command, not after a
@@ -2102,6 +3037,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           // best source is the GitHub account the sign-in just proved. Ask, defaulting
           // to that — after the login, so the defaults exist.
           if (step.fixes === "git identity") {
+            // Headed like every other step. It had none, so the one step that asks two questions arrived unannounced.
+            const gi = itemForFix(step.fixes, checklist(facts()));
+            if (gi) for (const line of stepBanner(gi, stdoutColor())) process.stdout.write(`${line}\n`);
             process.stdout.write(`\n  ${step.what}\n`);
             const ghName = tryRun("gh", ["api", "user", "--jq", ".name // empty"]) ?? "";
             const ghLogin = tryRun("gh", ["api", "user", "--jq", ".login // empty"]) ?? "";
@@ -2137,15 +3075,19 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
                                    "      git config --global user.email \"you@your-org\"\n");
               continue;
             }
-            const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
-            const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
-            if (okName && okMail) { ran++; process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`); }
+            const okName = runInteractive("git", ["config", "--global", "user.name", finalName], { pgm: "gov-work:cli:main", fn: "git-identity" }) === 0;
+            const okMail = runInteractive("git", ["config", "--global", "user.email", finalEmail], { pgm: "gov-work:cli:main", fn: "git-identity" }) === 0;
+            if (okName && okMail) {
+              ran++;
+              process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`);
+              if (gi) process.stdout.write(`\n${stepDone(gi, true, stdoutColor())}\n`);
+            }
             else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
             continue;
           }
           // The run reads as the plan did: a banner opens the step, the command is
           // shown, and a ticked line closes it. Same numbers, same words.
-          const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+          const item = itemForFix(step.fixes, checklist(facts()));
           if (item) for (const line of stepBanner(item, stdoutColor())) process.stdout.write(`${line}\n`);
           process.stdout.write(`  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
@@ -2161,17 +3103,27 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             continue;
           }
           const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
-          const r = spawnSync(bin!, rest, { stdio: "inherit" });
+          const r = { status: runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "doctor-fix-step", meta: { step: step.what } }) };
           if (r.status === 0) {
             ran++;
-            const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+            // WINGET WRITES THE NEW DIRECTORY TO THE REGISTRY, NOT TO gov's PROCESS (plan 04 T12). Without this the
+            // re-check below cannot find the git or gh it just installed, and the step would read as not done.
+            if (process.platform === "win32" && step.command[0] === "winget") {
+              for (const key of ["HKCU\\Environment", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"]) {
+                const reg = parseRegQueryPath(tryRun("reg", ["query", key, "/v", "Path"]) ?? "");
+                if (reg) process.env.PATH = mergeWindowsPath(process.env.PATH ?? "", reg, process.env);
+              }
+            }
+            const it = itemForFix(step.fixes, checklist(facts()));
             process.stdout.write(it ? `\n${stepDone(it, true, stdoutColor())}\n` : `  ${reporter(stdoutColor()).ok("done")}\n`);
           }
           else {
             failed++;
             broken.add(step.fixes);
-            const why = r.error ? r.error.message : `exit ${r.status ?? "unknown"}`;
-            process.stdout.write(`  ✗ failed — ${why}\n`);
+            const why = `exit ${r.status}`;   // the runner logs the stderr tail; the screen gets the code
+            const perUser = wingetFailureLines(step, r.status);   // no per-user installer: say what an admin runs
+            if (perUser) for (const l of perUser) process.stdout.write(`${l}\n`);
+            else process.stdout.write(`  ✗ failed — ${why}\n`);
           }
         }
       }
@@ -2182,10 +3134,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ...facts(),
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: (() => {
           try {
-            const s = execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            const s = runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" });
             const g = parseGrantedScopes(s);
             return Boolean(g && missingScopes(g).length === 0);
           } catch { return false; }
@@ -2210,7 +3162,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
   // work (registering a gov home / selecting the active org).
   if (parsed.command === "org") {
-    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
+    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p), diagnoseConfigAt: (p) => env.diagnoseConfigAt!(p) });
     for (const line of orgResult.lines) process.stdout.write(`${line}\n`);
     return orgResult.code;
   }
@@ -2237,29 +3189,66 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     process.stderr.write(`prj: no org-config.yaml at ${home}\n`);
     return 1;
   }
-  const config = parseOrgConfig(cfgText);
+  const config = loadOrgConfigText(cfgText);
+  // CHECKED AT LOAD against the schema gov was built with (org-config split, 2026-10-06): one line, on stderr, and
+  // never a reason to stop — the keys gov did read are unaffected. `gov doctor` gives the detail.
+  for (const line of orgConfigLoadNotes(config.keyReport)) process.stderr.write(`${line}\n`);
+  setEvidenceFor(home, config.githubOrg);
+
+  // `gov check run|install` — the rule model's check engine (W6). `run` is what the rendered workflow calls in CI.
+  if (parsed.command === "check") {
+    const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
+    const r = checkCommand(parsed.positionals, parsed.flags, {
+      git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+      gh, toolOnPath,
+      env: process.env,
+      readFile: (f) => fs.readFile(f),
+      writeFile: (f, t) => fs.writeFile(f, t),
+      scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
+      executor: createNodeActionExecutor(),
+    }, {
+      home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
+      githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,
+      runner: readGovernance(home).ci,
+    });
+    for (const line of r.lines) process.stdout.write(`${line}\n`);
+    return r.code;
+  }
 
   // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
-    // THE CHANGED SCOPE — what this branch touches, so POL-408 is enforced on docs you WROTE without
-    // failing on the 205 historical ones (governance/project-knowledge.ts explains why that matters).
-    // Uncommitted work counts: the point is to catch a broken doc BEFORE it is pushed. `--base` overrides
-    // the comparison point; the merge-base with the default branch is the sensible default on a project
-    // branch. If git answers nothing, the scope is empty and the validator stays silent — it never guesses.
+    // The comparison point for the rules' changeset checks below. `--base` overrides it; the merge-base with the
+    // default branch is the sensible default on a project branch.
     const base = flagStr(parsed.flags, "base") ?? "main";
     const mergeBase = tryRun("git", ["-C", home, "merge-base", "HEAD", base]) ?? base;
-    const committed = (tryRun("git", ["-C", home, "diff", "--name-only", mergeBase]) ?? "").split("\n");
-    const working = (tryRun("git", ["-C", home, "status", "--porcelain"]) ?? "")
-      .split("\n").map((l) => l.slice(3).trim()).filter(Boolean);
-    const changedFiles = [...new Set([...committed, ...working])].filter(Boolean);
-    const r = runSuite({ fs, repoRoot: home, files, changedFiles });
-    if (r.ok) {
+    // The branch, for a `kind=naming subject=branch` clause. Absent means unknowable, which the check reports as
+    // a warning rather than treating as a violation.
+    const branchNow = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"])?.trim();
+    const r = runSuite({ fs, repoRoot: home, files });
+
+    // THE RULES' CHANGESET CHECKS — the second group (PRJ-121, 2026-09-28; rule model 2026-10-06).
+    //
+    // The predicates the ratified rule rows bind to `vcs.gov-repo · pull_request`, previewed on this changeset —
+    // the same runner `gov check run` uses on the pull request itself. The rows are read from the DEFAULT branch
+    // and the changeset from `base…HEAD`, so a branch cannot weaken the rule that judges it — see
+    // diff-check-io.ts. COMMITTED work only: `git show <ref>:<path>` needs a ref, and what a pull request
+    // contains is commits. The validators above still see the working tree.
+    const policy = policyChecks(
+      { git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null },
+      { repo: home, ref: config.defaultBranch, base: mergeBase, head: "HEAD", ...(branchNow ? { branch: branchNow } : {}) },
+    );
+
+    if (r.ok && policy.ok) {
       process.stdout.write("validate: PASS (all validators)\n");
+      // Warnings are printed on a PASS too: a check that could not run is the one thing a green report must
+      // never hide — that is the state this whole group of diagnostics exists to end.
+      for (const line of formatDiffChecks(policy)) process.stdout.write(`${line}\n`);
       return 0;
     }
     process.stdout.write("validate: FAIL\n");
     for (const f of r.failures) process.stdout.write(`  - ${f}\n`);
+    for (const line of formatDiffChecks(policy)) process.stdout.write(`${line}\n`);
     return 1;
   }
 
@@ -2285,11 +3274,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
   // Capture (don't inherit) stderr so best-effort gh failures — e.g. an
   // unsupported board op — don't spew gh's usage text to the terminal.
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const runGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:main", fn: "gh" }));
   const vcs = createGitVcs();
   const seededBy = tryRun("git", ["-C", home, "config", "user.email"]) ?? "";
   const name = tryRun("git", ["-C", home, "config", "user.name"]);
-  const login = tryRun("gh", ["api", "user", "--jq", ".login"]);
+  // THE CACHE IS A FALLBACK, NOT AN OPTIMISATION (2026-09-30). `ctx.login` was a live `gh api user` with nothing
+  // behind it, and it is half the key the rules-pending marker is stored under — so being offline, signed out or
+  // rate-limited silently disabled that gate. A login already gets cached for the log path; reading it here costs
+  // nothing and turns the common failures into non-events. When both miss, `route` refuses rather than proceeds.
+  const login = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? cachedLogin(config.orgSlugLower) ?? undefined;
 
   const ctx: CliContext = {
     config,
@@ -2302,13 +3295,48 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     vcs,
     fs,
     issues: createGhIssues(runGh),
+    workTracker: createGithubBoardWriter(runGh),
+    // The full WorkTrackerPort, chosen by `adapters: work_tracker` in org-config.yaml through the registry (Q15).
+    // Built when a verb asks for it, so an unknown id fails that verb — with the id named — and nothing else.
+    tracker: () => pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
+    // The code host, the same way (`adapters: vcs`). `gov intent` opens its change request through it.
+    vcsHost: () => pickAdapter(builtInProviders, "vcs", config.adapters.vcs, { gh: ghRunFrom(runGh) }),
+    // `gov autorun` (spec 03 §3): the same ports, local git, gov work's kickoff for a headless agent, and a lock and
+    // worktrees in this person's state dir (beside their logs; ~/.gov/state when no work root is known yet).
+    autorun: async (flags) => {
+      const started = new Date();
+      const rc = runContext();
+      const who = login ?? rc.login ?? "unknown";
+      const sdir = rc.workRoot ? personStateDir(rc.workRoot, who) : path.join(os.homedir(), ".gov", "state");
+      return autorunCommand(flags, {
+        vcs, fs, git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+        host: pickAdapter(builtInProviders, "vcs", config.adapters.vcs, { gh: ghRunFrom(runGh) }),
+        tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
+        home, githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch || "main",
+        login: login ?? "", stateDir: sdir,
+        lockFs: {
+          createExclusive: (p, text) => {
+            fsSync.mkdirSync(path.dirname(p), { recursive: true });
+            try { fsSync.writeFileSync(p, text, { flag: "wx" }); return true; } catch (e) {
+              if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+              throw e;
+            }
+          },
+          read: (p) => { try { return fsSync.readFileSync(p, "utf8"); } catch { return null; } },
+          remove: (p) => { try { fsSync.rmSync(p, { force: true }); } catch { /* gone already */ } },
+        },
+        now: () => new Date(), runId: `${recordStamp(started)}-${newRunId()}`, today: now.slice(0, 10),
+        headlessExec: HEADLESS_EXEC,
+        kickoff: (project) => kickoffPrompt(project, { workspaceRepo: config.workspaceRepo, govHome: home }),
+      });
+    },
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "governance", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(home, GOVERNANCE_PATH))),
     /**
      * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
      * authenticates — the `gh auth login` shape, including its browser fallback.
@@ -2319,14 +3347,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved
-     * list is C01 (POL-136) and belongs to the Infrastructure Owner, not to whoever
+     * list is C01 (build-specification.md §3.1) and belongs to the Infrastructure Owner, not to whoever
      * typed the command — the same reason `gov knowledge` exists.
      */
     proposeAgentApproval: (id) => [
       `Proposing ${id} for your organization's approved list.`,
       "",
       "  This is a policy change, so it goes to whoever owns",
-      "  governance/policies/llm-governance.md — not straight into the file.",
+      "  org-config.yaml (authorized_agents) — not straight into the file.",
       "",
       `  gov knowledge propose approve-agent-${id}`,
       `  …edit the approved_agents block, then:`,
@@ -2343,6 +3371,47 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     authorize: (ref) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${ref.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
+    // READING GOVERNANCE FROM THE DEFAULT BRANCH, from inside the project worktree. The worktree and the
+    // governance clone are one repository, so `git show <default>:<path>` reaches the ratified text with no
+    // second clone and no network — the same mechanism the governance snapshot uses. Without this port the
+    // organization's `when=verb:...` checks are never found, which reads exactly like a workspace that has none:
+    // so it is wired here rather than left optional in practice.
+    git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+    // THE ONE PLACE gov WRITES A REPOSITORY RULE (GOV-FRM-447) — `gov repo protect`. Unlike `runGh`, it
+    // carries a BODY, because `PUT branches/<branch>/protection` needs nested objects and explicit nulls that
+    // no pile of `gh api -f` flags expresses without guessing. NOT retried: `retryTransient` re-runs a call,
+    // and re-running a write on a bare `EOF` — where gov cannot tell whether the first one landed — is how a
+    // rule gets applied twice or half. The verb re-reads the branch afterwards instead, which is a better
+    // answer than a retry: it finds out what actually happened.
+    ghApi: (args, body) =>
+      runProcess("gh", [...args], { pgm: "gov-work:cli:main", fn: "gh-api", ...(body === undefined ? {} : { input: body }) }),
+    // THE STAMP THAT MAKES A MERGE RECONSTRUCTABLE (design §10.10). Read from the resolved workspace, because
+    // the rendered harness there is what the agent had in context — not from the code repo the task touched.
+    governanceStamp: () => {
+      const got = gatherGovernanceFacts(fs, home, readCliVersion());
+      return got.facts ? { lines: stampLines(got.facts) } : { error: got.error ?? "the facts could not be read" };
+    },
+    /**
+     * `gh pr edit` on the task branch's pull request, run from inside the repository directory.
+     *
+     * READ THEN WRITE, and the read is what makes it safe: `--body` REPLACES the whole body, so the current one
+     * is fetched and the stamp merged into it by `withStamp`, which replaces any block already there. Writing
+     * the stamp alone would delete whatever the author (or the reviewer) had written — a merge that silently
+     * erases a pull request description is a far worse outcome than an unstamped one.
+     *
+     * Every failure is "failed" or "no-pr", never an exception: the merge has already landed.
+     */
+    stampPullRequest: (repoDir, head, lines) => {
+      const current = ((): string | null => {
+        const out = tryRunProcess("gh", ["pr", "view", head, "--json", "body", "-q", ".body"], { cwd: repoDir, pgm: "gov-work:cli:main", fn: "stamp-pr-read" });
+        return out === undefined ? null : out;
+      })();
+      if (current === null) return "no-pr";
+      return okProcess("gh", ["pr", "edit", head, "--body", withStamp(current, lines)], { cwd: repoDir, pgm: "gov-work:cli:main", fn: "stamp-pr" })
+        ? "stamped"
+        : "failed";
+    },
+    now: () => new Date(),
     log: (m) => process.stderr.write(`${m}\n`),
   };
 
@@ -2354,7 +3423,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const pf = preflight(assembleNeeds(), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
-      ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
+      ghAuthOk: () => okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
@@ -2362,7 +3431,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
   }
 
+  const print = (result: CommandResult): number => {
+    for (const line of result.lines) process.stdout.write(`${line}\n`);
+    return result.code;
+  };
   const result = route(parsed, ctx);
-  for (const line of result.lines) process.stdout.write(`${line}\n`);
-  return result.code;
+  // A command whose writes go through a port finishes asynchronously (`gov issue`); bin.ts awaits it.
+  if (result.perform) {
+    const rest = result.perform;
+    return rest().then(print, (e: unknown) => print({ code: 1, lines: [`gov ${parsed.command}: ${(e as Error)?.message ?? String(e)}`] }));
+  }
+  return print(result);
 }

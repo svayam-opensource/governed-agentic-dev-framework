@@ -11,6 +11,7 @@ function recVcs() {
   const log: string[] = [];
   const vcs = {
     fetch: (_d: string, _r: string, b: string) => log.push(`fetch ${b}`),
+    fetchDefault: () => "remote-sha",
     checkout: (_d: string, b: string) => log.push(`checkout ${b}`),
     checkoutNew: (_d: string, b: string) => log.push(`checkoutNew ${b}`),
     push: (_d: string, _r: string, b: string) => log.push(`push ${b}`),
@@ -32,7 +33,7 @@ describe("prj-work — knowledge lifecycle", () => {
 
   it("submit opens a PR knowledge-<slug> → default", () => {
     const created: string[] = [];
-    const pulls: Pulls = { create: (repo, base, head, title) => { created.push(`${repo} ${head}->${base} ${title}`); return "https://pr/1"; }, merge: () => "merged" };
+    const pulls: Pulls = { create: (repo, base, head, title) => { created.push(`${repo} ${head}->${base} ${title}`); return "https://pr/1"; }, state: () => null };
     const r = submitKnowledge(pulls, CONFIG, "api-patterns", "propose API patterns");
     expect(r.ok).to.equal(true);
     if (r.ok) expect(r.lines[0]).to.match(/https:\/\/pr\/1/);

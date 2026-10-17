@@ -1,0 +1,183 @@
+# THE SHAPE OF A RULE STORE — the framework's, replaced on every `gov upgrade`. Do not edit.
+#
+# A rule store is a YAML list of rule rows, one row per revision of a rule. There are two stores, each with one
+# writer: framework/rules/rules.yaml (the framework's rules, written only by `gov upgrade`) and policies/rules/rules.yaml
+# (your organization's rules, written by `gov rules propose` and approved in a policy pull request). How rows are
+# made, revised and retired is in framework-specification.md chapter 9.
+#
+# This file is JSON Schema 2020-12, written as YAML. Use it to check a store with any JSON Schema tool, or to have an
+# editor complete and check rows as you read them:
+#
+#   #/$defs/frameworkStore   framework/rules/rules.yaml
+#   #/$defs/orgStore         policies/rules/rules.yaml
+#   (the root)               either one
+#
+# gov itself checks a store with `gov rules check`. A test in gov holds this schema and gov's own check to the same
+# answer for every row, so the two cannot drift. A few rules span several rows or compare versions, which JSON
+# Schema cannot say; they are listed in `description` below, and only `gov rules check` reports them.
+
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://github.com/svayam-opensource/governed-agentic-dev-framework/framework/rules/rule-row.schema.yaml
+title: Rule store
+description: >-
+  A list of rule rows, one per revision of a rule. Checked here: the shape of each row and what the store it is in
+  allows. Checked only by `gov rules check`, because JSON Schema cannot express them: two-in-force (at most one row
+  of an id has no end), broken-chain (each closed revision ends at the version its successor starts at),
+  end-before-start (a row cannot end at a version before it starts). Check bindings are also checked against the
+  catalog (framework/rules/checks-catalog.yaml plus the org's) by `gov rules check`.
+anyOf:
+  - $ref: "#/$defs/frameworkStore"
+  - $ref: "#/$defs/orgStore"
+
+$defs:
+  frameworkStore:
+    description: framework/rules/rules.yaml — the framework's rules, GOV-FRM-NNN, C01 or C03 only.
+    type: array
+    items: { $ref: "#/$defs/frameworkRow" }
+
+  orgStore:
+    description: >-
+      policies/rules/rules.yaml — your organization's rules, GOV-<org_slug>-NNN. An id keeps the slug it was issued
+      under, so after a rename older rows keep the old slug; any scope but FRM is allowed here.
+    type: array
+    items: { $ref: "#/$defs/orgRow" }
+
+  frameworkRow:
+    description: >-
+      A framework rule. Its id is GOV-FRM-NNN. It is never C02, because C02 is the level with an exception route
+      and nothing can grant an exception to a framework rule.
+    type: object
+    $ref: "#/$defs/row"
+    properties:
+      id: { type: string, pattern: "^GOV-FRM-" }
+      level: { not: { const: C02 } }
+
+  orgRow:
+    description: >-
+      An organization's rule. Its id is not GOV-FRM. Its actor is never gov-client: only the framework makes
+      promises about gov.
+    type: object
+    $ref: "#/$defs/row"
+    properties:
+      id: { type: string, not: { pattern: "^GOV-FRM-" } }
+      actor: { type: array, not: { contains: { const: gov-client } } }
+
+  row:
+    description: One revision of one rule.
+    type: object
+    required: [id, source, expectation, actor, level, start]
+    properties:
+      id:
+        description: GOV-<scope>-NNN. gov issues it; it is never reused, and a retired rule keeps its closed rows.
+        type: string
+        pattern: "^GOV-[A-Z][A-Z0-9]{1,5}-[0-9]{3,}$"
+      source:
+        description: >-
+          The policy prose the rule came from — the document, its section, and the sha of that section's text when
+          the row was approved. A changed section marks its rows for re-review.
+        type: object
+        required: [doc, section, sha]
+        properties:
+          doc: { type: string, minLength: 1 }
+          section: { type: string, minLength: 1 }
+          sha: { type: string, minLength: 1 }
+      expectation:
+        description: >-
+          What the rule expects, as "<actor> <verb> <one observable action>", normalised and approved by the Policy
+          Owner. The verb is not the level.
+        type: string
+        pattern: "\\S"
+      actor:
+        description: >-
+          Who the rule binds. `everyone` means agent and human together, so it is named alone or with gov-client,
+          never with agent or human.
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items: { enum: [gov-client, agent, human, everyone] }
+      level:
+        description: C01 must, no exception · C02 must, unless a merged exception allows it · C03 should, say why when not.
+        enum: [C01, C02, C03]
+      cue:
+        description: >-
+          What an agent is told. A resident cue is always in the agent's instructions, so it is only for a C01 rule
+          that binds an agent. An on-demand cue is shown when the rule's check fires; on a row with no check nothing
+          can show it (gov warns, but the store still loads).
+        type: object
+        required: [tier, text]
+        properties:
+          tier: { enum: [resident, on-demand] }
+          text: { type: string }
+      checks:
+        description: >-
+          What checks the rule: when (a resource and an event from the catalog), which catalog action, its
+          parameters, and whether a miss fails or warns.
+        type: array
+        items: { $ref: "#/$defs/check" }
+      start:
+        description: When this revision took effect.
+        $ref: "#/$defs/stamp"
+      end:
+        description: When this revision stopped taking effect. null (or absent) means it is in force.
+        anyOf:
+          - type: "null"
+          - $ref: "#/$defs/stamp"
+      qa:
+        description: The interview that settled this revision.
+        type: array
+        items:
+          type: object
+          required: [q, a]
+          properties:
+            q: { type: string }
+            a: { type: string }
+    allOf:
+      - if:
+          type: object
+          required: [actor]
+          properties: { actor: { type: array, contains: { const: everyone } } }
+        then:
+          type: object
+          properties: { actor: { type: array, not: { contains: { enum: [agent, human] } } } }
+      - if:
+          type: object
+          required: [cue]
+          properties: { cue: { type: object, required: [tier], properties: { tier: { const: resident } } } }
+        then:
+          type: object
+          properties:
+            level: { const: C01 }
+            actor: { type: array, contains: { enum: [agent, everyone] } }
+
+  stamp:
+    description: >-
+      A version and a date. Framework rows cite a framework release; organization rows cite policies/VERSION.
+    type: object
+    required: [version, date]
+    properties:
+      version:
+        description: x.y.z
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      date:
+        description: YYYY-MM-DD
+        type: string
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      pr:
+        description: The pull request whose merge made it so. Absent only on framework rows stamped at release.
+        type: integer
+        minimum: 1
+
+  check:
+    type: object
+    required: [on, action]
+    properties:
+      on:
+        type: object
+        required: [resource, event]
+        properties:
+          resource: { type: string }
+          event: { type: string }
+      action: { type: string }
+      with: { type: object }
+      on_miss: { enum: [fail, warn] }

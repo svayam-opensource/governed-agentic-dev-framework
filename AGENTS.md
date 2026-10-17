@@ -5,6 +5,12 @@ This repo builds the Governed Agentic Development Framework: the **gov-work CLI*
 (This file is for agents *contributing to this repo*; the adopter-facing agent
 protocol lives in `publish/content/`.)
 
+## This repo is the adopters' template — the MANIFEST is the only door
+
+A new top-level file or folder here does **not** reach adopters, and must not: setup keeps only what
+`publish/content/MANIFEST.yaml` produces. To ship something to adopters, put it under `publish/content/`
+and add a MANIFEST row. Never add a delete list. See **[knowledge/repo/structure.md](knowledge/repo/structure.md)**.
+
 ## Adding tests or checks — drop-in, never touch CI/branch protection
 
 Two required checks gate `main`, and both discover new cases automatically. Pick by

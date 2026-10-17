@@ -23,7 +23,7 @@ and why.
 
 - [ ] `gov validate` — validators pass
 - [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
-- [ ] If new org value added: added to `org-config.yaml` and the `gov setup` prompt
+- [ ] If new org value added: added to `org-config.yaml` and the first-run flow's adopt questions
 
 ## Privacy / scope
 
@@ -31,6 +31,17 @@ and why.
 - [ ] No double-curly placeholder tokens anywhere in framework files — framework reads org values from `org-config.yaml` at runtime; the only files that may diverge from upstream TEMPLATE are `org-config.yaml` and `projects/`
 - [ ] If targeting `publish`: change is universal, applies to any adopting org
 - [ ] If targeting `main`: change is org-specific or comes from upstream `publish` via sync
+
+## Deviations
+
+<!--
+One line per C03 deviation this change takes: the GOV id of the rule, what you did instead, and why.
+  - GOV-FRM-123 — what was done instead — why it was reasonable here
+Write "None" when there are none. A C02 departure needs a merged exception under policies/exceptions/, not a line
+here; a C01 rule is never deviated from.
+-->
+
+None
 
 ## Linked issues
 

@@ -21,71 +21,273 @@
  *                     the org's copy always differs from the shipped one by design. Under
  *                     scaffold-prompt that was a permanent false conflict, and
  *                     --include-conflicts would have replaced the org's approved-agent list
- *                     with an empty template. Any file gov writes into must be seed-once or
- *                     overlay-schema.
+ *                     with an empty template. Any file gov writes into must be seed-once
+ *                     (governance.yaml's authorized_agents is the same case today).
  *
  *                     ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
- *                     seed-once file. If it must, that file belongs in overlay-schema
- *                     (structured data) or should ship as a reference the org copies from.
+ *                     seed-once file. If it must, it ships a SCHEMA beside it that gov checks
+ *                     the org's file against (org-config.yaml ↔ framework/common/reference/
+ *                     org-config.schema.yaml), or a reference the org copies from.
+ *   seed-new        — a STARTER FOR NEW ORGANIZATIONS (PRJ-121 intent 01, §3.2): `gov setup`'s seed creates
+ *                     it exactly as it does a seed-once file; `gov upgrade` never plans it — not create,
+ *                     not update, not conflict. An org that adopted before the starter shipped is not
+ *                     handed it by an upgrade (it wrote its own policy, or chose not to); an org that has
+ *                     it keeps its copy untouched. The dry run names a missing one "starter for new orgs".
  *   scaffold-prompt — org may extend; create if missing, update if it still
  *                     matches the shipped baseline, else flag as a conflict to
  *                     review (a full 3-way merge is a later refinement).
- *   overlay-schema  — org owns the VALUES (org-config.yaml): add template keys,
- *                     comment keys the template dropped, never touch values.
+ *   (overlay-schema — the key-by-key merge of org-config.yaml — is gone: org-config split,
+ *    Policy Owner 2026-10-06. Two writers of one file is how an upgrade emptied an org's
+ *    governance repo name (Tier 0 #5); the framework now writes the schema, the org the values.)
  * Plus RETIRE: old-world artifacts (framework/ subdir, registry.yaml,
  * .framework-version, vendored bash) that the new layout removes.
  */
 
-export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt" | "overlay-schema";
-export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
-export interface Manifest { readonly files: readonly ManifestEntry[]; readonly owned: readonly string[]; }
+export type EntryMode = "scaffold-auto" | "seed-once" | "seed-new" | "scaffold-prompt";
+/** The modes this engine implements. A manifest row in any other mode (an older content's `overlay-schema`) is KEPT, never applied. */
+export const KNOWN_MODES: readonly string[] = ["scaffold-auto", "seed-once", "seed-new", "scaffold-prompt"];
 
-/** Paths (prefixes / exact) the new layout retires from an adopter repo. */
+/**
+ * THE ORGANIZATION'S OWN FILES — decided HERE, never by the content's MANIFEST (GOV-FRM-445, 2026-10-07).
+ *
+ * A gov built from one branch ran against content fetched from another, whose MANIFEST still marked
+ * org-config.yaml `overlay-schema` — a mode this engine had dropped, so it fell through to "conflict", and `--pr`
+ * applies conflicts. The org's filled org-config.yaml became the blank template (`org_name: "Geneva ERS"` → `""`).
+ * A manifest is DATA from whichever content was fetched; the one promise an upgrade makes — it never replaces what
+ * the organization wrote — cannot rest on that data being the right version.
+ *
+ * So org-config.yaml and everything under policies/ (plus anything the manifest's own `owned:` list names) are
+ * SEED-ONCE whatever mode the manifest gives them: created when absent, otherwise kept, and the plan says so.
+ * org-config.yaml is never retired either. Values still move by the named migrations (`org-config-split`), which
+ * carry the org's own values and refuse rather than lose one — those are not template bytes.
+ */
+export const ORG_OWNED_FILES: readonly string[] = ["org-config.yaml"];
+export const ORG_OWNED_DIRS: readonly string[] = ["policies/"];
+
+/** Is `dst` the organization's? `owned` is the manifest's own `owned:` list (exact paths, `dir/` prefixes, `*` globs). */
+export function isOrgOwned(dst: string, owned: readonly string[] = []): boolean {
+  if (ORG_OWNED_FILES.includes(dst) || ORG_OWNED_DIRS.some((d) => dst.startsWith(d))) return true;
+  return owned.some((o) => {
+    const body = o.split("*").map((part) => part.replace(/[.+?^$(){}|[\]\\]/g, "\\$&")).join("[^/]*");
+    return new RegExp(o.endsWith("/") ? `^${body}` : `^${body}$`).test(dst);
+  });
+}
+/**
+ * THE MOVE RECORD'S PATH (§3.7, Q5) — gov's own, like the org-owned files above: decided here, not only by the
+ * content's `generated:` list, so content without that list can still never ship or retire it.
+ */
+export const MOVE_RECORD_PATH = "framework/upgrade-moves.json";
+
+export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
+export interface Manifest {
+  readonly files: readonly ManifestEntry[];
+  readonly owned: readonly string[];
+  readonly moves: readonly ManifestMove[];
+  /**
+   * What THIS release removes from a workspace (P3 cutover, 2026-10-06): an exact file, or a directory ending `/`.
+   * The framework's own files that a release merged away or stopped shipping — never an organization's. A path the
+   * manifest also ships is never retired: shipping wins.
+   */
+  readonly retire: readonly string[];
+  /**
+   * What `gov` WRITES into a workspace, never ships and never retires (PRJ-121 intent 01, §3.7, Q5): the move record
+   * `framework/upgrade-moves.json`, written only by `gov upgrade`. A file row or directory row that would ship one of
+   * these is dropped, and no retire — the manifest's or the old layout's — ever removes one.
+   */
+  readonly generated: readonly string[];
+}
+
+/**
+ * A RELOCATION, for the day the shipped layout changes (PRJ-121, 2026-09-23, policy-split design §9).
+ *
+ * `move` is a STRAIGHT MOVE (Policy Owner): the org's file arrives at the new path byte for byte, directory
+ * structure and all. Nothing is rewritten — the framework owns where a file lives, never what the org wrote in
+ * it. `migrate` is for the one shape a move cannot express: a value leaving one file for another (the approved
+ * agents leaving llm-governance.md for org-config.yaml). Each runs ONCE, recorded in the workspace, so a
+ * second `gov upgrade` is a no-op rather than a second move of something the org has since edited.
+ *
+ * Without this, the split would have had to CREATE the new tree and RETIRE the old — which silently drops an
+ * org's own exception files and its curated standard. That is worse than the old layout, so the mechanism
+ * comes first.
+ */
+export interface ManifestMove {
+  readonly from: string;
+  readonly to: string;
+  readonly mode: "move" | "migrate";
+  /** `migrate` only: the named, versioned migration to run. */
+  readonly how?: string;
+}
+
+/**
+ * WHICH LAYOUT A WORKSPACE IS ON (PRJ-121, 2026-09-23).
+ *
+ * `governance/` split into `framework/` (the framework's, overwritten) and `policies/` (the org's, seeded
+ * once). Both shapes exist in the wild for one release, so gov must be able to SAY which it is looking at —
+ * `gov doctor` names it, and the upgrade's moves carry a workspace across. Derived from what is on disk
+ * rather than stored: a marker file would be a second copy of a fact the tree already states.
+ */
+export type ContentLayout = "framework" | "governance" | "layout-1.0" | "none";
+
+/** The current layout's own folders under `framework/` (spec 01 §2) — any of them means `framework/` is not the old world. */
+const FRAMEWORK_LAYOUT_DIRS = ["framework/rules", "framework/common", "framework/build"] as const;
+
+export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout {
+  // The phase tree (PRJ-121 intent 01 §3.1): the framework's rule store and its two phase folders mark the layout.
+  // The flat 1.2.x layout also has framework/rules/, so it reads as "framework" and its MANIFEST retire list carries it.
+  if (FRAMEWORK_LAYOUT_DIRS.some((d) => exists(d))) return "framework";
+  if (exists("governance/policies")) return "governance";
+  // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1). The 1.0 layout (Svayamtech's): the framework's policy and
+  // the org's role registry under knowledge/policies/, no framework/ tree. The bridge upgrade carries it to 2.0.
+  if (exists("knowledge/policies/agentic-development-policy.md") || exists("knowledge/policies/roles.md")) return "layout-1.0";
+  return "none";
+}
+
+/**
+ * Paths (prefixes / exact) the new layout retires from an adopter repo — the OLD WORLD's artifacts.
+ *
+ * `framework/` here is the old world's vendored copy of the framework. The current layout ALSO lives under
+ * `framework/` (rules, common, build), so a directory entry is never retired while the manifest ships
+ * anything under it (Tier 0 #7: a second upgrade used to remove the whole tree it had just written). Specific files
+ * a release stops shipping are retired by the MANIFEST's own `retire:` list instead.
+ */
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
+
+/**
+ * THE FRAMEWORK'S OWN FILES, LEFT IN AN ADOPTER REPO BY THE TEMPLATE COPY (PRJ-121, 2026-09-22).
+ *
+ * Until setup's clean slate (create.ts `cleanSlateEntries`), `gh repo create --template` copied the whole
+ * framework repo and a stale delete-list let most of it through: svm-geneva-gov holds `publish/` (436 files:
+ * the CLI's source and tests), `site/` and `install.ps1`. Retired by upgrade like RETIRE_PATHS, but each is
+ * named by a FINGERPRINT that only the framework's copy has, so an org's own folder of the same name is never
+ * touched. And only in an ADOPTER repo (one with org-config.yaml): run in the framework's own checkout,
+ * `publish/` is the framework itself.
+ */
+export const TEMPLATE_LEFTOVERS: readonly { readonly path: string; readonly fingerprint: string }[] = [
+  { path: "publish/", fingerprint: "publish/actions/ts/package.json" },
+  { path: "site/", fingerprint: "site/caddyfile.mjs" },
+  { path: "install.ps1", fingerprint: "install.ps1" },
+];
+
+/**
+ * Which retired artifacts are present — looked for ONLY in a governance workspace (PRJ-121, 2026-09-21).
+ *
+ * RETIRE_PATHS describes an old ADOPTER REPO. `gov doctor` used to scan whatever directory it resolved as
+ * "home" — and with no workspace resolved, that is simply where the person is standing. On a fresh machine that
+ * is their home directory, which is exactly where the documented install command
+ * (`curl … -o install.sh && bash install.sh`) had just saved `install.sh`. So the first thing a new adopter saw
+ * after installing was `old-world artifacts (install.sh) — run gov upgrade --from <content>`: wrong advice,
+ * about a file we told them to create, from a check that had no workspace to be right about. It fired just as
+ * readily on any `~/bin` or `~/scripts`. Found by the first local-site walk, before it reached anyone.
+ *
+ *   isWorkspace  — `home` is a resolved governance workspace, or one the person named (`--gov-home`).
+ *   exists(rel)  — whether `rel` exists under home. Injected, so this stays free of the filesystem.
+ *
+ * The framework's OWN checkout is exempt: `install.sh` is its bootstrap installer there, not a leftover
+ * (#186). publish/content/MANIFEST.yaml exists only in the source repo, so it tells the two apart.
+ */
+export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => boolean): string[] {
+  if (!isWorkspace) return [];
+  // THE FRAMEWORK'S OWN CHECKOUT is the source repo WITHOUT an org-config.yaml. The MANIFEST alone used to decide
+  // it — and an adopter repo that inherited `publish/` from the template has the MANIFEST too, so every check was
+  // skipped exactly where the leftovers were (svm-geneva-gov, 2026-09-22).
+  if (exists("publish/content/MANIFEST.yaml") && !exists("org-config.yaml")) return [];
+  return [
+    ...RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, "")) && !(rp === "framework/" && isNewFrameworkLayout(exists))),
+    ...TEMPLATE_LEFTOVERS.filter((t) => exists(t.fingerprint)).map((t) => t.path),
+  ];
+}
+
+const isNewFrameworkLayout = (exists: (rel: string) => boolean): boolean => FRAMEWORK_LAYOUT_DIRS.some((d) => exists(d));
 
 /** Parse the flow-style MANIFEST (files[] of {src,dst,mode} + owned[]). */
 export function parseManifest(text: string): Manifest {
   const files: ManifestEntry[] = [];
   const owned: string[] = [];
-  let section: "files" | "owned" | null = null;
+  const moves: ManifestMove[] = [];
+  const retire: string[] = [];
+  const generated: string[] = [];
+  let section: "files" | "owned" | "moves" | "retire" | "generated" | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
     if (t === "files:") { section = "files"; continue; }
     if (t === "owned:") { section = "owned"; continue; }
+    if (t === "moves:") { section = "moves"; continue; }
+    if (t === "retire:") { section = "retire"; continue; }
+    if (t === "generated:") { section = "generated"; continue; }
     if (/^[a-z_]+:/.test(t) && section === null) continue; // top-level scalars (version:)
     if (section === "files") {
       const m = t.match(/^-\s*\{\s*src:\s*([^,]+?)\s*,\s*dst:\s*([^,]+?)\s*,\s*mode:\s*([a-z-]+)\s*\}/);
       if (m) files.push({ src: m[1].trim(), dst: m[2].trim(), mode: m[3].trim() as EntryMode });
+    } else if (section === "moves") {
+      const m = t.match(/^-\s*\{\s*from:\s*([^,]+?)\s*,\s*to:\s*([^,]+?)\s*,\s*mode:\s*([a-z]+)\s*(?:,\s*how:\s*([^,}]+?)\s*)?\}/);
+      if (m) moves.push({ from: m[1].trim(), to: m[2].trim(), mode: m[3].trim() as ManifestMove["mode"], ...(m[4] ? { how: m[4].trim() } : {}) });
+    } else if (section === "retire") {
+      const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
+      if (m) retire.push(m[1]!.trim().replace(/^["']|["']$/g, ""));
+    } else if (section === "generated") {
+      const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
+      if (m) generated.push(m[1]!.trim().replace(/^["']|["']$/g, ""));
     } else if (section === "owned") {
       const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
       if (m) owned.push(m[1].trim().replace(/^["']|["']$/g, ""));
     }
   }
-  return { files, owned };
+  return { files, owned, moves, retire, generated };
 }
 
-/** Expand directory entries (src/dst ending in `/`) to one entry per content file. */
+/**
+ * Expand directory entries (src/dst ending in `/`) to one entry per content file — ONE entry per destination.
+ *
+ * "Individual file entries override directory defaults" (MANIFEST.yaml's header) was never implemented: a file
+ * row inside a directory row produced TWO entries, so the upgrade plan listed the same file twice (sandbox
+ * finding, PRJ-121, 2026-10-07 — the approver-check workflow template). Now a file row wins over any
+ * directory row, a more specific directory row wins over a broader one, and each destination keeps the position
+ * it first appeared at.
+ */
 export function expandEntries(manifest: Manifest, contentFiles: readonly string[]): ManifestEntry[] {
-  const out: ManifestEntry[] = [];
+  const out = new Map<string, { entry: ManifestEntry; rank: number }>();
+  const generated = new Set([MOVE_RECORD_PATH, ...(manifest.generated ?? [])]);
+  const put = (entry: ManifestEntry, rank: number): void => {
+    if (generated.has(entry.dst)) return;   // gov writes it; the content never ships it (§3.7)
+    const had = out.get(entry.dst);
+    if (!had || rank >= had.rank) out.set(entry.dst, { entry, rank });
+  };
   for (const e of manifest.files) {
     if (e.src.endsWith("/")) {
       for (const f of contentFiles) {
-        if (f.startsWith(e.src)) out.push({ src: f, dst: e.dst + f.slice(e.src.length), mode: e.mode });
+        if (f.startsWith(e.src)) put({ src: f, dst: e.dst + f.slice(e.src.length), mode: e.mode }, e.src.length);
       }
     } else {
-      out.push(e);
+      put(e, Number.MAX_SAFE_INTEGER);
     }
   }
-  return out;
+  return [...out.values()].map((v) => v.entry);
 }
 
-export type ActionKind = "create" | "same" | "update" | "conflict" | "overlay" | "retire";
+/**
+ * `keep`: the org's file, left as it is although the manifest asked otherwise — shown, never applied (GOV-FRM-445).
+ * `starter`: a seed-new file this workspace does not have — shown by an upgrade's dry run, never applied (§3.2).
+ */
+export type ActionKind = "create" | "same" | "keep" | "starter" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
   readonly src?: string;
   readonly detail?: string;
+  /** `move` / `migrate`: where the org's file is now, and (for migrate) the named migration. */
+  readonly from?: string;
+  readonly how?: string;
+  /**
+   * `move` of one file under a DIRECTORY move: that move's record id (`<from>/ → <to>/`). The directory is recorded
+   * ONCE, after its files have moved — never one record per file (see `planUpgrade`, relocations).
+   */
+  readonly group?: string;
+  /**
+   * Which commit of the upgrade PR this lands in (upgrade-commits.ts), when not the one its kind implies — e.g. the
+   * org's old exception templates, retired beside the moves of the records next to them.
+   */
+  readonly commit?: "framework" | "org-moves" | "migrations" | "proposed-prose";
 }
 export interface UpgradePlan { readonly actions: readonly PlanAction[]; }
 
@@ -98,10 +300,45 @@ export interface PlanReaders {
   readonly adopterPaths: () => readonly string[];
   /** The previously-installed baseline for a dst, if the engine tracks it (else null). */
   readonly readBaseline?: (rel: string) => string | null;
+  /** Relocations already carried out in this workspace, by `<from> → <to>` — so each runs ONCE. */
+  readonly doneMoves?: () => readonly string[];
+  /**
+   * Would this migration lose anything? The reasons, or empty when it carries every value. A migration that would
+   * lose a value is planned as a REFUSAL, so a dry run says so and `--pr` stops before it makes a branch.
+   */
+  readonly checkMigration?: (how: string, from: string, to: string) => readonly string[];
 }
 
-/** Compute the migration plan (no writes). */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): UpgradePlan {
+/** The record of a relocation, as the workspace keeps it. */
+export const moveId = (m: { from: string; to: string }): string => `${m.from} → ${m.to}`;
+
+const asDir = (p: string): string => (p.endsWith("/") ? p : `${p}/`);
+
+/**
+ * HAS THIS DIRECTORY MOVE ALREADY RUN HERE? (PRJ-121, 2026-10-12.)
+ *
+ * Recorded as the directory (`<from>/ → <to>/`) since 2026-10-12. Before that, a directory move was recorded one
+ * entry PER FILE it moved (`<from>/a.md → <to>/a.md`), so "applied once" did not hold for the folder: a file the org
+ * later put back under the old folder had no record and was moved again. A workspace that upgraded then still holds
+ * those per-file records, and any one of them is proof the directory move ran — the old engine moved every file
+ * under the folder in the same run. So any per-file record that sits under the move, at the same relative path on
+ * both sides, counts as the directory move having been applied.
+ */
+export function directoryMoveDone(m: { from: string; to: string }, done: ReadonlySet<string>): boolean {
+  if (done.has(moveId(m))) return true;
+  const from = asDir(m.from), to = asDir(m.to);
+  for (const id of done) {
+    const [f, t] = id.split(" → ");
+    if (f && t && f.startsWith(from) && f.length > from.length && t === `${to}${f.slice(from.length)}`) return true;
+  }
+  return false;
+}
+
+/**
+ * Compute the migration plan (no writes). `opts.seed`: this is `gov setup` seeding a new workspace, so a seed-new
+ * starter is planned like seed-once; without it (every `gov upgrade`) a seed-new row is never created or changed.
+ */
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = [], opts: { seed?: boolean; generated?: readonly string[] } = {}): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -111,15 +348,25 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     if (content === null) continue; // shipped file missing from the content source
     const current = r.readAdopter(e.dst);
 
-    if (e.mode === "overlay-schema") {
-      const merged = current === null ? content : mergeOrgConfig(content, current);
-      actions.push({ kind: current === null ? "create" : "overlay", dst: e.dst, src: e.src, detail: current === null ? "seed from template" : "add new keys · comment removed · keep values" });
-      void merged;
+    // seed-new (§3.2): before the org-owned check — the row is the org's by design, not a manifest that disagrees.
+    if (e.mode === "seed-new" && !opts.seed) {
+      if (current === null) actions.push({ kind: "starter", dst: e.dst, src: e.src, detail: "starter for new orgs — gov setup creates it; an upgrade never does" });
+      else actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours — a starter for new orgs; an upgrade never touches it" });
       continue;
     }
     if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src }); continue; }
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
-    if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
+    // GOV-FRM-445: the org's file is seed-once whatever the manifest says — and a manifest that says otherwise is
+    // named in the plan, because it means the content is not the build this gov expects.
+    if (e.mode !== "seed-once" && e.mode !== "seed-new" && isOrgOwned(e.dst, owned)) {
+      actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `org-owned — the content's manifest marks it ${e.mode}; gov never overwrites it` });
+      continue;
+    }
+    if (!KNOWN_MODES.includes(e.mode)) {
+      actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `this gov does not know mode ${e.mode} — left as it is; use the gov this content was built for` });
+      continue;
+    }
+    if (e.mode === "seed-once" || e.mode === "seed-new") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
     if (e.mode === "scaffold-auto") { actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "framework-owned overwrite" }); continue; }
     // scaffold-prompt: NO MANIFEST ENTRY USES THIS ANY MORE (2026-09-15).
     //
@@ -139,48 +386,108 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     else actions.push({ kind: "conflict", dst: e.dst, src: e.src, detail: "org-customized — review before applying" });
   }
 
-  // Retire old-world artifacts present in the adopter.
+  // ── RELOCATIONS, before anything is retired ──────────────────────────────────────────────────────────
+  //
+  // A move is planned only when the org HAS the file and has not been moved before: a second `gov upgrade`
+  // must not move something the org has since put back, and a file that was never there is not a change.
+  //
+  // A DIRECTORY move (`from` ends in `/`) is ONE relocation, recorded once as the directory (PRJ-121, 2026-10-12):
+  //   · recorded (or covered by the per-file records an older gov wrote) → never planned again, so a file the org
+  //     has since put under the old folder stays where the org put it;
+  //   · source folder absent or empty → nothing to do (not an error, and not recorded);
+  //   · destination folder already holds files → REFUSED, nothing moved: two folders merged silently could hide
+  //     which copy is the org's, and a same-named file would be overwritten. The org merges them by hand;
+  //   · NESTED moves: a file under a more specific move that is still to run is that move's, not the broader
+  //     one's; and when `to` sits inside `from`, what is already under `to` is not part of the source.
+  const present = new Set(r.adopterPaths());
+  const already = new Set(r.doneMoves?.() ?? []);
+  const isDone = (m: ManifestMove): boolean => (m.from.endsWith("/") ? directoryMoveDone(m, already) : already.has(moveId(m)));
+  const pending = moves.filter((m) => !isDone(m));
+  const movedAway = new Set<string>();
+  for (const m of pending) {
+    const dir = m.from.endsWith("/");
+    const claimedElsewhere = (p: string): boolean => pending.some((o) => o !== m && o.from.length > m.from.length && o.from.startsWith(m.from)
+      && (o.from.endsWith("/") ? p.startsWith(o.from) : p === o.from));
+    const toInsideFrom = dir && asDir(m.to).length > m.from.length && asDir(m.to).startsWith(m.from);
+    const here = dir
+      ? [...present].filter((p) => p.startsWith(m.from) && !(toInsideFrom && p.startsWith(asDir(m.to))) && !claimedElsewhere(p))
+      : present.has(m.from) ? [m.from] : [];
+    if (!here.length) continue;
+    if (dir && m.mode === "move") {
+      const to = asDir(m.to);
+      const source = new Set(here);
+      const occupied = [...present].filter((p) => p.startsWith(to) && !source.has(p));
+      if (occupied.length) {
+        actions.push({ kind: "refuse", dst: to, from: m.from, detail: `${to} already exists here (${occupied.length} file(s), e.g. ${occupied[0]}) — nothing moved from ${m.from}; merge the two folders by hand, then run gov upgrade again` });
+      } else {
+        const group = moveId(m);
+        for (const from of here) actions.push({ kind: "move", dst: `${to}${from.slice(m.from.length)}`, from, group, detail: "the org's file, moved as it stands" });
+      }
+      for (const h of here) movedAway.add(h);
+      continue;
+    }
+    if (m.mode === "migrate") {
+      const lost = m.how ? r.checkMigration?.(m.how, m.from, m.to) ?? [] : [];
+      actions.push(lost.length
+        ? { kind: "refuse", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `${m.how} would lose ${lost.join(", ")} — nothing moved; reconcile by hand` }
+        : { kind: "migrate", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `carries the org's values into ${m.to}` });
+    } else {
+      actions.push({ kind: "move", dst: m.to, from: m.from, detail: "the org's file, moved as it stands" });
+    }
+    for (const h of here) movedAway.add(h);
+  }
+
+  // Retire old-world artifacts present in the adopter — never a directory the manifest ships into (Tier 0 #7).
+  // A `generated:` path (the move record) is never retired by name (§3.7). A DIRECTORY retire that covers one still
+  // runs — the old world's vendored `framework/` must go — and the runner's remover keeps the generated file
+  // (upgrade-run `removeKeepingGenerated`).
+  const generated = [MOVE_RECORD_PATH, ...(opts.generated ?? [])];
+  const shipsUnder = (dir: string): boolean => [...shippedDst].some((d) => d.startsWith(dir));
   const seenRetire = new Set<string>();
   for (const p of r.adopterPaths()) {
     for (const rp of RETIRE_PATHS) {
+      if (rp.endsWith("/") && shipsUnder(rp)) continue;
       const hit = rp.endsWith("/") ? p.startsWith(rp) : p === rp;
-      if (hit && !seenRetire.has(rp)) { seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" }); }
+      // RETIRE ONLY AFTER VERIFY (design §9.3): a path something is moving out of is not retired in the same
+      // run — the move is the account of it, and retiring it as well would race the copy.
+      if (hit && !seenRetire.has(rp) && ![...movedAway].some((mp) => mp === p || mp.startsWith(rp))) {
+        seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" });
+      }
+    }
+  }
+  // What THIS release stopped shipping (the MANIFEST's `retire:`). Shipping wins: a listed path the manifest also
+  // ships — or a listed directory it ships into — is left alone, so a bad entry can never delete a live file.
+  for (const rp of retire) {
+    if (seenRetire.has(rp)) continue;
+    if (ORG_OWNED_FILES.includes(rp) || owned.includes(rp)) {
+      if (present.has(rp)) actions.push({ kind: "keep", dst: rp, detail: "org-owned — the content's manifest retires it; gov never removes it" });
+      continue;
+    }
+    if (rp.endsWith("/") ? shipsUnder(rp) : shippedDst.has(rp) || generated.includes(rp)) continue;
+    const hit = rp.endsWith("/") ? [...present].some((p) => p.startsWith(rp)) : present.has(rp);
+    if (hit && !movedAway.has(rp)) {
+      seenRetire.add(rp);
+      actions.push({ kind: "retire", dst: rp, detail: "no longer shipped by this release" });
+    }
+  }
+  // The framework's own files left by the template copy — fingerprinted, and only in an adopter repo.
+  const paths = new Set(r.adopterPaths());
+  if (paths.has("org-config.yaml")) {
+    for (const t of TEMPLATE_LEFTOVERS) {
+      if (paths.has(t.fingerprint) && !seenRetire.has(t.path)) {
+        seenRetire.add(t.path);
+        actions.push({ kind: "retire", dst: t.path, detail: "the framework's own files, left by the template copy" });
+      }
     }
   }
   return { actions };
 }
 
-/** org-config overlay-schema merge: template schema, org values (rkant's spec). */
-export function mergeOrgConfig(templateText: string, orgText: string): string {
-  // Indentation-aware key: `<indent-depth>:<key>` so NESTED keys (the `services:` block) are matched +
-  // preserved too — else an upgrade would clobber the org's real endpoints with the template placeholders.
-  const keyOf = (line: string): string | null => {
-    const m = line.match(/^(\s*)([a-z_][a-z0-9_-]*):/i);
-    return m ? `${m[1].length}:${m[2]}` : null;
-  };
-  const orgValues = new Map<string, string>();
-  for (const line of orgText.split(/\r?\n/)) { const k = keyOf(line); if (k) orgValues.set(k, line); }
-  const templateKeys = new Set<string>();
-  const out: string[] = [];
-  // Walk the TEMPLATE (canonical order + comments); fill org values where present.
-  for (const line of templateText.split(/\r?\n/)) {
-    const k = keyOf(line);
-    if (k) { templateKeys.add(k); out.push(orgValues.has(k) ? orgValues.get(k)! : line); }
-    else out.push(line);
-  }
-  // Append org keys the template dropped, commented out.
-  const removed = [...orgValues.keys()].filter((k) => !templateKeys.has(k));
-  if (removed.length) {
-    out.push("", "# Removed from the framework template (kept for reference — delete when ready):");
-    for (const k of removed) out.push(`# ${orgValues.get(k)}`);
-  }
-  return out.join("\n").replace(/\n+$/, "") + "\n";
-}
-
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", overlay: "~ overlay", retire: "- retire " };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", starter: "· starter", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
   const shown = plan.actions.filter((a) => a.kind !== "same");
-  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.dst}${a.detail ? `   (${a.detail})` : ""}`);
+  const detailOf = (a: PlanAction): string | undefined => a.detail ?? (a.kind === "starter" ? "starter for new orgs" : undefined);
+  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${detailOf(a) ? `   (${detailOf(a)})` : ""}`);
   const counts = plan.actions.reduce<Record<string, number>>((m, a) => ((m[a.kind] = (m[a.kind] ?? 0) + 1), m), {});
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ");
   return [...(lines.length ? lines : ["  (workspace already matches the published content)"]), "", `plan: ${summary}`];
@@ -191,24 +498,89 @@ export interface ApplyDeps {
   readonly readAdopter: (rel: string) => string | null;
   readonly writeAdopter: (rel: string, text: string) => void;
   readonly removeAdopter: (rel: string) => void;
+  /** Move the org's file, byte for byte. Defaults to read + write + remove when not supplied. */
+  readonly moveAdopter?: (from: string, to: string) => void;
+  /**
+   * Run the named migration: true when it ran, false when gov does not know it (then nothing is recorded), or the
+   * reason it REFUSED — a value it would lose — in which case it wrote nothing.
+   */
+  readonly migrate?: (how: string, from: string, to: string) => boolean | string;
+  /** Record that a relocation has happened, so the next run skips it. */
+  readonly recordMove?: (id: string) => void;
 }
 
 /** Apply the plan. Conflicts are skipped unless includeConflicts. */
-export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { includeConflicts?: boolean } = {}): { applied: string[]; skipped: string[] } {
+export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { includeConflicts?: boolean } = {}): { applied: string[]; skipped: string[]; refused: string[]; why: string[] } {
   const applied: string[] = [];
   const skipped: string[] = [];
-  for (const a of plan.actions) {
-    if (a.kind === "same") continue;
+  const refused: string[] = [];
+  const why: string[] = [];
+  // MOVES FIRST, then everything else in plan order. The org's own file must be at its new path before gov
+  // writes anything near it: a folder still at its old name can block a file that shares that name on a
+  // case-insensitive disk (`policies/version/` and `policies/VERSION`, Policy Owner, 2026-10-07). A file a move
+  // put in place is the org's, so a starter planned for the same path (it was absent when planned) is not written.
+  const filled = new Set<string>();
+  const ordered = [...plan.actions.filter((a) => a.kind === "move"), ...plan.actions.filter((a) => a.kind !== "move")];
+  // A DIRECTORY move is recorded ONCE, as the directory, when all of its files have moved — before anything else is
+  // written, so a later failure cannot leave the folder moved and unrecorded. A file of it that could not move
+  // (its destination appeared since planning) leaves the directory unrecorded: the next run plans it again, finds
+  // the destination occupied, and refuses with the reason.
+  const groupMoved = new Set<string>(), groupFailed = new Set<string>();
+  let groupsRecorded = false;
+  const recordGroups = (): void => {
+    if (groupsRecorded) return;
+    groupsRecorded = true;
+    for (const g of groupMoved) if (!groupFailed.has(g)) deps.recordMove?.(g);
+  };
+  for (const a of ordered) {
+    if (a.kind !== "move") recordGroups();
+    if (a.kind === "same" || a.kind === "keep" || a.kind === "starter") continue;
+    // GOV-FRM-445, the second line of defence: whatever a plan says, an org-owned file that exists is never
+    // written with content bytes. (A plan built elsewhere, or a file that appeared since planning.)
+    if ((a.kind === "create" || a.kind === "update" || a.kind === "conflict") && isOrgOwned(a.dst) && deps.readAdopter(a.dst) !== null) {
+      skipped.push(a.dst); continue;
+    }
+    if (a.kind === "create" && filled.has(a.dst)) continue;
+    // NEVER written, whatever the options: includeConflicts means "the PR diff is the review", and a value
+    // silently gone from org-config.yaml is exactly what a reviewer skims past.
+    if (a.kind === "refuse") { refused.push(a.dst); continue; }
     if (a.kind === "conflict" && !opts.includeConflicts) { skipped.push(a.dst); continue; }
     if (a.kind === "retire") { deps.removeAdopter(a.dst); applied.push(a.dst); continue; }
-    if (a.kind === "overlay") {
-      const tmpl = a.src ? deps.readContent(a.src) : null;
-      const org = deps.readAdopter(a.dst);
-      if (tmpl !== null) { deps.writeAdopter(a.dst, org === null ? tmpl : mergeOrgConfig(tmpl, org)); applied.push(a.dst); }
+    if (a.kind === "move" && a.from) {
+      // A file of a directory move never lands on one already there: that is a merge, and the plan refuses those.
+      if (a.group && deps.readAdopter(a.dst) !== null) {
+        groupFailed.add(a.group); refused.push(a.dst);
+        why.push(`  ✗ ${a.from} NOT moved: ${a.dst} already exists — merge by hand, then run gov upgrade again`);
+        continue;
+      }
+      // STRAIGHT MOVE: the bytes the org has, at the new path. Never a rewrite — the framework owns WHERE a
+      // file lives, never WHAT the organization wrote in it.
+      if (deps.moveAdopter) deps.moveAdopter(a.from, a.dst);
+      else {
+        const text = deps.readAdopter(a.from);
+        if (text === null) { skipped.push(a.dst); continue; }
+        deps.writeAdopter(a.dst, text);
+        deps.removeAdopter(a.from);
+      }
+      if (a.group) groupMoved.add(a.group);
+      else deps.recordMove?.(moveId({ from: a.from, to: a.dst }));
+      filled.add(a.dst);
+      applied.push(a.dst);
+      continue;
+    }
+    if (a.kind === "migrate" && a.from) {
+      // A migration gov does not know is NOT an error to stop on, and NOT something to record: a newer content
+      // manifest naming a migration an older CLI lacks must leave the file where it is, for the upgrade that
+      // does know it.
+      const ran = a.how ? deps.migrate?.(a.how, a.from, a.dst) ?? false : false;
+      if (ran === true) { deps.recordMove?.(moveId({ from: a.from, to: a.dst })); applied.push(a.dst); }
+      else if (typeof ran === "string") { refused.push(a.dst); why.push(`  ✗ ${a.from} → ${a.dst} NOT migrated: ${ran}`); }
+      else skipped.push(a.dst);
       continue;
     }
     const c = a.src ? deps.readContent(a.src) : null;
     if (c !== null) { deps.writeAdopter(a.dst, c); applied.push(a.dst); }
   }
-  return { applied, skipped };
+  recordGroups();
+  return { applied, skipped, refused, why };
 }

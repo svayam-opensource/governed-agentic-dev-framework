@@ -33,6 +33,19 @@ Out of scope:
 - Adopters' own customized policies after they fork the template.
 - Issues that require physical access to a developer's machine.
 
+## What gov verifies before it runs downloaded code
+
+`gov` downloads and runs code in a few places. This is what it checks, and what it does not check yet.
+
+| What is downloaded | What gov checks | What it does not check |
+| --- | --- | --- |
+| Node.js tarball (`install.sh`) | The SHA-256 against the `SHASUMS256.txt` that nodejs.org publishes beside the release. | The `.asc` signature on `SHASUMS256.txt`. Both come from the same server, so a compromised nodejs.org could change both. *Deferred.* |
+| `install.sh` itself | Nothing. You fetch it yourself, and `curl … \| bash` runs whatever is served. | A digest published with each release that you can check first. *Deferred (#235).* |
+| An agent's npm or pip package | That the package name is the one the vendor publishes (the agent catalog lists only vendor-owned names). npm and pip check their own downloads. | Package signatures or provenance. |
+| A vendor's install script (Cursor, IBM Bob) | gov downloads the script **once**, shows you the URL and the script's SHA-256, and asks you. The script runs only if you answer `y`. Without a terminal it does not run. bash runs the exact bytes you were shown, from memory. Nothing is downloaded a second time. gov does not compare the script with a recorded digest, so a vendor's script change never blocks an install. | Whether the vendor's script is safe. A changed or tampered script runs if you answer `y`. Windows: gov does not run vendor shell scripts there. It points you to the vendor's page. |
+
+Each week the `catalog-freshness` workflow downloads every vendor script and reports its digest. It opens no pull requests.
+
 ## Supported Versions
 
 The latest commit on the `publish` branch is the only actively supported version. Older snapshots may be patched at maintainer discretion if the impact warrants it.

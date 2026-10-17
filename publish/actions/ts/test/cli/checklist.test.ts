@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /** The adoption checklist (#186) — derived from the machine, never from a file. */
 import { expect } from "chai";
-import { checklist, renderChecklist, statusSoFar, finalStatus, stepBanner, stepDone } from "../../src/cli/checklist.js";
+import { checklist, renderChecklist, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix } from "../../src/cli/checklist.js";
 import { adopterNextSteps, joinerNextSteps } from "../../src/cli/next-steps.js";
 
 const BARE = {
@@ -91,7 +91,7 @@ describe("gov-work — what to do now (#186)", () => {
   it("a joiner is told the opposite — it is settled, here is where to read it", () => {
     const t = joinerNextSteps(F).join("\n");
     expect(t).to.contain("nothing for you to configure");
-    expect(t).to.contain("org-ai-agent-governance-policy.md");
+    expect(t).to.contain("framework-specification.md");
     expect(t, "and how to push back without working around it").to.contain("gov knowledge propose");
     expect(t, "no founding instructions").to.not.contain("UNGOVERNED");
   });
@@ -214,5 +214,32 @@ describe("gov-work — the checklist in colour (#204)", () => {
     const plain = renderChecklist(items, false);
     expect(plain[0], "step 1 is done by construction").to.contain("[\u2713]");
     expect(plain.find((l) => /gh, the GitHub CLI/.test(l))).to.contain("[ ]");
+  });
+});
+
+// PRJ-121, 2026-09-22 — on a walk, `===> 4. [✓] Install dependency — gh` printed after only ADDING GitHub's
+// package repository (gh not yet installed: a false tick), then twice more; sign-in ran as "step 4", and git's
+// name/email had no heading. The step was chosen by the first word of its fix id, and three ids begin `gh`.
+describe("itemForFix — every doctor --fix step lands on its own item", () => {
+  const rocky = checklist({ ...BARE, installCmd: { git: "sudo dnf install -y git", ghRepo: "sudo curl … gh-cli.repo", gh: "sudo dnf install -y gh" } } as never);
+  const n = (fix: string, items = rocky) => itemForFix(fix, items)?.n;
+
+  it("maps each fix to its own number — no two gh steps share one", () => {
+    expect(n("git")).to.equal("3");
+    expect(n("gh repo"), "adding the repository is 4a, not 'gh installed'").to.equal("4a");
+    expect(n("gh")).to.equal("4b");
+    expect(n("gh auth"), "signing in is step 5, not step 4").to.equal("5");
+    expect(n("gh scopes")).to.equal("5");
+    expect(n("git identity"), "git's name/email is step 6").to.equal("6");
+  });
+
+  it("where gh needs no extra repository (no 4a/4b), both gh steps fall back to 4", () => {
+    const fedora = checklist({ ...BARE, installCmd: { git: "sudo dnf install -y git", gh: "sudo dnf install -y gh" } } as never);
+    expect(n("gh", fedora)).to.equal("4");
+    expect(n("gh repo", fedora)).to.equal("4");
+  });
+
+  it("an unknown fix id gets no heading rather than a wrong one", () => {
+    expect(n("something new")).to.equal(undefined);
   });
 });

@@ -1,0 +1,306 @@
+# POL → GOV ALIASES (rule-model-design.md Q21; W3, 2026-10-06).
+#
+# Every POL number ever allocated or cited, and what became of it under the rule model. POL numbers are
+# retired: nothing new may cite one (test/content/pol-citations.test.ts). History is not rewritten, so an old
+# commit, review or knowledge file that cites POL-xxx resolves here — `gov rules show POL-xxx`.
+#
+# Each entry is exactly one of:
+#   POL-xxx: GOV-…                    the rule survives under this id
+#   POL-xxx: { gov: GOV-…, also: […] } it survives, split across several rows
+#   POL-xxx: { folded: GOV-… }        it was part of (or restated) that row, and lives there now
+#   POL-xxx: { dropped: <reason> }    no rule carries it
+#   POL-xxx: { org: pending — … }     an organization's clause; its GOV id is issued at its first propose
+#
+# A dotted label (POL-040a.3) resolves through its base number.
+
+aliases:
+  POL-001: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.1); no rule row" }
+  POL-002: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.1); no rule row" }
+  POL-003: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.2); no rule row" }
+  POL-004: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.2); no rule row" }
+  POL-005: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.2); no rule row" }
+  POL-006: GOV-SVM-006
+  POL-007: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.2); no rule row" }
+  POL-008: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.2); no rule row" }
+  POL-009: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.4); no rule row" }
+  POL-009a: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.7); no rule row" }
+  POL-009b: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.1); no rule row" }
+  POL-009c: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §1.5); no rule row" }
+  POL-009d: { folded: GOV-FRM-446 }
+  POL-009e: { folded: GOV-FRM-446 }
+  POL-010: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §2); no rule row" }
+  POL-011: GOV-FRM-011
+  POL-012: GOV-FRM-012
+  POL-013: { folded: GOV-FRM-012 }
+  POL-014: { folded: GOV-FRM-012 }
+  POL-015: { folded: GOV-FRM-011 }
+  POL-016: GOV-FRM-016
+  POL-017: { folded: GOV-FRM-016 }
+  POL-018: { folded: GOV-FRM-016 }
+  POL-019: { folded: GOV-FRM-016 }
+  POL-020: GOV-FRM-020
+  POL-021: GOV-FRM-021
+  POL-022: { folded: GOV-FRM-021 }
+  POL-023: { folded: GOV-FRM-021 }
+  POL-024: { folded: GOV-FRM-021 }
+  POL-025: { folded: GOV-FRM-021 }
+  POL-026: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-027: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-028: { dropped: "a definition of the Policy Owner, with no action in it; framework-specification.md ch.2" }
+  POL-029: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-030: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-031: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-032: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-033: { gov: GOV-FRM-033, also: [GOV-SVM-033] }
+  POL-034: { folded: GOV-FRM-033 }
+  POL-035: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-036: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-037: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-038: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-039: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-040: { dropped: "an organization role clause; roles are the organization's, in authorized-representatives.md (W2: the cited numbers never existed there)" }
+  POL-040a: { gov: GOV-FRM-447, also: [GOV-FRM-448] }
+  POL-040b: { folded: GOV-FRM-449 }
+  POL-040c: GOV-FRM-040
+  POL-040d: GOV-FRM-450
+  POL-040e: { folded: GOV-FRM-448 }
+  POL-041: GOV-FRM-041
+  POL-042: { folded: GOV-FRM-453 }
+  POL-042a: { folded: GOV-FRM-443 }
+  POL-043: { folded: GOV-FRM-453 }
+  POL-044: { gov: GOV-FRM-044, also: [GOV-FRM-451] }
+  POL-044a: { dropped: "rationale only; framework-specification.md ch.4" }
+  POL-044b: { folded: GOV-FRM-451 }
+  POL-045: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.4); no rule row" }
+  POL-046: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.4); no rule row" }
+  POL-047: { folded: GOV-FRM-454 }
+  POL-047a: { folded: GOV-FRM-454 }
+  POL-048: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.5); no rule row" }
+  POL-049: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.5); no rule row" }
+  POL-050: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.5); no rule row" }
+  POL-051: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.5); no rule row" }
+  POL-052: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.5); no rule row" }
+  POL-053: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.6); no rule row" }
+  POL-054: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.6); no rule row" }
+  POL-055: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §4.6); no rule row" }
+  POL-056: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.1); no rule row" }
+  POL-056a: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5); no rule row" }
+  POL-057: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.1); no rule row" }
+  POL-058: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.2); no rule row" }
+  POL-059: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.2); no rule row" }
+  POL-060: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.3); no rule row" }
+  POL-061: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.3); no rule row" }
+  POL-062: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.4); no rule row" }
+  POL-063: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.4); no rule row" }
+  POL-064: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.4); no rule row" }
+  POL-065: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.4); no rule row" }
+  POL-066: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §6.4); no rule row" }
+  POL-067: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.3); no rule row" }
+  POL-068: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.3); no rule row" }
+  POL-069: { folded: GOV-FRM-443 }
+  POL-070: { folded: GOV-FRM-443 }
+  POL-071: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.3); no rule row" }
+  POL-072: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.3); no rule row" }
+  POL-073: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.3); no rule row" }
+  POL-074: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §5.4); no rule row" }
+  POL-075: { folded: GOV-FRM-044 }
+  POL-076: GOV-FRM-076
+  POL-077: { folded: GOV-FRM-076 }
+  POL-078: { folded: GOV-FRM-076 }
+  POL-079: { folded: GOV-FRM-076 }
+  POL-080: GOV-FRM-080
+  POL-081: { folded: GOV-FRM-076 }
+  POL-082: GOV-FRM-082
+  POL-083: { dropped: "a statement of fact with no actor (CODEOWNERS routes reviews); framework-specification.md ch.7" }
+  POL-083a: GOV-FRM-083
+  POL-084: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.2); no rule row" }
+  POL-085: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.2); no rule row" }
+  POL-086: GOV-FRM-086
+  POL-086a: { gov: GOV-FRM-086, also: [GOV-FRM-456] }
+  POL-086b: GOV-FRM-086
+  POL-086c: GOV-FRM-455
+  POL-086d: { dropped: "explanation only (a proposal is not an exception); framework-specification.md ch.7" }
+  POL-087: { folded: GOV-FRM-086 }
+  POL-088: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.3); no rule row" }
+  POL-089: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.4); no rule row" }
+  POL-090: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.4); no rule row" }
+  POL-091: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.4); no rule row" }
+  POL-092: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.4); no rule row" }
+  POL-093: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.4); no rule row" }
+  POL-094: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-095: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-096: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-097: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-098: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-099: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-100: { dropped: "retired before the rule model (old §8.8); no rule row" }
+  POL-101: { dropped: "retired before the rule model; no rule row" }
+  POL-102: { dropped: "retired before the rule model; no rule row" }
+  POL-103: { dropped: "retired before the rule model; no rule row" }
+  POL-104: { dropped: "retired before the rule model; no rule row" }
+  POL-105: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.7); no rule row" }
+  POL-105a: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.7); no rule row" }
+  POL-106: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.7); no rule row" }
+  POL-107: { dropped: "retired before the rule model; no rule row" }
+  POL-108: { dropped: "retired before the rule model; no rule row" }
+  POL-109: { dropped: "retired before the rule model; no rule row" }
+  POL-110: { dropped: "retired before the rule model: subsumed by POL-093 — review at close is the owners' and the Policy Owner's" }
+  POL-111: { dropped: "retired before the rule model: removed 2026-09-23 — gov close performs no LLM+RAG synthesis; it proposes the project's own files" }
+  POL-112: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §8.5); no rule row" }
+  POL-113: GOV-FRM-113
+  POL-114: GOV-FRM-114
+  POL-115: GOV-FRM-115
+  POL-116: GOV-FRM-116
+  POL-117: GOV-FRM-117
+  POL-118: { folded: GOV-FRM-113 }
+  POL-119: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.5); no rule row" }
+  POL-120: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.5); no rule row" }
+  POL-120a: { dropped: "the end-of-session checklist, removed before the lock (bf948d1)" }
+  POL-121: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.5); no rule row" }
+  POL-121a: { dropped: "the end-of-session checklist, removed before the lock (bf948d1)" }
+  POL-122: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.5); no rule row" }
+  POL-123: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.5); no rule row" }
+  POL-124: { folded: GOV-FRM-012 }
+  POL-125: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §7.1); no rule row" }
+  POL-126: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §7.1); no rule row" }
+  POL-127: { folded: GOV-FRM-080 }
+  POL-128: GOV-FRM-128
+  POL-129: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §7.4); no rule row" }
+  POL-130: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §7.4); no rule row" }
+  POL-131: GOV-FRM-131
+  POL-131a: { org: "pending — issued at first propose" }
+  POL-132: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §7.4); no rule row" }
+  POL-133: GOV-FRM-133
+  POL-134: GOV-FRM-134
+  POL-135: { folded: GOV-FRM-134 }
+  POL-136: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.7); no rule row" }
+  POL-137: GOV-SVM-137
+  POL-138: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9); no rule row" }
+  POL-139: { dropped: "retired before the rule model (old §9.9); no rule row" }
+  POL-140: { dropped: "retired before the rule model; no rule row" }
+  POL-141: { dropped: "retired before the rule model; no rule row" }
+  POL-142: { dropped: "retired before the rule model; no rule row" }
+  POL-143: GOV-SVM-143
+  POL-144: { dropped: "retired before the rule model; no rule row" }
+  POL-145: { dropped: "retired before the rule model; no rule row" }
+  POL-145a: { dropped: "a permission with no observable obligation; framework-specification.md ch.9" }
+  POL-145b: { folded: GOV-FRM-011 }
+  POL-145c: GOV-FRM-462
+  POL-146: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §10.3); no rule row" }
+  POL-146a: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §10.2); no rule row" }
+  POL-147: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §10.3); no rule row" }
+  POL-148: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §10.3); no rule row" }
+  POL-149: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §10.3); no rule row" }
+  POL-150: GOV-FRM-150
+  POL-151: { dropped: "a pointer whose number never existed in its target" }
+  POL-152: GOV-FRM-152
+  POL-153: { folded: GOV-FRM-152 }
+  POL-154: GOV-FRM-154
+  POL-155: { folded: GOV-FRM-020 }
+  POL-156: GOV-FRM-156
+  POL-156a: GOV-FRM-464
+  POL-157: { dropped: "retired before the rule model; no rule row" }
+  POL-158: { dropped: "retired before the rule model; no rule row" }
+  POL-158a: GOV-FRM-465
+  POL-159: { org: "pending — issued at first propose" }
+  POL-160: { org: "pending — issued at first propose" }
+  POL-161: { org: "pending — issued at first propose" }
+  POL-162: { org: "pending — issued at first propose" }
+  POL-163: { dropped: "retired before the rule model; no rule row" }
+  POL-164: { dropped: "retired before the rule model; no rule row" }
+  POL-165: { dropped: "retired before the rule model; no rule row" }
+  POL-166: { dropped: "retired before the rule model; no rule row" }
+  POL-167: { dropped: "retired before the rule model; no rule row" }
+  POL-168: { dropped: "never existed in any policy; a refusal once cited it" }
+  POL-169: { dropped: "retired before the rule model; no rule row" }
+  POL-170: { dropped: "retired before the rule model; no rule row" }
+  POL-171: { folded: GOV-FRM-113 }
+  POL-172: GOV-FRM-172
+  POL-173: GOV-FRM-173
+  POL-185: { dropped: "allocated by the lock for the sentence the policy numbered POL-009c (a lock defect); never a rule" }
+  POL-200: { org: "pending — issued at first propose" }
+  POL-201: { org: "pending — issued at first propose" }
+  POL-202: { org: "pending — issued at first propose" }
+  POL-203: { org: "pending — issued at first propose" }
+  POL-204: { org: "pending — issued at first propose" }
+  POL-205: { dropped: "never allocated; a pol-lock unit test's expected value" }
+  POL-210: { org: "pending — issued at first propose" }
+  POL-211: { org: "pending — issued at first propose" }
+  POL-220: { org: "pending — issued at first propose" }
+  POL-230: { org: "pending — issued at first propose" }
+  POL-231: { org: "pending — issued at first propose" }
+  POL-240: { org: "pending — issued at first propose" }
+  POL-241: { org: "pending — issued at first propose" }
+  POL-242: { org: "pending — issued at first propose" }
+  POL-243: { org: "pending — issued at first propose" }
+  POL-244: { org: "pending — issued at first propose" }
+  POL-250: { org: "pending — issued at first propose" }
+  POL-251: { org: "pending — issued at first propose" }
+  POL-252: { org: "pending — issued at first propose" }
+  POL-253: { org: "pending — issued at first propose" }
+  POL-254: { org: "pending — issued at first propose" }
+  POL-260: { org: "pending — issued at first propose" }
+  POL-261: { org: "pending — issued at first propose" }
+  POL-262: { org: "pending — issued at first propose" }
+  POL-263: { org: "pending — issued at first propose" }
+  POL-264: { org: "pending — issued at first propose" }
+  POL-270: { org: "pending — issued at first propose" }
+  POL-271: { org: "pending — issued at first propose" }
+  POL-272: { org: "pending — issued at first propose" }
+  POL-273: { org: "pending — issued at first propose" }
+  POL-274: { org: "pending — issued at first propose" }
+  POL-275: { org: "pending — issued at first propose" }
+  POL-301: { dropped: "never allocated in this framework; cited by knowledge-organization-standard.md from an earlier repository" }
+  POL-400: { dropped: "a range boundary in a comment (POL-400…999), never a clause" }
+  POL-401: { org: "pending — issued at first propose" }
+  POL-402: GOV-FRM-402
+  POL-403: { org: "pending — issued at first propose" }
+  POL-404: { org: "pending — issued at first propose" }
+  POL-405: { org: "pending — issued at first propose" }
+  POL-406: { org: "pending — issued at first propose" }
+  POL-407: { org: "pending — issued at first propose" }
+  POL-408: { org: "pending — issued at first propose" }
+  POL-409: { org: "pending — issued at first propose" }
+  POL-410: { org: "pending — issued at first propose" }
+  POL-411: { org: "pending — issued at first propose" }
+  POL-412: { org: "pending — issued at first propose" }
+  POL-413: { org: "pending — issued at first propose" }
+  POL-414: GOV-FRM-414
+  POL-414a: GOV-FRM-460
+  POL-415: { org: "pending — issued at first propose" }
+  POL-416: { org: "pending — issued at first propose" }
+  POL-417: { org: "pending — issued at first propose" }
+  POL-418: { org: "pending — issued at first propose" }
+  POL-419: { org: "pending — issued at first propose" }
+  POL-420: { org: "pending — issued at first propose" }
+  POL-423: GOV-FRM-423
+  POL-425: { dropped: "retired before the rule model; no rule row" }
+  POL-427: GOV-SVM-427
+  POL-428: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.2); no rule row" }
+  POL-429: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.2); no rule row" }
+  POL-430: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.2); no rule row" }
+  POL-431: { dropped: "moved to the specification as description in the 2026-09-29 reduction (27d66b9) (old §9.2); no rule row" }
+  POL-432: GOV-FRM-432
+  POL-433: { dropped: "retired before the rule model (old §1.3); no rule row" }
+  POL-434: { dropped: "retired before the rule model (old §1.3); no rule row" }
+  POL-435: { dropped: "retired before the rule model (old §2.2); no rule row" }
+  POL-436: { dropped: "retired before the rule model (old §6.1); no rule row" }
+  POL-437: { dropped: "retired before the rule model (old §7.2); no rule row" }
+  POL-438: { dropped: "retired before the rule model (old §9.8); no rule row" }
+  POL-439: { dropped: "retired before the rule model (old §11.1); no rule row" }
+  POL-440: { dropped: "retired before the rule model (old §12); no rule row" }
+  POL-441: { org: "pending — issued at first propose" }
+  POL-442: { org: "pending — issued at first propose" }
+  POL-443: { gov: GOV-FRM-443, also: [GOV-FRM-453] }
+  POL-444: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-444" }
+  POL-445: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-445" }
+  POL-446: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-446" }
+  POL-447: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-447" }
+  POL-448: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-448" }
+  POL-449: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-449" }
+  POL-450: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-450" }
+  POL-451: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-451" }
+  POL-452: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-452" }
+  POL-453: { dropped: "allocated by an early lock (45bf723) and withdrawn in 30fad9d; never a rule. NOT GOV-FRM-453" }
+  POL-900: { dropped: "a test fixture, never a rule" }
+  POL-999: { dropped: "a test fixture, never a rule" }

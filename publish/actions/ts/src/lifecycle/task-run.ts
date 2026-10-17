@@ -5,15 +5,18 @@
  * the project from the workspace (current branch → board number) and the repos
  * from GitHub (board linked items); NO project.yaml. Creates the task sub-branch
  * in the workspace clone + each present code-repo worktree through a Transaction,
- * then reflects the task on GitHub (assign + board status, best-effort).
+ * then reflects the task on GitHub (assign, best-effort; board Status through the
+ * WorkTrackerPort, its outcome reported).
  */
 import * as path from "node:path";
 import { Transaction, type RollbackFailure } from "./transaction.js";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
+import { NO_TRACKER, STATE_NAMES, type BoardStatusOutcome, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { ensureProjectBranch, removedRecreatedLine } from "./code-repo.js";
 import {
   parseIssueUrl,
   taskIdFor,
@@ -26,6 +29,11 @@ export interface TaskConfig {
   readonly githubOrg: string;
   readonly ownerField?: "organization" | "user";
   readonly workspaceRepo: string;
+  /**
+   * The code repos' base. With it, a code repo whose project branch is missing (a closed project, reopened —
+   * #224) has the branch recreated off this base instead of failing the task; without it, the old checkout error.
+   */
+  readonly defaultCodeBranch?: string;
   readonly remote?: string;
 }
 
@@ -43,6 +51,8 @@ export interface TaskDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly issues: Issues;
+  /** Sets the board Status (gadf#225). Absent → every issue reports `unreachable`, never a silent skip. */
+  readonly tracker?: BoardWriter;
   /** Optional authorization gate (viewerCanUpdate); deny → abort. */
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -57,8 +67,12 @@ export interface TaskSuccess {
   readonly issueNumbers: readonly number[];
   /** Repo dirs where the sub-branch was created or resumed. */
   readonly reposBranched: readonly string[];
+  /** What happened to each issue's board Status — the caller prints it; a failure never fails the task. */
+  readonly boardStatus: readonly BoardStatusOutcome[];
   /** Linked repos with no local worktree (need repo-on-demand — deferred). */
   readonly reposSkipped: readonly string[];
+  /** Code repos whose missing project branch was recreated off the base (#224). */
+  readonly recreated: readonly string[];
 }
 
 export type TaskResult =
@@ -103,6 +117,7 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
   const tx = new Transaction();
   const reposBranched: string[] = [];
   const reposSkipped: string[] = [];
+  const recreated: string[] = [];
   try {
     log(`task ${taskId}: workspace repo`);
     createSubBranch({ vcs: deps.vcs, tx }, { repoDir: input.govClone, projectBranch, taskId, label: "workspace repo", remote });
@@ -114,20 +129,33 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
         reposSkipped.push(repoDir); // needs repo-on-demand (add-repo) — deferred
         continue;
       }
+      // On the transaction (D3, revising #224's keep): if a later step fails, the recreated branch is deleted —
+      // local and remote — and the failure says so; the next attempt recreates it.
+      if (config.defaultCodeBranch
+        && ensureProjectBranch(deps.vcs, { repoDir, projectBranch, baseBranch: config.defaultCodeBranch, remote }, log, tx) === "recreated") {
+        recreated.push(repoDir);
+      }
       createSubBranch({ vcs: deps.vcs, tx }, { repoDir, projectBranch, taskId, label: url, remote });
       reposBranched.push(repoDir);
     }
     tx.commit();
   } catch (error) {
     const rollbackFailures = tx.rollback();
-    return { ok: false, code: 1, reason: "task-failed", message: (error as Error).message, rollbackFailures };
+    const failedUndo = new Set(rollbackFailures.map((f) => f.label));
+    const removed = recreated
+      .filter((dir) => !failedUndo.has(`recreated ${projectBranch} in ${dir}`))
+      .map((dir) => removedRecreatedLine(projectBranch, dir));
+    const message = [(error as Error).message, ...removed].join("\n");
+    return { ok: false, code: 1, reason: "task-failed", message, rollbackFailures };
   }
 
   // ── Reflect the task on GitHub (best-effort, post-branch) ────────────────────
+  const boardStatus: BoardStatusOutcome[] = [];
   for (const url of input.issueUrls) {
     deps.issues.assign(url, input.assignee);
-    deps.issues.setBoardStatus(ref, url, "In progress");
+    const result = deps.tracker ? deps.tracker.setState(ref, url, "in-progress") : NO_TRACKER;
+    boardStatus.push({ issueUrl: url, status: STATE_NAMES["in-progress"], result });
   }
 
-  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped };
+  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped, recreated, boardStatus };
 }

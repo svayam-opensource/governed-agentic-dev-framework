@@ -22,6 +22,7 @@
  */
 
 import { paint } from "./format.js";
+import { phase } from "../log.js";
 
 /** What gov can see about how far adoption has got. */
 export interface ChecklistFacts {
@@ -38,6 +39,17 @@ export interface ChecklistFacts {
   readonly role: "adopter" | "joiner" | null;
   /** The ids in the org's approved_agents block, if it has one yet (#196). */
   readonly approvedAgents?: readonly string[];
+  /**
+   * Has the org ANSWERED the agent question — including answering `none` (structure-only)?
+   *
+   * Separate from `approvedAgents` because an empty list is an answer, and the tick is about the
+   * DECISION, not about its size. An organization that adopted gov for its process alone had step
+   * 8b shown as outstanding for ever, on the closing screen of an adoption it had completed —
+   * "Choose which AI agents this organization allows", against a choice it had just made.
+   *
+   * Absent → derived from the list, which is what every caller did before this existed.
+   */
+  readonly agentsChosen?: boolean;
   /**
    * Whether the starter project's review issue is closed — which is what "the
    * policies were reviewed" MEANS here, so even the soft step derives (#196, Q12).
@@ -103,9 +115,10 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
   } else {
     items.push({ n: "8", done: built, text: "Set your organization up (adopters)" });
     items.push({ n: "8a", sub: true, done: built, text: `Create the governance repository at ${home}, from the framework template` });
-    // The one decision adoption cannot defer: an org with no approved agent cannot
-    // run any, and everyone who joins is offered exactly what is chosen here (#196).
-    items.push({ n: "8b", sub: true, done: Boolean(f.approvedAgents?.length), text: "Choose which AI agents this organization allows" });
+    // The one decision adoption cannot defer — and `none` is one of its answers (2026-09-28):
+    // everyone who joins is offered exactly what is chosen here, and an org may choose that
+    // nothing is. Ticked on the ANSWER, not on the list being non-empty.
+    items.push({ n: "8b", sub: true, done: f.agentsChosen ?? Boolean(f.approvedAgents?.length), text: "Choose which AI agents this organization allows" });
     items.push({ n: "8c", sub: true, done: built, text: "Seed the starter policies and agent harness into it" });
     items.push({ n: "8d", sub: true, done: built, text: "Replace the framework's placeholders with your organization's values" });
     items.push({ n: "8e", sub: true, done: built, text: "Commit and push it to your organization" });
@@ -151,13 +164,21 @@ export function checklistPreamble(color = false): readonly string[] {
   ];
 }
 
-/** The banner that opens one step, so the run reads as the plan did. */
+/**
+ * The banner that opens one step, so the run reads as the plan did.
+ *
+ * AND ONE PHASE MARKER IN THE RUN LOG (spec 04 §5, #276): the timed walk is cut from the log, so every banner is
+ * also a timestamp — written HERE, where the banner is made, so no call site can show a step the log missed.
+ * Log only (log.ts rule 1: silent on screen); with no run started it writes nothing.
+ */
 export function stepBanner(item: ChecklistItem, color = false): readonly string[] {
+  phase(`step-${item.n}`, "gov-work:cli:checklist", { text: item.text });
   return ["", "", RULE, paint(`===> ${item.n}. ${item.text}`, "bold", color), ""];
 }
 
-/** The line that closes it. */
+/** The line that closes it — and its `step-<n>-done` marker, for the same reason as the banner's. */
 export function stepDone(item: ChecklistItem, ok = true, color = false): string {
+  phase(`step-${item.n}-done`, "gov-work:cli:checklist", { ok });
   return `===> ${item.n}. [${ok ? paint("\u2713", "green", color) : " "}] ${item.text}`;
 }
 
@@ -203,4 +224,33 @@ export function checklistProgress(items: readonly ChecklistItem[], color = false
   const done = items.filter((i) => i.done && !i.sub).length;
   const total = items.filter((i) => !i.sub).length;
   return ["", `Progress \u2014 ${done} of ${total} done:`, "", ...renderChecklist(items, color), ""];
+}
+
+/**
+ * WHICH CHECKLIST ITEM A `doctor --fix` STEP IS (PRJ-121, 2026-09-22).
+ *
+ * The run used to pick an item by looking for the FIRST WORD of the fix id anywhere in the item text:
+ * `"gh repo"`, `"gh"` and `"gh auth"` all begin `gh`, so all three were headed and ticked as step 4. On a walk,
+ * `===> 4. [✓] Install dependency — gh` printed after only ADDING GitHub's package repository — gh was not yet
+ * installed, so the tick was false — then twice more; signing in to GitHub (step 5) ran under step 4's name, and
+ * `git identity` (step 6) had no heading at all. The final checklist was right; the live run was not.
+ *
+ * An explicit table, because the ids and the numbers are both gov's own and neither should be guessed from prose.
+ * Each id lists its preferences in order: `4a`/`4b` exist only when GitHub's repository has to be added first, so
+ * `gh repo` and `gh` fall back to `4` otherwise.
+ */
+const ITEM_FOR_FIX: Readonly<Record<string, readonly string[]>> = {
+  "git": ["3"],
+  "gh repo": ["4a", "4"],
+  "gh": ["4b", "4"],
+  "gh auth": ["5"],
+  "gh scopes": ["5"],
+  "git identity": ["6"],
+};
+export function itemForFix(fixes: string, items: readonly ChecklistItem[]): ChecklistItem | undefined {
+  for (const n of ITEM_FOR_FIX[fixes] ?? []) {
+    const it = items.find((i) => i.n === n);
+    if (it) return it;
+  }
+  return undefined;
 }

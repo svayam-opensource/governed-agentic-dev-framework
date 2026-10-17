@@ -1,0 +1,503 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * `gov check run` AND `gov check install` (rule-model-design.md Q14, Q15; W6 slice 3).
+ *
+ *   run <GOV-ID> --resource <r> --event <e>
+ *       The one entry point every rendered binding calls. Rules come from the DEFAULT branch of the governance
+ *       repository (`--gov-home`); the event from the GitHub Actions environment (`GITHUB_EVENT_PATH`,
+ *       `GITHUB_EVENT_NAME`, `GITHUB_REPOSITORY`); the changeset from the checked-out repository (`--repo-dir`,
+ *       resolved against the directory the job runs in; default the governance repository itself). On a
+ *       pull_request, the policy PR gate's inputs too ({@link policyPrFromEvent}).
+ *
+ *       EXIT CODES — what each verdict can still do:
+ *         pass                     0
+ *         fail on a GATE event     1    the gate refuses (a required check, a gov verb)
+ *         fail on an OBSERVE event 0    it already happened: a violation record is opened instead (Q15)
+ *         cannot-tell              1 under hard posture; 0 with a WARNING under soft — said in the output
+ *
+ *   install [--repo <path>]
+ *       Render the in-force bindings for ONE repository into `.github/workflows/gov-checks.yml` in its working
+ *       tree. The governance repository gets `vcs.gov-repo` and `pms.issue`; a linked code repository gets
+ *       `vcs.code-repo`. It writes the file and says so — it never commits, pushes, or calls a settings API.
+ *
+ * Pure over injected readers and writers; main.ts wires them to the run-process chokepoint.
+ */
+import path from "node:path";
+import type { GitRead } from "./policy-gate-io.js";
+import { flagBool, flagStr } from "./args.js";
+import type { CommandResult } from "./dispatch.js";
+import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
+import { DEFAULT_RUNNER, runsOnYaml, type RunnerChoice } from "../config/ci-runner.js";
+import { syncSeededWorkflowRunners } from "../maintain/org-workflow-runner.js";
+import { inForce, type RuleRow } from "../rules/model/rule-row.js";
+import type { CheckBinding } from "../rules/model/catalog.js";
+import type { EventContext } from "../rules/model/contracts.js";
+import { createCheckRunner } from "../rules/checks/runner.js";
+import { githubCheckRunsForCommit, githubPullsForCommit, redMerges } from "../rules/checks/gh-actions.js";
+import { buildPayload } from "../rules/checks/event-payload.js";
+import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
+import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
+import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
+import { githubActionsRenderer, GOV_APP_SECRETS, pinnedGovPackage, WORKFLOW_PATH } from "../rules/checks/render-github.js";
+import { humanGateMessage } from "../rules/cues/human-message.js";
+import { gitTree } from "../rules/policy-pr/tree.js";
+import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
+import type { BuiltinOutcome } from "../rules/checks/builtin.js";
+import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
+import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
+import { annotationLines, type AnnotationVerdict } from "../rules/checks/annotations.js";
+import type { ActionExecutor } from "../rules/checks/executor.js";
+import { GH_ACTION_OUTCOMES_ENV, parseGhActionOutcomes } from "../rules/checks/gh-org-actions.js";
+import { paidKey, type PaidOutcome } from "../rules/checks/runner.js";
+import { classifyRow } from "../rules/model/catalog.js";
+import { noticeOnce, recordEvidence } from "../check-seam/evidence.js";
+import { runContext, verdictDraft } from "../check-seam/record.js";
+import type { LoadedModule } from "../check-seam/loader.js";
+
+export interface CheckVerbDeps {
+  readonly git: GitRead;
+  readonly gh: Gh;
+  /**
+   * Whether a tool gov needs (`git`, `gh`) is on this machine's PATH. In GitHub Actions gov reads the rules through
+   * git and reads and writes GitHub through gh; a self-hosted runner may lack either. Absent → assumed present.
+   */
+  readonly toolOnPath?: (tool: RequiredTool) => boolean;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  /** Absolute path → text, or null. */
+  readonly readFile: (file: string) => string | null;
+  /** Absolute path, parent directories created. */
+  readonly writeFile: (file: string, text: string) => void;
+  /** `gov-builtin/rules-propose`'s outcome, run beforehand by {@link checkCommandAsync}. */
+  readonly rulesPropose?: BuiltinOutcome;
+  /** `install --all` and `status`: the project's linked repos, the work root, file removal (scope in check-scope.ts). */
+  readonly scope?: ScopeDeps;
+  /**
+   * Runs an org `bash`/`python` check action (rules/checks/executor.ts). Its code is read from the governance
+   * repository's DEFAULT branch, never from the change under review. Absent → those actions are `cannot-tell`.
+   */
+  readonly executor?: ActionExecutor;
+  /**
+   * THE PAID MODULE (spec 02 §5): looked for and started once per process. Absent → paid bindings are
+   * `needs-subscription`, evidence is not written, and (when it was wanted) one quiet notice says so.
+   */
+  readonly paidModule?: () => Promise<LoadedModule>;
+  /** Set by {@link checkCommandAsync}: the module runs, and these are its paid actions' outcomes. */
+  readonly paidActive?: boolean;
+  readonly paidOutcomes?: ReadonlyMap<string, PaidOutcome>;
+}
+
+/**
+ * The proposer on a pull request (cli/rules-propose-ci.ts), as `gov check run` calls it: the rule's tag, the
+ * event, and the checkout it runs in. Injected so this file stays free of the model and the forge.
+ */
+/**
+ * A RUNNER WITHOUT A TOOL GOV NEEDS (svayam-e2e's self-hosted runner, run 39033584186: no `gh`). GitHub's hosted runners
+ * ship git and the GitHub CLI; a self-hosted runner need not. Without gh every GitHub read failed one by one — the
+ * proposer could not tell, which soft posture showed as a green check that did nothing. So in GitHub Actions gov looks
+ * once, before it runs anything, and names the missing tool. Such a check FAILS under any posture (Policy Owner
+ * ruling, 2026-10-17): it could not run, which says nothing about the change. Every other "could not tell" keeps the
+ * posture's rules.
+ */
+export type RequiredTool = "git" | "gh";
+export const GIT_MISSING =
+  "`git` is not on this runner's PATH, and gov reads the rules and the change through it, so nothing was checked. "
+  + "GitHub's hosted runners have it; on a self-hosted runner install it (https://git-scm.com) where the runner "
+  + "service's PATH finds it, then re-run this check.";
+export const GH_MISSING =
+  "the GitHub CLI (`gh`) is not on this runner's PATH, and gov reads and writes GitHub through it (pull requests, "
+  + "review comments, violation records), so nothing was checked. GitHub's hosted runners have it; on a self-hosted "
+  + "runner install it (https://cli.github.com) where the runner service's PATH finds it, then re-run this check.";
+
+const REQUIRED_TOOLS: readonly (readonly [RequiredTool, string])[] = [["git", GIT_MISSING], ["gh", GH_MISSING]];
+export const TOOL_MISSING_FAILS = "FAILED — this runner lacks a tool gov needs, so the check could not run; that fails under any posture (exit 1).";
+
+/** The messages for the tools this runner lacks — in GitHub Actions only; elsewhere, none. */
+function missingTools(deps: Pick<CheckVerbDeps, "env" | "toolOnPath">): string[] {
+  if (deps.env.GITHUB_ACTIONS !== "true" || !deps.toolOnPath) return [];
+  return REQUIRED_TOOLS.filter(([tool]) => !deps.toolOnPath!(tool)).map(([, why]) => why);
+}
+
+export type ProposeOnPr = (tag: string, eventName: string, event: unknown, repoDir: string) => Promise<BuiltinOutcome>;
+
+export interface CheckVerbConfig {
+  /** The governance repository's working tree. */
+  readonly home: string;
+  readonly defaultBranch: string;
+  readonly defaultCodeBranch: string;
+  readonly githubOrg: string;
+  readonly workspaceRepo: string;
+  /** Null only for a value gov does not recognise. */
+  readonly posture: GovernancePosture | null;
+  /** `<agent_work_root>` — where `--project <id>` finds `<id>/<repo>/` clones. Absent → `--project` cannot be resolved. */
+  readonly agentWorkRoot?: string;
+  /**
+   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the published gov. A pre-release
+   * test (the sandbox journey, the live CI tier) points it at a packed tarball, so the runners run the commit under
+   * test rather than whatever npm last published.
+   */
+  readonly govPackage?: string;
+  /** This gov's version, stamped on evidence records. */
+  readonly govVersion?: string;
+  /**
+   * The organization's runner, `ci.runs_on` in policies/governance.yaml (config/ci-runner.ts). Every rendered job asks
+   * for it. Absent → `ubuntu-latest`. A value gov cannot use (`problem`) stops the render: nothing is written.
+   */
+  readonly runner?: RunnerChoice;
+}
+
+const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
+const INSTALL_USAGE = "check install [--repo <path> | --all [--project <id>] [--prune]] [--gov-package <spec>]";
+const STATUS_USAGE = "check status [--project <id>] [--gov-package <spec>]";
+const usage = (u: string): CommandResult => ({ code: 2, lines: [`usage: gov ${u}`] });
+
+export function checkCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg0: CheckVerbConfig): CommandResult {
+  const pkg = flagStr(flags, "gov-package");
+  const cfg: CheckVerbConfig = pkg ? { ...cfg0, govPackage: pkg } : cfg0;
+  const sub = positionals[0];
+  if (sub === "run") return checkRun(positionals[1], flags, deps, cfg);
+  if (sub === "install") return checkInstall(flags, deps, cfg);
+  if (sub === "status") return checkStatus(flags, deps, cfg);
+  return { code: 2, lines: [`usage: gov ${RUN_USAGE}`, `       gov ${INSTALL_USAGE}`, `       gov ${STATUS_USAGE}`] };
+}
+
+/**
+ * `gov check run` with the one action that cannot run synchronously: when the rule in force binds
+ * `gov-builtin/rules-propose` on this resource and event, the proposer runs first (a model, the pull request's
+ * comments, a push to its branch) and its outcome joins the verdict like any other action's. Everything else is
+ * {@link checkCommand} unchanged.
+ */
+export async function checkCommandAsync(
+  positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>,
+  deps: CheckVerbDeps & { readonly proposeOnPr?: ProposeOnPr }, cfg: CheckVerbConfig,
+): Promise<CommandResult> {
+  const id = positionals[1], resource = flagStr(flags, "resource"), event = flagStr(flags, "event");
+  if (positionals[0] !== "run" || !id || !resource || !event || (!deps.proposeOnPr && !deps.paidModule)) return checkCommand(positionals, flags, deps, cfg);
+  const loaded = loadCheckRuleSet(deps.git, cfg.home, defaultRef(deps.git, cfg.home, cfg.defaultBranch));
+  const row = loaded.ok ? inForce([...loaded.set.framework, ...loaded.set.org]).find((r) => r.id === id) : undefined;
+  const mine = (row?.checks ?? []).filter((b) => b.on.resource === resource && b.on.event === event);
+
+  const eventPath = deps.env.GITHUB_EVENT_PATH;
+  const text = eventPath ? deps.readFile(eventPath) : null;
+  let eventJson: unknown = {};
+  try { eventJson = text === null ? {} : JSON.parse(text); } catch { /* checkCommand reports the unreadable event itself */ }
+
+  // PAID ACTIONS (spec 02 §5): the module, when it runs, judges the bindings it owns — before the synchronous run.
+  if (deps.paidModule) {
+    const mod = await deps.paidModule();
+    if (mod.state === "active") {
+      const outcomes = new Map<string, PaidOutcome>();
+      for (const b of mine) {
+        const dispatch = mod.module.actions.get(b.action);
+        if (!dispatch) continue;
+        try {
+          const o = await dispatch({ ruleId: id, action: b.action, params: b.with ?? {}, ctx: { resource, event, payload: eventJson } });
+          outcomes.set(paidKey(id, b.action), o);
+        } catch (e) {
+          outcomes.set(paidKey(id, b.action), { verdict: "cannot-tell", findings: [`${id} [${b.action}]: the paid action failed (${(e as Error).message.split("\n")[0]}), so nothing was checked.`] });
+        }
+      }
+      deps = { ...deps, paidActive: true, paidOutcomes: outcomes };
+    }
+  }
+  const binds = mine.some((b) => b.action === PROPOSE_ACTION);
+  // A missing tool: the proposer would only fail at its first read; the run below says why, once.
+  if (!binds || !deps.proposeOnPr || missingTools(deps).length) return checkCommand(positionals, flags, deps, cfg);
+  const repoDirFlag = flagStr(flags, "repo-dir");
+  const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
+  const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
+  return checkCommand(positionals, flags, { ...deps, rulesPropose: outcome }, cfg);
+}
+
+/**
+ * {@link judge}, and — inside GitHub Actions — each finding again as a workflow command (rules/checks/annotations.ts),
+ * after the human output, which stays exactly as it is outside Actions. The annotations are what a reader of the
+ * check run gets through the API; the log can lag or come back empty.
+ */
+function checkRun(id: string | undefined, flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
+  const judged = judge(id, flags, deps, cfg);
+  if (deps.env.GITHUB_ACTIONS !== "true" || !judged.annotate || !id) return judged.result;
+  const { verdict, read } = judged.annotate;
+  return { ...judged.result, lines: [...judged.result.lines, ...annotationLines(id, verdict, read)] };
+}
+
+interface Judged {
+  readonly result: CommandResult;
+  /** What to annotate: the verdict, and the change's head (repository-relative path → text) to place a section on. */
+  readonly annotate?: { readonly verdict: AnnotationVerdict; readonly read?: (file: string) => string | null };
+}
+
+function judge(id: string | undefined, flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): Judged {
+  const resource = flagStr(flags, "resource");
+  const eventFlag = flagStr(flags, "event");
+  if (!id || !resource || !eventFlag) return { result: usage(RUN_USAGE) };
+  // Against the directory the job runs in — the rendered code-repo job passes `--gov-home .gov --repo-dir .`, and
+  // `.` there is the code repository, not the governance repository checked out inside it.
+  const repoDirFlag = flagStr(flags, "repo-dir");
+  const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
+  const hard = cfg.posture === "hard";
+  const lines: string[] = [];
+
+  const cannotTell = (detail: readonly string[]): CommandResult => ({
+    code: hard ? 1 : 0,
+    lines: [
+      ...lines,
+      ...detail,
+      hard
+        ? `${id}: COULD NOT TELL — under hard posture a check that cannot tell blocks (exit 1).`
+        : `WARNING: ${id} could not tell. Soft posture: this does NOT block (exit 0), and it is not a pass — fix what it could not see.`,
+    ],
+  });
+
+  // Before anything reads: without git the rules cannot be read either, and that must not pass as "could not tell".
+  const lacking = missingTools(deps).map((why) => `${id}: ${why}`);
+  if (lacking.length) {
+    return { result: { code: 1, lines: [...lines, ...lacking, `${id}: ${TOOL_MISSING_FAILS}`] }, annotate: { verdict: { verdict: "fail", findings: lacking } } };
+  }
+  const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
+  const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
+  if (!loaded.ok) {
+    const finding = `${id}: the rules could not be read at ${ref}: ${loaded.reason}.`;
+    return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
+  }
+  const rules = loaded.set;
+  const row: RuleRow | undefined = inForce([...rules.framework, ...rules.org]).find((r) => r.id === id);
+
+  // THE EVENT, from GitHub's environment. Outside Actions there is none, and the check says so.
+  const repository = deps.env.GITHUB_REPOSITORY ?? "";
+  const eventPath = deps.env.GITHUB_EVENT_PATH;
+  const eventText = eventPath ? deps.readFile(eventPath) : null;
+  let eventJson: unknown = {};
+  if (eventText !== null) {
+    try {
+      eventJson = JSON.parse(eventText);
+    } catch {
+      // An unreadable event leaves the payload empty; every action that needed a field reports cannot-tell.
+      lines.push(`  ! ${eventPath} is not JSON — the event's facts are unknown.`);
+    }
+  } else {
+    lines.push("  ! no GitHub event (GITHUB_EVENT_PATH) — the event's facts are unknown.");
+  }
+  const built = buildPayload(deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repository, { git: (a) => deps.git(repoDir, a), gh: (a) => deps.gh(a) });
+  if (built.event !== null && built.event !== eventFlag) {
+    lines.push(`  ! GitHub sent \`${built.event}\` but this job was rendered for \`${eventFlag}\` — judging it as \`${eventFlag}\`.`);
+  }
+  const ctx: EventContext = { resource, event: eventFlag, payload: built.payload };
+
+  const policyPr = policyPrFromEvent(deps.git, repoDir, deps.env.GITHUB_EVENT_NAME ?? "", eventJson);
+  const runner = createCheckRunner({
+    rules,
+    readDefault: (p) => deps.git(cfg.home, ["show", `${ref}:${p}`]),
+    // ORG ACTIONS (Item 8, Q8): their code from the same default-branch ref as the rules; run in the checkout judged.
+    listDefault: (dir) => {
+      const out = deps.git(cfg.home, ["ls-tree", "-r", "--name-only", ref, "--", dir]);
+      return out === null ? null : out.split("\n").map((l) => l.trim()).filter(Boolean);
+    },
+    ...(deps.executor ? { executor: deps.executor } : {}),
+    env: deps.env,
+    repoDir,
+    // ORG gh-actions (Q9): their rendered steps' outcomes, handed in by the job. Absent → "runs in CI only".
+    ...(() => { const o = parseGhActionOutcomes(deps.env[GH_ACTION_OUTCOMES_ENV]); return o ? { ghActionOutcomes: o } : {}; })(),
+    ...(policyPr ? { policyPr } : {}),
+    ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
+    ...(deps.paidOutcomes ? { paidOutcomes: deps.paidOutcomes } : {}),
+    ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
+  });
+  const verdict = runner.run(id, ctx);
+
+  // EVIDENCE (spec 02 §3.1): one record per judged binding — the module, if it runs, signs and writes them at the
+  // end of the command; without it they are dropped. And, with no paid module running, ONE quiet notice for this job.
+  if (row) {
+    const klass = classifyRow(row, rules.catalog, hard ? "hard" : "soft", { paidModule: !!deps.paidActive });
+    const evCtx = runContext(deps.env, cfg.govVersion ?? "0.0.0");
+    for (const b of verdict.bindings ?? []) {
+      recordEvidence(verdictDraft(evCtx, {
+        kind: "check", rule: { id, level: row.level }, binding: { resource, event: eventFlag, action: b.action },
+        verdict: b.verdict, class: b.verdict === "needs-subscription" ? "advisory (needs subscription)" : klass,
+      }));
+    }
+  }
+  // The subscription decides (D6): no paid module running in a CI job → the one quiet notice for this job.
+  if (deps.env.GITHUB_ACTIONS === "true" && !deps.paidActive) {
+    const notice = noticeOnce("run", deps.env);
+    if (notice) lines.push(notice);
+  }
+  // A section finding lands on its heading at the change's head: the pull request's head tree when there is one,
+  // else the checkout the job runs in.
+  const read = (file: string): string | null => (policyPr ? policyPr.head.read(file) : deps.readFile(path.join(repoDir, file)));
+  const done = (result: CommandResult): Judged => ({ result, annotate: { verdict, read } });
+  const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
+    ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
+  // SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07). On the landed-by-pr binding, the push also reads the check
+  // runs of each PR it merged: a gov check red there opens one record per PR. Under hard posture those checks were
+  // required, so this cannot happen and gov does not look.
+  const landed = row?.checks?.find((b) => b.action === "gh-action/landed-by-pr" && b.on.resource === resource && b.on.event === eventFlag);
+  if (landed && cfg.posture !== "hard" && repository) {
+    const found = redMerges({ ruleId: id, params: landed.with ?? {}, ctx }, {
+      pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
+      checkRunsForCommit: githubCheckRunsForCommit((a) => deps.gh(a), repository),
+    });
+    const recorded = recordRedMerges(found.merges, rules, {
+      openIssue: (issue) => githubViolationPorts(deps.gh, repository).openIssue(issue),
+      findOpenRecord: githubOpenRedMergeRecord(deps.gh, repository),
+    }, runUrl);
+    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines);
+  }
+  const say = (): string[] => (row ? humanGateMessage(row, verdict).split("\n") : [`${id} — ${verdict.verdict}`, ...verdict.findings.map((f) => `  - ${f}`)]);
+
+  // Reviews first: a gate that is waiting on approvers should have asked them, whatever the verdict.
+  if (verdict.requestReview?.length && built.pullNumber !== undefined && repository) {
+    const ok = requestReviews(deps.gh, repository, built.pullNumber, verdict.requestReview);
+    lines.push(ok
+      ? `requested review from ${verdict.requestReview.map((h) => `@${h}`).join(", ")}`
+      : `  ! could not request review from ${verdict.requestReview.map((h) => `@${h}`).join(", ")} — ask them by hand`);
+  }
+
+  if (verdict.verdict === "pass") return done({ code: 0, lines: [...lines, `${id} passed (${resource} · ${eventFlag}).`] });
+  // X15: captured, not run — never a pass, and it does not block on its own (it is advisory), whatever the posture.
+  if (verdict.verdict === "needs-subscription") {
+    return done({ code: 0, lines: [...lines, ...say(), `${id}: needs a subscription — the binding was recorded, not run; this does not block (exit 0).`] });
+  }
+  if (verdict.verdict === "cannot-tell") return done(cannotTell(say()));
+
+  const mode = rules.catalog.resources.find((r) => r.id === resource)?.events.find((e) => e.name === eventFlag)?.mode;
+  if (mode === "observe" && row) {
+    const out = recordViolation(
+      { row, ctx, verdict, rules, ...(runUrl ? { runUrl } : {}) },
+      githubViolationPorts(deps.gh, repository, built.issueNumber),
+    );
+    return done({ code: 0, lines: [...lines, ...say(), ...out.lines, `${id}: the event had already happened, so this does not block (exit 0) — the record is the response.`] });
+  }
+  return done({ code: 1, lines: [...lines, ...say(), `${id}: refused (exit 1).`] });
+}
+
+/**
+ * The policy PR gate's inputs (GOV-FRM-467, W5) for a pull request in `repo`: the tree at the MERGE-BASE (what the
+ * pull request changes, as the changeset in event-payload.ts reads it — not what the base branch moved on to since)
+ * and at the head, the PR number from the event, and the HEAD COMMIT's committer date as "today" — deterministic,
+ * so a re-run judges the same inputs the same way, never by the day it happened to run. Null when this is not a pull
+ * request or any of those cannot be established; the gate then reports `cannot-tell`, never a pass.
+ */
+export function policyPrFromEvent(git: GitRead, repo: string, eventName: string, event: unknown): PolicyPrInput | null {
+  if (eventName !== "pull_request" && eventName !== "pull_request_target") return null;
+  const o = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
+  const pr = o(o(event).pull_request);
+  const base = o(pr.base).sha, head = o(pr.head).sha, number = pr.number;
+  if (typeof base !== "string" || typeof head !== "string" || !base || !head || typeof number !== "number") return null;
+  const mb = git(repo, ["merge-base", base, head])?.trim();
+  const today = git(repo, ["show", "-s", "--format=%cs", head])?.trim();
+  if (!mb || !today || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  return { base: gitTree(git, repo, mb), head: gitTree(git, repo, head), pr: number, today };
+}
+
+/**
+ * The one-time setup a code repository's workflow needs before it can read the governance repository: a GitHub App
+ * on the org (Policy Owner, 2026-10-06 — no personal token, no stopgap). Printed, never done from here: `gov app setup`
+ * is the verb that creates the App and sets its secrets; the manual steps stay for an org that prefers them.
+ */
+export function githubAppSetup(org: string, govRepo: string): string[] {
+  const { clientId, privateKey } = GOV_APP_SECRETS;
+  return [
+    `One-time, for the whole ${org} organization (skip it if it is already done): this workflow reads ${govRepo}`,
+    "through a GitHub App, which mints a short-lived, read-only token on every run. GitHub Apps are free on every plan.",
+    "  gov does it for you — an org owner runs `gov app setup`, then `gov app check`. By hand instead:",
+    `  1. Create a GitHub App owned by ${org} (Organization settings → Developer settings → GitHub Apps → New).`,
+    "     No webhook. Repository permissions: Contents: Read-only, and nothing else.",
+    `  2. Install it on the ${org} organization, on the repository ${govRepo} only.`,
+    `  3. Store its Client ID (on the App's settings page) and a private key as organization Actions secrets,`,
+    "     available to the code repositories:",
+    `       gh secret set ${clientId} --org ${org} --visibility all --body <client id>`,
+    `       gh secret set ${privateKey} --org ${org} --visibility all < <private-key>.pem`,
+  ];
+}
+
+/** Which resources a repository's workflow serves. */
+const GOV_REPO_RESOURCES = ["vcs.gov-repo", "pms.issue"];
+const CODE_REPO_RESOURCES = ["vcs.code-repo"];
+
+export type RuleSetLoad = ReturnType<typeof loadCheckRuleSet>;
+
+/** What `install` would write for one repository, from rules already loaded. Pure; shared by install --all and status. */
+export type Rendered =
+  | { readonly ok: true; readonly files: readonly { readonly path: string; readonly text: string }[]; readonly bindings: readonly { readonly id: string; readonly check: CheckBinding }[] }
+  | { readonly ok: false; readonly reason: string };
+
+export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVerbConfig): Rendered {
+  if (!loaded.ok) return { ok: false, reason: `the rules could not be read: ${loaded.reason}` };
+  const { catalog } = loaded.set;
+  const wanted = new Set((isGov ? GOV_REPO_RESOURCES : CODE_REPO_RESOURCES)
+    .filter((r) => catalog.resources.find((x) => x.id === r)?.renderer === "github-actions"));
+  const bindings: { id: string; check: CheckBinding }[] = [];
+  for (const row of inForce([...loaded.set.framework, ...loaded.set.org])) {
+    for (const check of row.checks ?? []) if (wanted.has(check.on.resource)) bindings.push({ id: row.id, check });
+  }
+  if (cfg.runner?.problem) return { ok: false, reason: `${GOVERNANCE_PATH} ${cfg.runner.problem}` };
+  const govRepo = govRepoOf(cfg);
+  if (!isGov && !govRepo) {
+    return { ok: false, reason: "org-config.yaml does not name the governance repo (`github_org`, `org_gov_repo`), which a code repository's workflow must check out to read the rules" };
+  }
+  const files = githubActionsRenderer({
+    defaultBranch: isGov ? cfg.defaultBranch : cfg.defaultCodeBranch,
+    ...(cfg.govPackage ? { govPackage: cfg.govPackage } : {}),
+    ...(isGov ? {} : { govCheckout: { repository: govRepo } }),
+    runsOn: runsOnYaml((cfg.runner ?? DEFAULT_RUNNER).runsOn),
+  }).render(bindings);
+  return { ok: true, files, bindings };
+}
+
+/**
+ * KEEP THE PIN (Q9). An installed workflow that installs a PINNED gov (`gov upgrade` writes it pinned to the gov that
+ * wrote it) is re-rendered and compared with that pin, unless `--gov-package` names another. Without this, the next
+ * `gov check install` would swap the pin for whatever npm calls `latest`, and `status` would call the copy stale.
+ */
+export function withInstalledPin(cfg: CheckVerbConfig, installed: string | null): CheckVerbConfig {
+  if (cfg.govPackage || installed === null) return cfg;
+  const pin = pinnedGovPackage(installed);
+  return pin ? { ...cfg, govPackage: pin } : cfg;
+}
+
+export const govRepoOf = (cfg: CheckVerbConfig): string => (cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "");
+
+function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
+  if (flagBool(flags, "all")) return checkInstallAll(flags, deps, cfg);
+  const target = path.resolve(cfg.home, flagStr(flags, "repo") ?? ".");
+  const isGov = target === path.resolve(cfg.home);
+  const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
+  const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
+  if (!loaded.ok) return { code: 1, lines: [`check install: the rules could not be read at ${ref}: ${loaded.reason}. Nothing was written.`] };
+  const rendered = renderForRepo(isGov, loaded, withInstalledPin(cfg, deps.readFile(path.join(target, WORKFLOW_PATH))));
+  if (!rendered.ok) return { code: 1, lines: [`check install: ${rendered.reason}. Nothing was written.`] };
+  const { files, bindings } = rendered;
+  const govRepo = govRepoOf(cfg);
+  // The org's gov-validate.yml follows ci.runs_on — its runs-on lines only, each reported (ruling 2026-10-17).
+  const runner = syncSeededWorkflowRunners(target, cfg.runner ?? DEFAULT_RUNNER, { read: deps.readFile, write: deps.writeFile }, true).lines;
+  if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`, ...runner] };
+
+  const lines: string[] = [];
+  for (const f of files) {
+    const abs = path.join(target, f.path);
+    deps.writeFile(abs, f.text);
+    lines.push(`wrote ${abs}`);
+  }
+  lines.push(...runner);
+  const jobs = [...new Set(bindings.map((b) => `${b.id} · ${b.check.on.event}`))].sort();
+  lines.push(
+    `  ${bindings.length} binding(s) from ${ref}: ${jobs.join(", ")}`,
+    "  NOT committed and NOT pushed — review it, then land it by pull request like any other change.",
+  );
+  if (!isGov) lines.push("", ...githubAppSetup(cfg.githubOrg, govRepo));
+
+  if (cfg.posture === "hard") {
+    const repo = isGov ? govRepo : `${cfg.githubOrg}/${path.basename(target)}`;
+    const required = jobs.filter((j) => j.endsWith(" · pull_request"));
+    lines.push(
+      "",
+      "Hard posture — once this workflow is on the default branch, make the platform enforce it:",
+      `  gov repo protect apply --repo ${repo}`,
+      ...(required.length ? ["  It makes these status checks required on the default branch:", ...required.map((r) => `    ${r}`)] : []),
+      "  and blocks force pushes on BRNCH-* with a branch ruleset (GOV-FRM-466). `gov repo protect plan` shows it first.",
+      "  gov does not change repository settings from here.",
+    );
+  }
+  return { code: 0, lines };
+}

@@ -9,9 +9,9 @@
  * Transaction so a failure unwinds.
  */
 import { Transaction, type RollbackFailure } from "./transaction.js";
-import type { Vcs, FsProbe } from "./vcs.js";
+import type { Vcs } from "./vcs.js";
 import type { BoardRef } from "./identity.js";
-import { setupCodeRepoWorktree } from "./code-repo.js";
+import { setupCodeRepoWorktree, type CodeRepoFs } from "./code-repo.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 
 export interface AddRepoConfig {
@@ -32,7 +32,8 @@ export interface AddRepoInput {
 
 export interface AddRepoDeps {
   readonly vcs: Vcs;
-  readonly fs: FsProbe;
+  /** With `rename`, an occupied path is archived and the add retried (#214). */
+  readonly fs: CodeRepoFs;
   readonly cloneRepo: (url: string, dest: string) => void;
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -57,7 +58,7 @@ export function addRepo(deps: AddRepoDeps, config: AddRepoConfig, input: AddRepo
   const tx = new Transaction();
   try {
     const { repoDir } = setupCodeRepoWorktree(
-      { vcs: deps.vcs, fs: deps.fs, tx, cloneRepo: deps.cloneRepo },
+      { vcs: deps.vcs, fs: deps.fs, tx, cloneRepo: deps.cloneRepo, ...(deps.log ? { log: deps.log } : {}) },
       {
         url: input.repoUrl,
         baseBranch: input.baseBranch ?? config.defaultCodeBranch,

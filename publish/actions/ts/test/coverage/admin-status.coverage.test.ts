@@ -53,15 +53,15 @@ function baseVcs(): Vcs {
     currentBranch: () => PROJECT_BRANCH, isAncestor: () => false, isClean: () => true,
     remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
     worktreeAdd: noop, worktreeAddExisting: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
-    fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
+    fetch: noop, fetchDefault: () => "remote-sha", setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
 const vcsWith = (over: Partial<Vcs> = {}): Vcs => ({ ...baseVcs(), ...over });
 
 const board: Board = { fetchProject: () => ({ id: "P", title: "@Governance Common Project", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
 const baseFs: Fs = { pathExists: () => false, readFile: () => null, mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [] };
-const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
-const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
+const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null };
+const pulls: Pulls = { create: () => "pr", state: () => null };
 
 /** Projects port over an explicit board list. */
 const projectsOf = (boards: readonly BoardSummary[]): Projects => ({ listBoards: () => [...boards] });
@@ -228,7 +228,7 @@ describe("coverage: gov knowledge", () => {
   it("knowledge propose (missing slug) → exit 2, propose usage", () => {
     const r = run(["knowledge", "propose"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge propose <slug> when vcs.push throws → exit 1, error message", () => {
@@ -239,7 +239,7 @@ describe("coverage: gov knowledge", () => {
 
   it("knowledge submit <slug> <desc…> → exit 0, opened PR (desc joined)", () => {
     const created: string[] = [];
-    const p: Pulls = { create: (_repo, _base, _head, _title, body) => { created.push(body); return "https://pr/1"; }, merge: () => "m" };
+    const p: Pulls = { create: (_repo, _base, _head, _title, body) => { created.push(body); return "https://pr/1"; }, state: () => null };
     const r = run(["knowledge", "submit", "my-slug", "--description", "a longer desc"], { pulls: p });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Opened knowledge PR: https://pr/1");
@@ -248,7 +248,7 @@ describe("coverage: gov knowledge", () => {
 
   it("knowledge submit <slug> (no description) → exit 0, default description used", () => {
     const created: string[] = [];
-    const p: Pulls = { create: (_r, _b, _h, _t, body) => { created.push(body); return "https://pr/2"; }, merge: () => "m" };
+    const p: Pulls = { create: (_r, _b, _h, _t, body) => { created.push(body); return "https://pr/2"; }, state: () => null };
     const r = run(["knowledge", "submit", "solo"], { pulls: p });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Opened knowledge PR: https://pr/2");
@@ -258,11 +258,11 @@ describe("coverage: gov knowledge", () => {
   it("knowledge submit (missing slug) → exit 2, submit usage", () => {
     const r = run(["knowledge", "submit"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge submit <slug> when PR cannot be opened → exit 1", () => {
-    const r = run(["knowledge", "submit", "my-slug"], { pulls: { create: () => "", merge: () => "m" } });
+    const r = run(["knowledge", "submit", "my-slug"], { pulls: { create: () => "", state: () => null } });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("Could not open a PR for 'knowledge-my-slug'.");
   });
@@ -276,7 +276,7 @@ describe("coverage: gov knowledge", () => {
   it("knowledge archive (missing slug) → exit 2, archive usage", () => {
     const r = run(["knowledge", "archive"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge archive <slug> when vcs.tag throws → exit 1, error message", () => {
@@ -288,13 +288,13 @@ describe("coverage: gov knowledge", () => {
   it("knowledge <unknown-sub> → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge", "frobnicate", "x"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge (no subcommand) → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 });
 
@@ -440,7 +440,7 @@ describe("coverage: gov onboard", () => {
 
   it("onboard multi-word description → joined into one description", () => {
     const bodies: string[] = [];
-    const p: Pulls = { create: (_r, _b, _h, _t, body) => { bodies.push(body); return "pr"; }, merge: () => "m" };
+    const p: Pulls = { create: (_r, _b, _h, _t, body) => { bodies.push(body); return "pr"; }, state: () => null };
     const r = run(["onboard", URL, "--owner", "rkant", "--description", "one two three"], { vcs: freshVcs(), pulls: p });
     expect(r.code).to.equal(0); // description slice(2).join(" ") — 'one two three'
     expect(r.lines[0]).to.equal("Onboarded acme (branch onboard-knowledge pushed).");
@@ -478,7 +478,7 @@ describe("coverage: gov onboard", () => {
   });
 
   it("onboard when no PR could be opened → exit 0 with manual-PR guidance", () => {
-    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), pulls: { create: () => "", merge: () => "m" } });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), pulls: { create: () => "", state: () => null } });
     expect(r.code).to.equal(0);
     expect(r.lines[1]).to.equal("  branch pushed — open a PR for onboard-knowledge manually.");
   });
@@ -547,6 +547,8 @@ describe("coverage: gov org (routeOrg)", () => {
     const r = routeOrg(["use", "Ghost"], {}, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.match(/Org 'Ghost' is not registered/);
+    // The hint is the syntax gov accepts today (adopter-journey followed a stale `org add <org> <home>`, 2026-10-07).
+    expect(r.lines[0]).to.contain("gov org add Ghost --home <path>");
   });
 
   it("org use (missing org) → exit 2, usage", () => {
@@ -560,7 +562,7 @@ describe("coverage: gov org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["list"], {}, deps);
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("No orgs registered. Add one: prj org add <org> <home>.");
+    expect(r.lines[0]).to.equal("No orgs registered. Add one: gov org add <github_org> --home <path>.");
   });
 
   it("org list (populated) → exit 0, marks the active org", () => {

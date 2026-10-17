@@ -18,7 +18,12 @@ import {
   variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
 import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
-import { INHERITED_FILES } from "../../src/setup/create.js";
+import { cleanSlateEntries } from "../../src/setup/create.js";
+import { buildArtifacts, HARNESS_DIR } from "../../src/rules/rules-build.js";
+import { loadRuleStoresFrom } from "../../src/rules/model/store-io.js";
+import { staleSkillDirs, SKILL_TARGETS, FALLBACK_SKILLS_DIR } from "../../src/skills/locations.js";
+import { needsSkillIndex, SKILL_INDEX_MARK } from "../../src/skills/fallback-index.js";
+import { HARNESS_TARGETS } from "../../src/rules/harness-render.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -75,8 +80,12 @@ describe("gov-work — what the menu offers", () => {
   });
 
   it("falls back to the framework's list when the org has not decided — and says so", () => {
-    const empty = approvedAgents([]);
+    // NULL, NOT `[]`, IS "has not decided" (2026-09-28). `[]` is the structure-only DECISION, and
+    // while the two were one value an org that had chosen to run no agents was shown the whole
+    // framework catalogue as its own defaults.
+    const empty = approvedAgents(null);
     expect(empty.usingDefaults).to.equal(true);
+    expect(empty.structureOnly).to.equal(false);
     // NOT THE WHOLE CATALOG. A walk saw all ten proposed as an org's defaults, Windsurf
     // included — gov suggesting agents its own adoption menu declines to offer. `deferred`
     // means "not offered", and that has to hold on every path that shows a list.
@@ -87,6 +96,17 @@ describe("gov-work — what the menu offers", () => {
     // AN ORG'S OWN LIST IS HONOURED VERBATIM, deferred or not: upgrading gov must never take
     // an agent away from an organization that approved it.
     expect(approvedAgents(["windsurf"]).ids).to.deep.equal(["windsurf"]);
+  });
+
+  it("an EMPTY list offers NOTHING — the org authorized no agents, which is an answer", () => {
+    const none = approvedAgents([]);
+    expect(none.structureOnly, "an answer, not a gap").to.equal(true);
+    expect(none.usingDefaults, "so gov must not substitute its own list").to.equal(false);
+    expect(none.ids).to.deep.equal([]);
+    // And nothing downstream can find anything to offer or to install.
+    const st = agentStatuses(AGENT_CATALOG, () => true, {});
+    expect(offerable(st, none.ids)).to.deep.equal([]);
+    expect(installable(st, none.ids)).to.deep.equal([]);
   });
 
   it("says what each choice DOES, not just what it is called", () => {
@@ -277,7 +297,7 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
       expect(i!.npm, "no npm coordinate — the one that was here was not IBM's").to.equal(undefined);
       expect(i!.url).to.match(/^https:\/\/bob\.ibm\.com/);
     }
-    expect(bob.install?.script, "IBM's script is the channel").to.match(/^curl -fsSL https:\/\/bob\.ibm\.com\//);
+    expect(bob.install?.script, "IBM's script is the channel").to.match(/^https:\/\/bob\.ibm\.com\//);
   });
 
   it("every install names where it comes from, runnable or not", () => {
@@ -354,6 +374,101 @@ describe("gov-work — harness PATHS agree with the manifest, not just ids", () 
   });
 });
 
+/**
+ * RENDER PARITY FOR SKILLS (intent 03 D6, L14). The nine files are checked above by path; the skills are rendered
+ * from rule rows, so their parity is checked by rendering: what the shipped rule stores produce through the code an
+ * adopter runs must be exactly what `publish/content/agent/harness/` holds — and nothing generated beyond it.
+ */
+describe("gov-work — generated skills in the shipped content match a fresh render", () => {
+  const content = path.join(repoRoot, "publish", "content");
+  const read = (rel: string): string | undefined =>
+    fs.existsSync(path.join(content, rel)) ? fs.readFileSync(path.join(content, rel), "utf8") : undefined;
+  const loaded = loadRuleStoresFrom({ where: "publish/content", orgScope: "ORG", read });
+  if (!loaded.ok) throw new Error(loaded.reason);
+  const built = buildArtifacts(
+    fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8"), loaded.set, undefined, (rel) => read(rel) ?? null,
+  );
+  if ("error" in built) throw new Error(built.error);
+
+  it("renders at least one skill, at every verified location", () => {
+    expect(built.skills.length).to.be.greaterThan(0);
+    for (const t of SKILL_TARGETS) {
+      for (const n of built.skills) expect(built.files.some((f) => f.path === `${HARNESS_DIR}/${t.dir}/${n}/SKILL.md`), `${t.dir}/${n}`).to.equal(true);
+    }
+  });
+
+  it("every rendered skill is in publish/content byte for byte, and no stale generated skill is left there", () => {
+    for (const f of built.files.filter((x) => x.path.includes("/skills/"))) {
+      expect(read(f.path), `${f.path} — run \`npm run render-harness\``).to.equal(f.content);
+    }
+    const nodeFs = {
+      readdir: (d: string) => (fs.existsSync(d) ? fs.readdirSync(d) : []),
+      readFile: (f: string) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null),
+    };
+    expect(staleSkillDirs(nodeFs, path.join(content, HARNESS_DIR), built.skills)).to.deep.equal([]);
+  });
+});
+
+/**
+ * RENDER PARITY FOR ALL NINE HARNESS FILES (intent 03 L15). The fallback skill index (Q14) is part of the harness
+ * render, so the shipped files are compared with a fresh render — every one of the nine, byte for byte — and the
+ * index is present exactly where an agent with no verified native skill location reads.
+ */
+describe("gov-work — all nine shipped harness files match a fresh render, fallback index included", () => {
+  const content = path.join(repoRoot, "publish", "content");
+  const read = (rel: string): string | undefined =>
+    fs.existsSync(path.join(content, rel)) ? fs.readFileSync(path.join(content, rel), "utf8") : undefined;
+  const loaded = loadRuleStoresFrom({ where: "publish/content", orgScope: "ORG", read });
+  if (!loaded.ok) throw new Error(loaded.reason);
+  const built = buildArtifacts(
+    fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8"), loaded.set, undefined, (rel) => read(rel) ?? null,
+  );
+  if ("error" in built) throw new Error(built.error);
+
+  for (const t of HARNESS_TARGETS) {
+    it(`${t.path}: shipped bytes = render; index ${needsSkillIndex(t.path) ? "present" : "absent"}`, () => {
+      const f = built.files.find((x) => x.path === `${HARNESS_DIR}/${t.path}`);
+      expect(f, t.path).to.not.equal(undefined);
+      expect(read(f!.path), `${f!.path} — run \`npm run render-harness\``).to.equal(f!.content);
+      expect(f!.content.includes(SKILL_INDEX_MARK), t.path).to.equal(needsSkillIndex(t.path));
+    });
+  }
+
+  it("the shipped lifecycle is active, so its step skills ship too", () => {
+    for (const step of ["intent", "spec", "plan", "build"]) expect(built.skills).to.include(`gov-lifecycle-${step}`);
+  });
+});
+
+/**
+ * A NATIVE SKILL LOCATION IS RECORDED ONLY AFTER IT WAS SEEN TO WORK (intent 03 spec §5; L15) — the `promptArgv`
+ * rule. `skillsDir` without a dated `skillsVerified` note is a guess; a note without a dir is a claim about nothing.
+ */
+describe("gov-work — skillsDir is set only with a dated verification note", () => {
+  it("every skillsDir has a dated skillsVerified note naming the version it was seen on, and vice versa", () => {
+    for (const a of AGENT_CATALOG) {
+      if (a.skillsDir === undefined) {
+        expect(a.skillsVerified, `${a.id}: a verification note without a skillsDir`).to.equal(undefined);
+        continue;
+      }
+      expect(a.skillsVerified, `${a.id}: skillsDir '${a.skillsDir}' with no verification note`).to.be.a("string");
+      expect(a.skillsVerified!, a.id).to.match(/^20\d\d-\d\d-\d\d /);
+      expect(a.skillsVerified!, `${a.id}: name the version it was seen on`).to.match(/\d+\.\d+/);
+      expect(a.skillsDir, a.id).to.match(/^\.[a-z]+\/skills$/);
+    }
+  });
+
+  it("the skill targets are exactly the verified dirs plus the fallback location", () => {
+    const dirs = [...new Set(AGENT_CATALOG.flatMap((a) => (a.skillsDir ? [a.skillsDir] : [])))];
+    expect(SKILL_TARGETS.map((t) => t.dir).sort()).to.deep.equal([...new Set([...dirs, FALLBACK_SKILLS_DIR])].sort());
+  });
+
+  it("today: claude-code (run) reads .claude/skills; cursor and gemini share .agents/skills — no Cursor copy (D14)", () => {
+    expect(AGENT_CATALOG.filter((a) => a.skillsDir).map((a) => [a.id, a.skillsDir])).to.deep.equal([
+      ["claude-code", ".claude/skills"], ["cursor", ".agents/skills"], ["gemini-code-assist", ".agents/skills"],
+    ]);
+  });
+});
+
 describe("gov-work — gov verifies the context before it launches (the guarantee's teeth)", () => {
   // Windows CI has failed a correct answer here before (logDirFor, 2026-09): compare separators
   // as posix, because what is being asserted is the PATH, not the platform.
@@ -387,7 +502,7 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     // adopter's own and gov should not govern through it. But `ensureRootProtocol` OVERWRITES
     // this path from `<workspace>/<rel>` on every launch, so what is read here is always a copy
     // of the organization's own governed repository. If they edited it, that edit is their
-    // ratified choice (POL-086) and gov has no standing to refuse it.
+    // ratified choice (GOV-FRM-086) and gov has no standing to refuse it.
     //
     // Refusing also kept bricking real installs: first every org predating the version marker,
     // then Claude specifically, because `main` still ships CLAUDE.md as an @-import stub with
@@ -479,8 +594,11 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     // too; this is the same fact asserted where it is cheapest to see.
     const src = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
     expect(src, "session-protocol.md must carry the marker verifyAgentContext requires").to.contain(PROTOCOL_MARKER);
-    const r = fs.readFileSync(path.join(repoRoot, "agent", "render-harness.mjs"), "utf8");
-    expect(r, "and the renderer must refuse to render without it").to.contain(PROTOCOL_MARKER);
+    // The guard moved INTO gov (2026-09-28): `agent/render-harness.mjs` is now a thin wrapper around
+    // `src/rules/harness-render.ts`, so that the publisher and an adopter render through one implementation.
+    // The refusal is asserted where it now lives — and a unit test drives it directly.
+    const r = fs.readFileSync(path.join(import.meta.dirname, "..", "..", "src", "rules", "harness-render.ts"), "utf8");
+    expect(r, "gov's renderer must refuse to render a protocol without the marker").to.contain(PROTOCOL_MARKER);
   });
 });
 
@@ -498,17 +616,15 @@ describe("gov-work — gov verifies the context before it launches (the guarante
  * catalog and the manifest — never the framework's own root against the paths an agent reads.
  */
 describe("adoption — the framework's own files never become the adopter's protocol", () => {
-  it("every path an agent reads is pruned from the template copy, or not in this repo's root", () => {
+  // The mechanism changed 2026-09-22: a hand-kept INHERITED_FILES list became a CLEAN SLATE — every root entry
+  // of the template copy except `.git` and the seed source is removed before the seed. The property is the same.
+  it("every path an agent reads is removed from the template copy by the clean slate", () => {
+    const root = fs.readdirSync(repoRoot);
+    const removed = cleanSlateEntries(root);
     for (const rel of ROOT_HARNESS_FILES) {
-      const ownCopy = path.join(repoRoot, rel);
-      if (!fs.existsSync(ownCopy)) continue;                 // no collision: nothing to inherit
-      const rendered = fs.readFileSync(ownCopy, "utf8").includes(RENDERED_BANNER);
-      if (rendered) continue;                                // the framework's copy IS a render
-      expect(
-        INHERITED_FILES.includes(rel),
-        `${rel} exists in this repo's root, is NOT a render, and is not in INHERITED_FILES — `
-        + "so the template copy would survive the seed and govern the adopter's agents",
-      ).to.equal(true);
+      const top = rel.split("/")[0]!;
+      if (!root.includes(top)) continue;                     // no collision: nothing to inherit
+      expect(removed, `${top} is in this repo's root and would survive into the adopter's clone`).to.include(top);
     }
   });
 
@@ -518,7 +634,7 @@ describe("adoption — the framework's own files never become the adopter's prot
     const own = path.join(repoRoot, "AGENTS.md");
     expect(fs.existsSync(own), "this repo still has its own AGENTS.md").to.equal(true);
     expect(fs.readFileSync(own, "utf8"), "and it is NOT a rendered protocol").to.not.contain(RENDERED_BANNER);
-    expect(INHERITED_FILES, "so it must be pruned from an adopter's clone").to.include("AGENTS.md");
+    expect(cleanSlateEntries(fs.readdirSync(repoRoot)), "so the clean slate removes it").to.include("AGENTS.md");
   });
 
   it("what ships as the adopter's AGENTS.md is the rendered protocol, and passes the gate", () => {

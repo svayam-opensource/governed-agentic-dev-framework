@@ -6,6 +6,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { log } from "../log.js";
 import type { FsProbe } from "./vcs.js";
 
 /** Filesystem writes seed needs (extends the read-only {@link FsProbe}). */
@@ -20,34 +21,72 @@ export interface Fs extends FsProbe {
   rm(target: string): void;
   /** List entry names in `dir` (empty array if it doesn't exist). */
   readdir(dir: string): string[];
+  /**
+   * When `p` was last modified, in ms — or null if it cannot be read.
+   *
+   * OPTIONAL, deliberately. It arrived with the project picker's "on this machine, last used first"
+   * list (PRJ-121), and every existing double of this port predates it; making it required would have
+   * turned a cosmetic ordering hint into a compile error in thirty tests. A caller that cannot get one
+   * must degrade visibly — `orderLocal` falls back to board order — never invent a timestamp.
+   */
+  mtimeMs?(p: string): number | null;
+  /**
+   * Move `from` to `to`, creating `to`'s parent. How a previous attempt is ARCHIVED rather than deleted (#214) —
+   * the same move `gov setup` makes on its retry path. Optional for the same reason as `mtimeMs`.
+   */
+  rename?(from: string, to: string): void;
 }
 
 /** The real node:fs-backed writer. */
+/**
+ * THE WRITES ARE LOGGED, the reads are not (PRJ-121, 2026-09-23).
+ *
+ * What a run CHANGED on disk is the second question of every diagnosis ("what did it do?"), and it was
+ * unanswerable. A read is not a change, and there are thousands of them; a write, a delete and a new directory
+ * are the facts worth keeping. The CONTENT is never logged — it is often a policy, a key or someone's prose —
+ * only the path and how many bytes.
+ */
 export function createNodeFs(): Fs {
   return {
     pathExists: (p) => fs.existsSync(p),
     mkdirp: (dir) => {
       fs.mkdirSync(dir, { recursive: true });
+      log("info", "made a directory", "gov-work:lifecycle:fs-io", "mkdirp", { dir });
     },
     writeFile: (file, content) => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, content, "utf8");
+      log("info", "wrote a file", "gov-work:lifecycle:fs-io", "writeFile", { file, bytes: Buffer.byteLength(content, "utf8") });
     },
     readFile: (file) => {
       try {
         return fs.readFileSync(file, "utf8");
-      } catch {
+      } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return null;
       }
     },
     rm: (target) => {
+      const existed = fs.existsSync(target);
       fs.rmSync(target, { recursive: true, force: true });
+      log(existed ? "info" : "debug", existed ? "removed" : "removed (nothing there)", "gov-work:lifecycle:fs-io", "rm", { target });
     },
     readdir: (dir) => {
       try {
         return fs.readdirSync(dir);
-      } catch {
+      } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return [];
+      }
+    },
+    rename: (from, to) => {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.renameSync(from, to);
+      log("info", "moved", "gov-work:lifecycle:fs-io", "rename", { from, to });
+    },
+    mtimeMs: (p) => {
+      try {
+        return fs.statSync(p).mtimeMs;
+      } catch { /* a path that is gone has no mtime — the caller orders without it (see the port's note) */
+        return null;
       }
     },
   };

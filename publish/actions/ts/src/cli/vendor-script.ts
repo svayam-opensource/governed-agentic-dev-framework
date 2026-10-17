@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * A VENDOR'S INSTALL SCRIPT, VERIFIED BEFORE IT RUNS (#205 remainder, ruling Q16 C).
+ *
+ * gov used to run `sh -c "curl <url> | bash"` — whatever the vendor's server sent that second, executed as it
+ * streamed in. Approval of the agent is the trust decision about the VENDOR (#196 Q2); it is not a decision about
+ * bytes nobody looked at, and a compromised CDN or a swapped script would have run with the same consent.
+ *
+ *   pinned    the catalog carries `scriptSha256` — the vendor's script is stable across releases. A match runs;
+ *             a mismatch is REFUSED, naming the URL, the digest gov expected and the digest it got.
+ *   unpinned  the script changes every release (Cursor's embeds its version), so a pin would refuse weekly. gov
+ *             shows the URL and the digest of what it downloaded and ASKS. No terminal → no one to ask → refused.
+ *
+ * ONE DOWNLOAD. The bytes that were hashed are the bytes handed to `bash` on stdin — never written to a file and
+ * never fetched a second time, so there is no window between the check and the run (no fetch-twice TOCTOU).
+ *
+ * No catalog entry is pinned today (D1, 2026-10-13); the pinned path stays for any vendor that is pinned later.
+ */
+import { createHash } from "node:crypto";
+import { runInteractive } from "../run-process.js";
+
+export interface VendorScript {
+  /** https URL of the vendor's own installer. */
+  readonly url: string;
+  /** Lowercase hex SHA-256 of the script, when the vendor's script is stable enough to pin. */
+  readonly sha256?: string;
+}
+
+export interface ScriptIo {
+  /** Download the script once. Throws on failure. */
+  readonly fetch: (url: string) => Promise<Uint8Array>;
+  /** Run exactly these bytes as a bash script; return its exit status. */
+  readonly run: (bytes: Uint8Array) => number;
+  /** Ask a yes/no question. Absent when there is no terminal — then nobody can consent. */
+  readonly ask?: (question: string) => Promise<string>;
+  readonly say: (line: string) => void;
+}
+
+export type ScriptOutcome =
+  | { readonly ran: true; readonly status: number; readonly sha256: string }
+  | { readonly ran: false; readonly reason: "not-https" | "fetch" | "drift" | "declined" | "no-terminal"; readonly message: string };
+
+export const sha256Hex = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
+
+/** What the install plan shows before anything runs. */
+export function scriptStepLine(s: VendorScript): string {
+  return s.sha256
+    ? `download ${s.url}, check sha256 ${s.sha256.slice(0, 12)}…, then run it with bash`
+    : `download ${s.url}, show its sha256 and ask before running it with bash`;
+}
+
+export async function fetchVerifyRun(s: VendorScript, io: ScriptIo): Promise<ScriptOutcome> {
+  if (!/^https:\/\//i.test(s.url)) {
+    return { ran: false, reason: "not-https", message: `gov runs vendor scripts only over https; ${s.url} is not.` };
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await io.fetch(s.url);
+  } catch (e) {
+    return { ran: false, reason: "fetch", message: `Could not download ${s.url}: ${(e as Error).message}` };
+  }
+  const actual = sha256Hex(bytes);
+  if (s.sha256) {
+    const expected = s.sha256.toLowerCase();
+    if (actual !== expected) {
+      return {
+        ran: false, reason: "drift",
+        message: `The install script at ${s.url} is not the one gov was released with, so gov will not run it.\n`
+          + `  expected sha256 ${expected}\n`
+          + `  got      sha256 ${actual}\n`
+          + "  The vendor may have published a new script, or something between you and the vendor changed it.\n"
+          + "  Install from the vendor's page yourself after checking it, or update gov once a release carries the new pin.",
+      };
+    }
+    io.say(`  ✓ ${s.url} matches its pinned sha256 ${actual}`);
+  } else {
+    io.say(`  ${s.url}`);
+    io.say(`  sha256 ${actual}  (${bytes.length} bytes; the vendor changes this script per release, so gov has no pin)`);
+    if (!io.ask) {
+      return {
+        ran: false, reason: "no-terminal",
+        message: `gov has no pinned digest for ${s.url} (sha256 ${actual}) and no terminal to ask you,\n`
+          + "  so it ran nothing. Run `gov agent install` in a terminal to review and confirm.",
+      };
+    }
+    const a = (await io.ask(`  Run this script (sha256 ${actual.slice(0, 12)}…)? [y/N] `)).trim().toLowerCase();
+    if (a !== "y" && a !== "yes") {
+      return { ran: false, reason: "declined", message: `Not run. Nothing from ${s.url} was executed.` };
+    }
+  }
+  return { ran: true, status: io.run(bytes), sha256: actual };
+}
+
+/** Largest script gov will hold in memory. Vendor installers are kilobytes; anything near this is not one. */
+const MAX_SCRIPT_BYTES = 5 * 1024 * 1024;
+
+/** The real download: one GET, redirects followed, the final URL still https, size-capped. */
+export async function httpsFetch(url: string): Promise<Uint8Array> {
+  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!/^https:\/\//i.test(res.url || url)) throw new Error(`redirected off https to ${res.url}`);
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (buf.length > MAX_SCRIPT_BYTES) throw new Error(`${buf.length} bytes is too large for an install script`);
+  return buf;
+}
+
+/**
+ * The real runner: `bash -s` with the verified bytes on stdin — what `curl | bash` did, minus the stream. The
+ * terminal's stdout/stderr stay the script's, and a script that prompts reads /dev/tty exactly as it did before.
+ */
+export function bashStdin(bytes: Uint8Array): number {
+  return runInteractive("bash", ["-s"], {
+    pgm: "gov-work:cli:vendor-script", fn: "run-script",
+    spawn: { stdio: ["pipe", "inherit", "inherit"], input: Buffer.from(bytes) },
+  });
+}

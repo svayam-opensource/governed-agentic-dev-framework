@@ -1,0 +1,73 @@
+name: msi-build
+
+# THE WINDOWS BUILD gov-cicd STARTS (PRJ-121 plan 04 T13/T14; decision 1: "built on a GitHub-hosted Windows job that
+# gov-cicd starts, signed on gov-cicd's side"). The interface is gov-cicd's docs/msi-packaging.md, "The build
+# interface": dispatched with version, arch and request_id; the run name carries request_id; it uploads exactly one
+# artifact, `gov-<version>-<arch>.msi`, holding only that UNSIGNED file. It never signs, holds no secret and
+# publishes nothing — gov-cicd signs with its own key and publishes (ruling Q8 A: one publish path).
+
+run-name: "msi-build ${{ inputs.version }} ${{ inputs.arch }} [${{ inputs.request_id }}]"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "gov version to stamp and build (e.g. 1.2.3 or 1.2.3-dev.gabc1234)"
+        required: true
+        type: string
+      arch:
+        description: "Windows architecture"
+        required: true
+        type: choice
+        options: [x64, arm64]
+      request_id:
+        description: "gov-cicd's request id — appears in the run name so gov-cicd can find this run"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build gov-${{ inputs.version }}-${{ inputs.arch }}.msi (unsigned)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version }}
+      ARCH: ${{ inputs.arch }}
+      REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - name: inputs are what they claim to be
+        shell: bash
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version '$VERSION' is not semver"; exit 1; }
+          [[ "$ARCH" =~ ^(x64|arm64)$ ]] || { echo "::error::arch '$ARCH' is not x64 or arm64"; exit 1; }
+          [[ "$REQUEST_ID" =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "::error::request_id has characters it should not"; exit 1; }
+      - uses: actions/checkout@v4
+      # Node and WiX are BUILD tools here. The MSI carries its own Node, downloaded and checked by the build script.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: use Git Bash for npm scripts
+        run: npm config set script-shell bash
+      - name: pack gov at this commit, stamped with the version
+        id: pack
+        shell: bash
+        run: |
+          out="$(bash packages/msi/ci/pack-gov.sh "$VERSION" "$RUNNER_TEMP/pkg")"
+          echo "tgz=$(echo "$out" | sed -n 1p)" >> "$GITHUB_OUTPUT"
+      - name: install WiX
+        shell: pwsh
+        run: ./packages/msi/ci/setup-wix.ps1
+      - name: build the MSI
+        shell: bash
+        env:
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: node packages/msi/scripts/build.mjs --version "$VERSION" --arch "$ARCH" --out "$RUNNER_TEMP/msi" --gov-tgz "$TGZ"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gov-${{ inputs.version }}-${{ inputs.arch }}.msi
+          path: ${{ runner.temp }}/msi/gov-${{ inputs.version }}-${{ inputs.arch }}.msi
+          if-no-files-found: error
+          retention-days: 7

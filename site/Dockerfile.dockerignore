@@ -1,0 +1,14 @@
+# What never enters the gov-install build context — BuildKit reads this file, next to the Dockerfile, in
+# preference to any .dockerignore at the context root.
+#
+# DENY-ONLY, deliberately. The context is either the repo root (`build.context: repo`, which `local` needs) or
+# site/ itself, and one file has to be right for both. An allow-list (`*` then `!site`) would empty the build
+# the moment the context is site/, because there is no site/ inside site/.
+#
+# site/.dockerignore stays for builders that do not read a Dockerfile-specific ignore file (podman on the deploy
+# agent, depending on version). There the context is a fresh checkout, which has none of this anyway.
+.git
+**/node_modules
+**/lib
+**/dist
+**/*.tgz

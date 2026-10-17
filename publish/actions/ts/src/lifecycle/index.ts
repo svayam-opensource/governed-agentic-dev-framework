@@ -4,6 +4,7 @@
 export * from "./identity.js";
 export * from "./board.js";
 export * from "./gh-board.js";
+export * from "./branch-protection.js";
 export * from "./vcs.js";
 export * from "./leftover.js";
 export * from "./transaction.js";
@@ -26,6 +27,7 @@ export * from "./pulls.js";
 export * from "./close.js";
 export * from "./state.js";
 export * from "./project-list.js";
+export * from "./local-projects.js";
 export * from "./manage.js";
 export * from "./knowledge.js";
 export * from "./onboard.js";

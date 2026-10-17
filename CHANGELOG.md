@@ -13,6 +13,58 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+## 2.0.0-next.2 — pre-release (dist-tag `next`; `latest` stays 1.2.3)
+
+2.0.0-next.1 reached the internal uat registry only and was never published to npmjs; next.2 is the
+first public 2.0 pre-release and carries everything below, including the org runner choice (`ci.runs_on`).
+
+The first 2.0 pre-release: everything PRJ-121 built. Install it only on purpose
+(`npm i -g @svayam-opensource/gov@next`). 2.0.0 itself ships when the vision checklist is complete.
+
+**Breaking**
+- **Phase layout.** `framework/` and `policies/` split into `common/` · `build/` · `active/` · `reference/` ·
+  `rules/`; org rules move to `policies/rules/`. Orgs on the 1.x layout are moved by `gov upgrade --pr` through
+  the bridge pre-release; 2.0.0 itself carries no legacy-layout code.
+- Setup no longer seeds knowledge-publication, knowledge-organization-standard, compliance-review, the
+  knowledge-harvest procedure or the project `compliance.md`; the `knowledge_publication` setting is retired. How an
+  organization publishes, organizes and harvests knowledge is its own policy.
+- People have one way in: `install.sh` (macOS/Linux) or `winget install Svayam.Gov` (Windows), then the first-run
+  flow. `gov setup` remains for automation. Deploy and promote are `gov-cicd` verbs.
+
+**Governance**
+- Plain-English policy → rule rows (`GOV-FRM-…`, `GOV-<org>-…`) proposed by an interview, approved by section
+  owners; checks run free (the engine stays MIT). A parent policy is a floor: a part that loosens it is asked about.
+- Paid evidence (separate, closed `@svayam/gov-check`): a signed, hash-chained ledger kept in the org's own gov repo,
+  SOC 2 CC8 and RBI change-management reports; only licence/lease traffic and usage counts reach Svayam.
+
+**The AI-SDLC lifecycle**
+- `gov intent` (from issues, by owner interview) → spec → plan → build; releases per unit; `gov autorun` drafts
+  each stage and stops at every human gate. `gov project`, `gov issue`, and `gov signal`
+  (ask · depends · handover · merge · notice) between projects.
+- Rule guidance reaches agents as native skills; new code sits behind vendor-neutral ports
+  (VCS, CI identity, work tracker).
+
+**Adopters**
+- Native Windows: spawning through PATH×PATHEXT, a per-user MSI (unsigned until a production certificate exists).
+- `gov work` lists agents only when the org approves more than one, defaulting to last time's agent on the project.
+- gov's GitHub workflows run on the organization's runner: `ci.runs_on` in `policies/governance.yaml` (one label, or a
+  list such as `[self-hosted, linux]`) goes into every job of `gov-checks.yml`, the approver check, and a newly
+  installed `gov-validate.yml`. While it is set, `gov upgrade` and `gov check install` also keep the org's existing
+  `gov-validate.yml` on it, changing only its `runs-on:` lines and naming each one. Unset, they ask for
+  `ubuntu-latest` as before and never touch the org's copy. On a runner without `git` or the GitHub CLI, `gov check run`
+  fails under any posture and names the missing tool. Before, each GitHub read failed in turn, and under soft posture
+  the check went green having done nothing. An organization whose CI runs only on
+  self-hosted runners (an Actions spending limit of $0) needs it, or its checks wait for a runner that never comes.
+- Many first-run fixes (#191–#224): failed seeds keep the workspace, wrong answers are asked again, forks, reopened
+  projects, verified vendor installers, a stale mirror is never used (#180).
+
+**Reliability**
+- `gov merge` ignores gov's own regenerated agent files; board status is really set (#225); org check actions run
+  (bash/python locally and in CI, GitHub Actions in CI from the default branch); a rule-row JSON Schema.
+- gov requires `@svayam-opensource/svm-util-log ^1.1.1`, whose `moment ^2.31.0` floor removes
+  GHSA-4p3w-j4w9-5jqw (moment path traversal) from every install. node-ci fails on any moderate-or-worse
+  advisory in production dependencies, for the lockfile and for the packed gov installed fresh.
+
 ## 1.2.3 — 2026-09-17
 
 - The install instructions fetch `install.sh` to a file, then run it. Piped into `bash`, a failed

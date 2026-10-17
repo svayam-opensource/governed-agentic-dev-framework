@@ -35,10 +35,12 @@
 
 import * as path from "node:path";
 import { paint } from "./format.js";
+import { phase } from "../log.js";
 import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
-import { askJoinInterview, cloneTargetFor, JOIN_HEADER, joinSummary, JoinRefused } from "../setup/join-interview.js";
+import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
+import { olderFrameworkLines, type FrameworkCurrency, type PolicyOwnerFacts } from "../maintain/framework-currency.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -103,7 +105,7 @@ export function govHomeFor(homeDir: string, orgSlug: string, join: (...p: string
 
 /** `git@github.com:Svayamtech/svm-prj-work.git` / `https://github.com/Svayamtech/svm-prj-work` → `svm-prj-work`. */
 export function repoNameFromUrl(url: string): string | null {
-  const m = /([^/:]+?)(?:\.git)?\/?$/.exec(url.trim());
+  const m = /([^/\\:]+?)(?:\.git)?[/\\]?$/.exec(url.trim());   // `\` too: a local path on Windows
   return m?.[1] ?? null;
 }
 
@@ -137,8 +139,6 @@ export interface GovernanceProbe {
 /** Where the repo to join came from: a URL the user typed, or one gov derived from `owner/repo`. */
 interface CloneSource {
   readonly url: string;
-  /** Print the joiner's closing block on success — set only by the interviewed path. */
-  readonly summarize?: boolean;
   /** The authorized agent the joiner chose at Q3, carried to the work flow they are offered. */
   readonly agent?: string;
   /** `owner/repo` when gov found it, null when the user typed a URL gov cannot attribute. */
@@ -360,7 +360,7 @@ export interface FirstRunIo {
    */
   deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
   /**
-   * Can this environment record an approved-agent list? Gates whether Q10 is asked at all.
+   * Can this environment record an approved-agent list? Gates whether Q12 is asked at all.
    *
    * IT WAS A WRITER, AND THE WRITE WAS ALREADY DONE. This used to be
    * `approveAgents(agents) => boolean`, called after `createWorkspace` returned, and a walk on
@@ -402,8 +402,20 @@ export interface FirstRunIo {
    * passed so the flow does not re-ask a question the interview already answered.
    */
   reviewNow?: (role: AdoptionRole, agent?: string) => Promise<number | null>;
-  /** What to do now, for a joiner. */
-  joinerNextSteps?: () => readonly string[];
+  /**
+   * What to do now, for a joiner. `currency` is what gov found comparing the cloned repository to itself (F15): with
+   * it the screen lists only the paths that exist, and leaves out "start working" when work cannot start.
+   */
+  joinerNextSteps?: (currency?: FrameworkCurrency) => readonly string[];
+  /**
+   * Compare the governance repository just placed at `home` to this gov — layout and version (F15). Absent: gov
+   * assumes it is current, which is how the join behaved before.
+   */
+  frameworkCurrency?: (home: string) => FrameworkCurrency;
+  /** Who the repository's Policy Owner is, and whether that is the signed-in person. */
+  policyOwner?: (home: string) => PolicyOwnerFacts;
+  /** Open the upgrade pull request for the repository at `home` — `gov upgrade --pr` there. Offered to its Policy Owner only. */
+  openUpgradePr?: (home: string) => Promise<number> | number;
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -457,6 +469,7 @@ export async function runFirstRun(io: FirstRunIo): Promise<number | null> {
  * enough, which is our problem to fix on the spot, not theirs to be punished for.
  */
 async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
+  phase("first-run", "gov-work:cli:bootstrap");          // the walk's step 4 starts here (spec 04 §5, #276)
   for (let attempt = 0; attempt < 5; attempt++) {
     for (const line of roleQuestion(io.color ?? false)) io.print(line);
     const role = parseRole(await io.prompt("Select (A/B/C): ", ""));
@@ -525,7 +538,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target, { ...result.answers, ...(result.agents ? { agents: result.agents } : {}) });
   if (code !== 0) return code;
 
-  // WRITE DOWN WHAT Q10 DECIDED (#196).
+  // WRITE DOWN WHAT Q12 DECIDED (#196).
   //
   // The QUESTION moved into the interview, where every other answer is collected; only the
   // recording is left here, because the file it writes to did not exist until the clone above.
@@ -534,11 +547,15 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   //
   // The fallback that #196 removed stays removed: an approved list is produced during adoption,
   // so "nobody has decided" still never persists past setup.
-  // READ BACK WHAT Q10 DECIDED. The recording happened inside `createWorkspace`, which is the
+  // READ BACK WHAT Q12 DECIDED. The recording happened inside `createWorkspace`, which is the
   // only place that is both after the content seed and before the commit — so if it had failed,
   // it would already have said so loudly on stderr, naming the file and the recovery command.
   // This is the summary, not a second attempt at the write.
-  if (result.agents?.length) {
+  //
+  // READ BACK `none` TOO (Policy Owner, 2026-09-28). This was `result.agents?.length`, so the one
+  // answer that changes the most about the rest of gov — the organization runs no AI agents — was
+  // the one answer never read back. `approvalSummary` says it, and says how to change it.
+  if (result.agents) {
     for (const line of approvalSummary(result.agents)) io.print(line);
   }
 
@@ -555,7 +572,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
-  return await offerTheReview(io, "adopter");
+  // "…with gov and your agent" is a promise, and for an org that chose `none` it is a promise gov
+  // cannot keep. The answer is known right here, so it travels rather than being re-derived.
+  return await offerTheReview(io, "adopter", undefined, result.agents?.length === 0);
 }
 
 /**
@@ -575,12 +594,19 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
  * install a tool may want to read roles.md first. A keypress makes the governed route the
  * default without making it compulsory.
  */
-async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string): Promise<number> {
+async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string, agentsOff = false): Promise<number> {
   if (!io.reviewNow) return 0;
+  phase("review-offer", "gov-work:cli:bootstrap", { role });
   // The adopter has one thing to do and gov knows which; the joiner has a list only they can
   // choose from. Same offer, different last word.
+  //
+  // AND FOR AN ORG THAT RUNS NO AGENTS, a different last word again: the review is still the
+  // right next step, and "with gov and your agent" would be the one sentence in adoption that
+  // contradicts the answer given two screens earlier.
   const question = role === "adopter"
-    ? "  " + paint("Would you like to review your governance policies now, with gov and your agent?", "bold", io.color ?? false) + " [Y/n]: "
+    ? agentsOff
+      ? "  " + paint("Would you like to open your new governance project and review its policies now?", "bold", io.color ?? false) + " [Y/n]: "
+      : "  " + paint("Would you like to review your governance policies now, with gov and your agent?", "bold", io.color ?? false) + " [Y/n]: "
     : "  " + paint("Would you like to start work now? gov will list the projects you are assigned to.", "bold", io.color ?? false) + " [Y/n]: ";
   io.print("");
   const yes = (await io.prompt(question, "Y")).trim().toLowerCase();
@@ -601,6 +627,24 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string
     return 0;
   }
   return code;
+}
+
+/**
+ * THE JOIN ENDS HERE WHEN THE REPOSITORY IS OLDER THAN gov (F15). Starting work would fail at seed, so it is not
+ * offered. Its Policy Owner is offered the one thing that unblocks everyone — the upgrade pull request — and anyone
+ * else has already been told who that is. Never an instruction to change the organization's repository directly:
+ * the upgrade lands by a pull request like every other change (GOV-FRM-040).
+ */
+async function offerTheUpgrade(io: FirstRunIo, home: string, owner: PolicyOwnerFacts): Promise<number> {
+  if (!owner.isYou || !io.openUpgradePr) return 0;
+  io.print("");
+  const yes = (await io.prompt(`  ${paint("Open the upgrade pull request now (gov upgrade --pr)?", "bold", io.color ?? false)} [Y/n]: `, "Y")).trim().toLowerCase();
+  if (yes.startsWith("n")) {
+    io.print("");
+    io.print(`  Nothing opened. When you are ready:  cd ${home} && gov upgrade --pr`);
+    return 0;
+  }
+  return await io.openUpgradePr(home);
 }
 
 /**
@@ -684,7 +728,7 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     io.print("Nothing registered. Re-run `gov` when you know which organization to join.");
     return 0;
   }
-  return joinExisting(io, { ...cloneTargetFor(picked), summarize: true, ...(picked.agent ? { agent: picked.agent } : {}) });
+  return joinExisting(io, { ...cloneTargetFor(picked), ...(picked.agent ? { agent: picked.agent } : {}) });
 }
 
 /**
@@ -732,7 +776,7 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
 
     const home = govHomeFor(io.homeDir, identity.orgSlug);
     if (io.exists(home)) {
-      io.print(`${home} already exists — register it instead:  gov org add ${identity.org} ${home}`);
+      io.print(`${home} already exists — register it instead:  gov org add ${identity.org} --home ${home}`);
       return 1;
     }
     io.place(staged, home);
@@ -746,18 +790,21 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     // the role question — someone who cloned an unconfigured repo just founded an
     // organization, and was being sent to read policies nobody had written (#197).
     for (const line of io.finalStatus?.(founding ? "adopter" : "joiner") ?? []) io.print(line);
-    const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
-    for (const line of after?.() ?? []) io.print(line);
-    io.print(`Active org → ${identity.org}`);
-    // THE CLOSING BLOCK, only on the interviewed path. Two questions were answered in the
-    // abstract; this is where the joiner learns what those answers produced and where it is.
-    if (src.summarize && src.nameWithOwner) {
-      for (const line of joinSummary({
-        repoUrl: `https://github.com/${src.nameWithOwner}`,
-        localPath: home,
-        projectsPath: path.join(io.homeDir, ".gov", identity.orgSlug.toLowerCase(), "projects"),
-      })) io.print(line);
+    // COMPARE BEFORE OFFERING (F15). A joiner's repository may be on an older framework than this gov; then half the
+    // reading list is not there and starting work fails at seed. Only a JOIN is compared — a founding run just
+    // seeded the repository from this gov's own content.
+    const currency = founding ? undefined : io.frameworkCurrency?.(home);
+    const after = founding ? io.adopterNextSteps?.() : io.joinerNextSteps?.(currency);
+    for (const line of after ?? []) io.print(line);
+    if (currency?.older) {
+      const owner = io.policyOwner?.(home) ?? { handle: null, isYou: false };
+      for (const line of olderFrameworkLines(currency, owner, `${identity.org}`)) io.print(line);
+      if (!currency.canStartWork) return await offerTheUpgrade(io, home, owner);
     }
+    // ONE CLOSING BLOCK, NOT FOUR (PRJ-121 #12). A walk ended a join with "Final status", "Install complete",
+    // "Active org → …" and a "Thank you … final configuration" block — the last two repeating the two paths the
+    // first two had just given. The checklist shows the org activated (9a); the next-steps block names the
+    // workspace, where it was cloned from, and where projects go. Nothing else needs saying twice.
     // The joiner's next steps are the same three lines to retype — run gov, choose Work, pick
     // your project — and this path is where an ADOPTER lands too once #197 finds their org is
     // already governed. Ending it with a recipe was the gap the offer exists to close.
@@ -768,4 +815,40 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
   } finally {
     io.discard(tmp);   // the staging dir is never the home; placing MOVED the repo out of it.
   }
+}
+
+/** `<github_org>/<repo>` as GitHub spells it — the only shape `gov setup --join` accepts. */
+const NAME_WITH_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * `gov setup --join <github_org>/<repo>` — THE JOINER'S MACHINE PATH (PRJ-121 intent 05, Item 4, ruling Q5).
+ *
+ * The header above accepted that "a fresh CI runner cannot onboard itself" and said the fix, if it ever bit, was one
+ * flag. It bit: the live joiner journey runs as a second identity on a runner with no terminal, and ruling Q5 says it
+ * drives gov through flags, never a pty. So this is that flag — the SAME clone → place → register → activate as the
+ * interactive B path ({@link joinExisting}), with the two things a terminal was needed for taken out:
+ *
+ *  - nothing is asked. A question reached here is a defect (Q5), so it fails loudly instead of hanging;
+ *  - nothing is offered: no "start work now?", no upgrade pull request. A script asks for those by name.
+ *
+ * A repository with no `org-config.yaml` is REFUSED, never founded: a joiner makes nothing, and creating an
+ * organization must never be inferred from a flag meant for joining one.
+ */
+export async function joinNamed(io: FirstRunIo, nameWithOwner: string): Promise<number> {
+  if (!NAME_WITH_OWNER.test(nameWithOwner)) {
+    io.print(`gov setup --join: '${nameWithOwner}' is not <github_org>/<repo> — e.g. gov setup --join acme/acme-gov`);
+    return 2;
+  }
+  const quiet: FirstRunIo = {
+    ...io,
+    prompt: (question) => Promise.reject(new JoinRefused(`gov setup --join never asks, and it reached a question: ${question.trim()}`)),
+    found: () => {
+      io.print(`${nameWithOwner} has no org-config.yaml — it is not a governed organization's repository, so there is nothing to join.`);
+      io.print("  Nothing was registered. Its Policy Owner sets it up first:  gov setup " + nameWithOwner);
+      return Promise.resolve(null);
+    },
+    reviewNow: undefined,
+    openUpgradePr: undefined,
+  };
+  return joinExisting(quiet, { url: cloneUrlFor(nameWithOwner), nameWithOwner });
 }

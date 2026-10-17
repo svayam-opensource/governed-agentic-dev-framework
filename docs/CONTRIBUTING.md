@@ -1,3 +1,5 @@
+> **Who this is for:** contributors sending changes to the framework repository.
+
 # Contributing to the Agentic Development Framework
 
 Thanks for considering a contribution. This guide explains where to send changes, what they go through, and how to maximize the chance of a smooth merge.
@@ -54,7 +56,8 @@ Failing local checks will fail in CI too — save yourself a round trip.
   all, with the runner's own Node stripped from `PATH`. The only place `install.ps1` is exercised.
 - **`adopter-e2e`** — the hermetic adopter smoke run, and the live-GitHub journey.
 - **`catalog-freshness`** — weekly, not per-PR: checks each approved agent's context filename against
-  its published package.
+  its published package, and reports the digest of each vendor install script. No vendor script is
+  pinned, so it opens no pull requests (see `SECURITY.md`).
 
 All required checks must pass before merge. They are not gating opinion — they catch concrete
 invariant violations that would reach an adopter.
@@ -94,7 +97,7 @@ The framework uses double-curly placeholder syntax for values substituted by `se
 
 ### Tests — the governance test bed (BATS)
 
-> **This section describes the FROZEN bash CLI** (`@svayam-opensource/prj`, at
+> **This section describes the FROZEN bash CLI** (`prj`, at
 > `publish/actions/deprecated/`), which is deprecated and no longer published. For the current
 > TypeScript client the checks are `npm run build`, `npm run lint`, `npm test`, `npm run test:e2e`
 > and `npm run test:adopter:smoke`, all from `publish/actions/ts`.
@@ -106,7 +109,7 @@ bash tests/bats/run.sh        # fetches pinned bats libs, runs every tests/bats/
 ```
 
 It gated the npm publish through `ci/Jenkinsfile`, which was **deleted in 2026-09-16**: it
-published `@svayam-opensource/prj`, now deprecated, and gated on paths that had moved under
+published the bash CLI, now deprecated, and gated on paths that had moved under
 `publish/actions/deprecated/`. Publishing is gov-cicd's `gov-work` unit — see **Releasing** below. Design + roadmap: `tests/TESTBED-DESIGN.md`.
 
 **Rule: a new or changed command must adjust the test bed in the same PR.** Two

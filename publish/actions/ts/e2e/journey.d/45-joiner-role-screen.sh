@@ -13,7 +13,7 @@ drive "$(conv <<C
 > Q2 - What is the name of your org
 < acme-gov
 ~ 120
-> Active org
+> Install complete
 > start work now
 < n
 C

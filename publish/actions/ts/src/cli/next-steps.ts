@@ -14,7 +14,8 @@
  * would be a lie an admin sees through immediately: they have write access to that
  * repository and will use GitHub or their editor if that is faster. Naming which is
  * governed and which is not respects that, and makes the choice a decision rather
- * than a workaround.
+ * than a workaround. Under the rule model a push straight to main breaks GOV-FRM-040
+ * (adoption walk #7), so B says so rather than instructing it, and C is recommended.
  */
 
 import { paint } from "./format.js";
@@ -54,16 +55,15 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     "  A. On GitHub — read-only, quickest to skim",
     "     1. Go to https://github.com/" + f.githubOrg,
     `     2. Open ${f.workspaceRepo}`,
-    "     3. Read governance/policies/ — start with org-ai-agent-governance-policy.md",
+    "     3. Read framework/framework-specification.md",
     "",
     "  B. In your editor (VS Code, Cursor, Eclipse…) — direct, and UNGOVERNED",
-    `     1. Open ${home}`,
-    "     2. Make sure you are on the main branch",
-    "     3. Edit what you like, then commit and push",
-    "     This bypasses the review the framework exists to provide. It is your right",
-    "     as the admin, and worth using deliberately rather than by habit.",
+    `     Open ${home} and edit. But a change pushed straight to main breaks`,
+    "     GOV-FRM-040 — every change lands by a pull request someone authorized",
+    "     approves — and the framework's own check records it as a violation.",
+    "     If you edit here, push to a branch and open a pull request; better, use C.",
     "",
-    "  C. Through gov — the governed way, and the one to learn",
+    "  C. Through gov — the governed way, and the one recommended",
     "     1. Run:  gov",
     "     2. Choose  1. Work",
     "     3. Pick the review project",
@@ -73,10 +73,14 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     `Your workspace: ${home}`,
     `Projects will be cloned under: ~/.gov/${slug}/projects/`,
     "",
+    // EVERY DESCRIPTION UNDER A PATH THAT EXISTS (adoption walk #6). Two of these lost their paths when the split
+    // renamed the documents, and printed as captions for nothing; a test now holds each path against the seed.
     "Read these, in this order — the full paths, so nothing has to be guessed:",
+    `  ${home}/policies/common/authorized-representatives.md`,
     "      who is accountable for what. Every role currently points at you.",
-    `  ${home}/governance/policies/org-ai-agent-governance-policy.md`,
-    "      the rules of work — read §2 and §7 before changing anything",
+    `  ${home}/framework/framework-specification.md`,
+    "      how the framework works — read chapters 3 and 6 before changing anything",
+    `  ${home}/policies/common/data-classification.md`,
     "      what may never leave your organization",
     `  ${home}/agent/session-protocol.md`,
     "      what every agent reads before it touches anything",
@@ -91,8 +95,30 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
   ];
 }
 
-export function joinerNextSteps(f: NextStepsFacts, color = false): readonly string[] {
+/** What the joiner's screen may assume about the repository it just cloned (F15). */
+export interface JoinerScreenFacts {
+  /** Does this repo-relative path exist in the cloned repository? Absent: every listed path is assumed to. */
+  readonly exists?: (rel: string) => boolean;
+  /** Can gov start work in it as it stands? false: the "start working" steps are left out — the caller explains. */
+  readonly canStartWork?: boolean;
+}
+
+/** The joiner's reading list: a path, then what it is for. */
+const JOINER_READING: readonly (readonly [string, readonly string[]])[] = [
+  ["framework/framework-specification.md", [
+    "how work is organized, what must be reviewed, and what your AI assistant",
+    "must do before it touches anything"]],
+  ["agent/session-protocol.md", ["what your agent reads at the start of every session"]],
+  ["policies/common/authorized-representatives.md", ["who to ask when something here does not fit"]],
+  ["framework/common/guides/path-joiner.md", ["the day-to-day: starting work, finishing it, and what gov does for you"]],
+];
+
+export function joinerNextSteps(f: NextStepsFacts, color = false, facts: JoinerScreenFacts = {}): readonly string[] {
   const { home, slug } = p(f);
+  // ONLY PATHS THAT EXIST (F15). A repository on an older framework does not have half of these, and a reading list
+  // of files that are not there is the first thing a joiner would try, and fail at.
+  const reading = JOINER_READING.filter(([rel]) => facts.exists?.(rel) ?? true);
+  const canStart = facts.canStartWork ?? true;
   return [
     "",
     RULE,
@@ -104,25 +130,21 @@ export function joinerNextSteps(f: NextStepsFacts, color = false): readonly stri
     "Your organization has already decided how work is governed here. Those decisions",
     "are in your workspace, and they apply to you from now on — which means the useful",
     "next step is reading them, not changing them.",
-    "",
-    "  Read first:",
-    `    ${home}/governance/policies/org-ai-agent-governance-policy.md`,
-    "      how work is organized, what must be reviewed, and what your AI assistant",
-    "      must do before it touches anything",
-    `    ${home}/agent/session-protocol.md`,
-    "      what your agent reads at the start of every session",
-    "      who to ask when something here does not fit",
-    `    ${home}/docs/USER_GUIDE.md`,
-    "      the day-to-day: starting work, finishing it, and what gov does for you",
-    "",
-    "  Then start working:",
-    "    1. Run:  gov",
-    "    2. Choose  1. Work",
-    "    3. Pick a project you are assigned to",
-    "       gov clones it, puts you on the project branch, and opens your agent with",
-    "       the rules already loaded.",
+    ...(reading.length ? ["", "  Read first:", ...reading.flatMap(([rel, about]) => [`    ${home}/${rel}`, ...about.map((a) => `      ${a}`)])] : []),
+    ...(canStart ? [
+      "",
+      "  Then start working:",
+      "    1. Run:  gov",
+      "    2. Choose  1. Work",
+      "    3. Pick a project you are assigned to",
+      "       gov clones it, puts you on the project branch, and opens your agent with",
+      "       the rules already loaded.",
+    ] : []),
     "",
     `Your workspace: ${home}`,
+    // "Cloned", never "created": the repository already existed, and telling a joiner they created it is the one
+    // sentence that could make them think they had done something to their organization.
+    ...(f.githubOrg && f.workspaceRepo ? [`  cloned from https://github.com/${f.githubOrg}/${f.workspaceRepo} — nothing was created in your organization`] : []),
     `Projects will be cloned under: ~/.gov/${slug}/projects/`,
     "",
     "If a rule gets in your way, propose a change rather than working around it:",

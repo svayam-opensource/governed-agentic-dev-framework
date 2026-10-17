@@ -25,10 +25,11 @@
  * alternative is opening with a GitHub org id, which is not how anyone describes
  * their own organization.
  */
+import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import type { OrgConfigValues } from "./setup.js";
 
 import {
-  nonEmpty, orgSlug as orgSlugRule, emailShape, isoDate,
+  nonEmpty, orgSlug as orgSlugRule, githubHandle, optionalEmail, parseOptionalEmail,
   branchChoice, parseBranchChoice, branchName, type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
@@ -59,7 +60,7 @@ export interface InterviewIo {
    * A convenience, never a gate — see `org-choice.ts`.
    */
   readonly myOrgs?: () => readonly string[];
-  /** Ask the agent-approval question (Q10). Absent = do not ask; the caller asks elsewhere. */
+  /** Ask the agent-approval question (Q12). Absent = do not ask; the caller asks elsewhere. */
   readonly selectAgents?: boolean;
   readonly color?: boolean;
 }
@@ -77,7 +78,7 @@ export interface InterviewResult {
   /** The GitHub organization (Q3). */
   readonly org: string;
   /**
-   * The organization's approved agents (Q10), first one default.
+   * The organization's approved agents (Q12), first one default.
    *
    * IN THE INTERVIEW, not after the repository exists. It used to be asked once the clone had
    * landed, which put the single most consequential policy answer in adoption AFTER the point
@@ -151,7 +152,7 @@ export function interviewSummary(o: InterviewOutcome): readonly string[] {
  * "ask again" assumes someone is there to answer; a stream that repeats itself is
  * recognised for what it is rather than looped on forever.
  */
-async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator, extra: readonly string[] = [], choices: readonly string[] = []): Promise<string> {
+async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator, extra: readonly string[] = [], choices: readonly string[] = [], defaultName?: string): Promise<string> {
   io.print("");
   // ONE STRING, NOT A PRINT PLUS A PROMPT. The question travels WITH the prompt so
   // that whatever is driving the terminal — a person, the e2e `expect` harness, a unit
@@ -166,9 +167,14 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
   //
   // The default is substituted HERE rather than by the renderer, because the renderer appends
   // its own ` [def]: ` and two sets of brackets on one line is worse than either.
+  //
+  // A NUMBERED QUESTION SAYS WHAT ENTER DOES (adoption walk #3, 2026-10-07). `Choose [1/2] :` hid that "1" was the
+  // default, so the one keystroke most people press was the one nobody was told about. The default is printed on
+  // every choice, with the option it stands for when the number alone does not say ("1, soft").
   const fallback = def ?? "";
+  const enter = fallback ? ` (Enter = ${fallback}${defaultName ? `, ${defaultName}` : ""})` : "";
   const label = choices.length
-    ? `Choose [${choices.join("/")}] : `
+    ? `Choose [${choices.join("/")}]${enter} : `
     : fallback ? `Enter Value [${fallback}] : ` : "Enter Value : ";
   const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}${label}`;
   const MAX_ATTEMPTS = 10;
@@ -189,7 +195,7 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
 }
 
 /**
- * Run the nine questions in order. Returns null when `afterOrg` took over.
+ * Run the questions in order. Returns null when `afterOrg` took over.
  *
  * Each default is re-derived from the answers so far, so Q2 can suggest a short name
  * built from Q1's legal name and Q5 can suggest a slug built from Q3's organization.
@@ -248,20 +254,41 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   const dSlug = io.derive(a);
   // A CHOICE, not free text: only two answers mean anything here, and a typo
   // produces a branch the rest of the tool looks for and never finds.
+  const branchDefault = parseBranchChoice(dSlug.defaultBranch ?? "") === "master" ? "2" : "1";
   a.defaultBranch = parseBranchChoice(await ask(io, 6,
     "Default branch to be used for production (BaseRef) in your code repository?\n  (1 = main, 2 = master)",
-    parseBranchChoice(dSlug.defaultBranch ?? "") === "master" ? "2" : "1", branchChoice, [], ["1", "2"])) ?? "main";
+    branchDefault, branchChoice, [], ["1", "2"], parseBranchChoice(branchDefault) ?? undefined)) ?? "main";
 
   a.defaultCodeBranch = await ask(io, 7,
     "Default branch to be used for development?", dSlug.defaultCodeBranch, branchName);
 
-  a.policyOwnerEmail = await ask(io, 8,
-    "What is policy owner email?", io.derive(a).policyOwnerEmail, emailShape);
+  // Q8–Q10 — THE TWO ROLES, ASKED ALIKE, THEN A CONTACT (Policy Owner, 2026-10-07 — adoption walk #1).
+  //
+  // The Policy Owner used to be asked for an EMAIL while their GitHub handle was taken, unannounced, from whoever
+  // was signed in to gh — and the Check Owner was asked by handle. Two roles, two forms, and the one that decides
+  // who approves every policy was the one never asked. Both are handles now, the second defaulting to the first
+  // (a one-person org is the common first case; `gov doctor` says plainly when one person holds both keys).
+  //
+  // NO EFFECTIVE-DATE QUESTION (org-config split, 2026-10-06): `policy_effective_date` is retired — a policy's
+  // history is its version and its CHANGELOG, and the date setup ran fills the documents' <POLICY_EFFECTIVE_DATE>.
+  a.policyOwnerGithub = await ask(io, 8,
+    "Who is the Policy Owner — the GitHub handle that approves your policies and holds every role nobody else holds?",
+    io.derive(a).policyOwnerGithub, githubHandle);
 
-  a.policyEffectiveDate = await ask(io, 9,
-    "What should be the policy effective date ?", io.derive(a).policyEffectiveDate, isoDate);
+  a.checkOwnerGithub = await ask(io, 9,
+    "Who is the Check Owner — the GitHub handle that reviews the code of your check actions (policies/actions/)?",
+    io.derive(a).checkOwnerGithub, githubHandle);
 
-  // Q10 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
+  // OPTIONAL: the role is the handle; the email is only a contact the policies show. `none` leaves it empty.
+  a.policyOwnerEmail = parseOptionalEmail(await ask(io, 10,
+    "What contact email should your policies show for the Policy Owner? (optional — `none` for no email)",
+    io.derive(a).policyOwnerEmail, optionalEmail));
+
+  // Q11 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
+  a.governancePosture = await confirmPosture(
+    parsePostureAnswer(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"], "soft")) ?? "soft", io.prompt);
+
+  // Q12 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
   //
   // Last, because it is the only answer that is a POLICY rather than a fact about the
   // organization, and because it is the one an adopter most needs the preceding context to
@@ -271,13 +298,13 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    io.print("Q10 - Which AI agents may be used in this organization?");
+    io.print("Q12 - Which AI agents may be used in this organization?");
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
     });
-    if (picked === null) throw new InterviewRefused("Q10: no usable AI agent selection.");
+    if (picked === null) throw new InterviewRefused("Q12: no usable AI agent selection.");
     agents = picked;
   }
 

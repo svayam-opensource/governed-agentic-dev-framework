@@ -28,6 +28,22 @@
 export type LaunchKind = "cli" | "ide" | "none";
 
 /**
+ * Where an agent comes from. `script` is the https URL of the VENDOR'S OWN install script; gov downloads it once,
+ * verifies it, and runs those exact bytes with bash (vendor-script.ts, #205, ruling Q16 C).
+ *
+ * `scriptSha256` would PIN IT: a different script is refused, naming both digests. No catalog entry is pinned
+ * (D1, 2026-10-13): a vendor's script change must never block installs, so gov shows the URL and digest and asks.
+ */
+export interface AgentInstall {
+  readonly npm?: string;
+  readonly brew?: string;
+  readonly script?: string;
+  readonly scriptSha256?: string;
+  readonly pip?: string;
+  readonly url: string;
+}
+
+/**
  * One way to run an approved agent (#196, Q8). The policy approves the AGENT — its
  * real question is which provider may see your code, and that does not change
  * between a CLI and an extension of the same tool — so a single approval brings all
@@ -38,8 +54,8 @@ export interface AgentVariant {
   readonly label: string;
   /** The command to probe and to launch. Extensions have none of their own. */
   readonly cmd?: string;
-  /** npm package, or a shell line for a vendor installer. */
-  readonly install?: { readonly npm?: string; readonly script?: string; readonly pip?: string; readonly url: string };
+  /** npm package, or the https URL of a vendor's install script (with its optional pin — see AgentInstall). */
+  readonly install?: AgentInstall;
   /** For extensions: the marketplace id, installed through the host's own CLI. */
   readonly extensionId?: string;
   /** The hosts that can carry this extension, in preference order. */
@@ -57,10 +73,11 @@ export interface AgentCandidate {
   readonly cmd?: string;
   /**
    * How to install it. `npm` is a named package from a named publisher; `script` is
-   * a vendor's own installer, piped into a shell. gov runs either — but only for an
-   * agent the org has approved, because approval IS the trust decision (#196, Q2).
+   * a vendor's own installer, downloaded once and verified before bash runs it (#205). gov
+   * runs either — but only for an agent the org has approved, because approval IS the trust
+   * decision about the vendor (#196, Q2); the digest is the check on the bytes.
    */
-  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly pip?: string; readonly url: string };
+  readonly install?: AgentInstall;
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
   /**
@@ -69,7 +86,7 @@ export interface AgentCandidate {
    * A launch list of ten is ten paths a real adopter can take, of which two have verified
    * prompt delivery. The decision was to make a smaller list foolproof first and expand from
    * there — so these entries keep their catalog knowledge, their manifest parity and their
-   * tests, and simply do not appear in the Q10 menu.
+   * tests, and simply do not appear in the Q12 menu.
    *
    * DEFERRAL AFFECTS THE MENU ONLY. An organization that already approved one of these keeps
    * working: `approvedAgents` still resolves it, `agentLaunchSpec` still launches it. Upgrading
@@ -103,10 +120,66 @@ export interface AgentCandidate {
    * Filling these in means running each vendor's CLI and recording what it accepts.
    */
   readonly promptArgv?: readonly string[];
+  /**
+   * FOR AN AGENT WHOSE FIRST-MESSAGE MODE ENDS THE SESSION (PRJ-121, 2026-09-22).
+   *
+   * Some agents take a first message only in a one-shot mode: they run it, print a task id and exit. Handing
+   * such an agent the protocol "as its first message" answers the protocol and then leaves the person at a
+   * shell — the manifest says "Awaiting your direction" to nobody. `resume` reopens that conversation
+   * interactively: `argv` with `{taskId}` read from the first run's output by `taskIdPattern`; `pickerArgv` when
+   * no id could be read, which opens the agent's own list of tasks rather than guessing.
+   */
+  readonly resume?: { readonly argv: readonly string[]; readonly pickerArgv: readonly string[]; readonly taskIdPattern: RegExp };
+  /**
+   * HOW TO RUN IT WITH NOBODY AT THE TERMINAL, with `{prompt}` substituted (PRJ-121 intent 03, L16; 03-Q16).
+   *
+   * `gov autorun` runs an agent headless: it takes the prompt, works, prints, and EXITS with a code gov reads. The
+   * opposite of `promptArgv`, which must keep the session open — for several vendors the same `-p` is the trap
+   * there and the answer here.
+   *
+   * ABSENT MEANS GOV WILL NOT RUN IT HEADLESS, and says why (03-Q16 (b)). An agent launched "interactively, and
+   * hope" with no TTY hangs a run on a question nobody will answer. Set only after running the vendor's CLI with
+   * exactly this argv and seeing it answer and exit; `headlessVerified` records that run.
+   *
+   * PERMISSIONS ARE NOT GRANTED HERE. No `--dangerously-skip-permissions`, `--force` or `--yolo`: what a headless
+   * agent may do is the agent's own settings in the project (e.g. `.claude/settings.json`), which the organization
+   * controls — gov does not widen it by a flag nobody reviewed.
+   */
+  readonly headlessArgv?: readonly string[];
+  /** `YYYY-MM-DD <cli> <version>: what was run and seen` — required wherever `headlessArgv` is set (a test holds it). */
+  readonly headlessVerified?: string;
+  /**
+   * WHERE THIS AGENT LOADS SKILLS FROM, relative to the directory it runs in (intent 03 spec §5, D6; L15).
+   *
+   * ABSENT MEANS GOV HAS NOT SEEN IT WORK — the `promptArgv` rule. A location goes here only after that vendor's
+   * own CLI was run and seen to load a skill from it, and `skillsVerified` says when, on which version, and how.
+   * An agent without one still gets every skill: its harness file carries an index — "when a task matches X, read
+   * `.agents/skills/<name>/SKILL.md`" (Q14, skills/fallback-index.ts). A test holds the two fields together.
+   */
+  readonly skillsDir?: string;
+  /** The dated note for `skillsDir`: `YYYY-MM-DD <cli> <version>: what was run and what it showed`. */
+  readonly skillsVerified?: string;
   /** Where to go to create an account, when there is no automating it. */
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
   readonly variants?: readonly AgentVariant[];
+  /**
+   * Who sells it — named when an account or a bill stops it running, because that is between the person and
+   * this company, not gov (F24). Absent: "the vendor".
+   */
+  readonly vendor?: string;
+  /**
+   * What this agent prints when its ACCOUNT stops it — a trial over, a plan or quota used up, a key the vendor
+   * no longer accepts (F24). Checked before the generic set in agent-account.ts. Only text SEEN from the vendor's
+   * own CLI belongs here; the generic set covers the rest.
+   */
+  readonly accountFailures?: readonly AccountFailurePattern[];
+}
+
+/** One recognisable account or billing failure: the text, and what it means in plain words ("its …"). */
+export interface AccountFailurePattern {
+  readonly pattern: RegExp;
+  readonly reason: string;
 }
 
 /**
@@ -131,11 +204,29 @@ export interface AgentCandidate {
  * WHAT IS VERIFIED, PRECISELY: that the flag exists and what the vendor says it does. Whether
  * the agent then runs the protocol needs a credential and a real session, which is the walk.
  */
+/**
+ * IBM's `bobshell.sh` is UNPINNED, like Cursor's `install` (D1, 2026-10-13, revising Q16 C's pin): gov shows the
+ * URL and the digest of what it downloaded and asks. Accepted trade-off: an IBM script change never blocks an
+ * install, and a tampered script would run once the person says yes.
+ */
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
+    // claude 2.1.272 --help: `-p, --print  Print response and exit`; `--output-format  (only works with --print):
+    // "text" (default), "json", "stream-json"`. Plain text, so a C01 id the agent prints is read as written.
+    headlessArgv: ["-p", "{prompt}", "--output-format", "text"],
+    headlessVerified: "2026-10-12 claude 2.1.272 (macOS): `claude -p \"Reply with exactly: ok\" --output-format text` "
+      + "with stdin closed printed `ok` and exited 0, no TTY, no prompt",
+    skillsDir: ".claude/skills",
+    skillsVerified: "2026-10-12 claude 2.1.272: RUN — a scratch git repo holding .claude/skills/gov-verify-zebra/SKILL.md "
+      + "(front matter name, description, gov-ids, policy-version); `claude -p \"Use the gov-verify-zebra skill …\" "
+      + "--output-format json` invoked the Skill tool with gov-verify-zebra and answered the codeword only that file held (L14).",
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
-    credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code",
+    credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code", vendor: "Anthropic",
+    accountFailures: [
+      { pattern: /credit balance is too low/i, reason: "its account's credit balance is too low" },
+      { pattern: /invalid api key/i, reason: "its API key is invalid or has expired" },
+    ],
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "claude",
         install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
@@ -143,11 +234,24 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "anthropic.claude-code", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent", promptArgv: ["{prompt}"],
-    install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
-    signupUrl: "https://cursor.com",
+    // NO headlessArgv YET — NOT SEEN TO ANSWER (2026-10-12, L16). cursor-agent 2026.07.16-899851b --help lists
+    // `-p, --print  Print responses to console (for scripts or non-interactive use)`, `--output-format text|json|
+    // stream-json (only works with --print)` and `--trust  Trust the current workspace without prompting (only works
+    // with --print/headless mode)`. The candidate is ["-p", "{prompt}", "--output-format", "text", "--trust"]. Run
+    // once with it, it exited 1 without prompting — "Authentication required. Please run 'agent login' first" — so
+    // it is non-interactive, but no answer was seen. Set it after one signed-in run prints an answer and exits 0.
+    // SKILLS IN THE SHARED .agents/skills (D14, Policy Owner 2026-10-13): one copy, no Cursor-specific one, so Cursor
+    // does not see duplicates. The CLI's bundle (2026.07.16-899851b) scans .agents/skills, .claude/skills and
+    // .codex/skills in the project. A signed-in cursor-agent run that loads one is still owed (D14's verification).
+    skillsDir: ".agents/skills",
+    skillsVerified: "2026-10-13 cursor-agent 2026.07.16-899851b: DOC ONLY — its bundle scans .agents/skills (also "
+      + ".claude/skills and .codex/skills) in the project; placed there by D14. A run was refused (\"Authentication "
+      + "required\": not logged in on this machine). Verify by one signed-in run.",
+    install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
+    signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cursor-agent",
-        install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
+        install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
         login: ["cursor-agent", "login"] },
       // The editor IS the agent here — there is no Cursor extension for someone
       // else's host — so choosing it means installing an editor. That is the one
@@ -158,7 +262,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // codex --help: `[PROMPT]  Optional user prompt to start the session` (read 2026-09-11)
     promptArgv: ["{prompt}"],
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
-    credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup",
+    credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup", vendor: "OpenAI",
+    accountFailures: [
+      { pattern: /exceeded your current quota/i, reason: "its account has run out of quota on its plan" },
+    ],
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "codex",
         install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
@@ -169,8 +276,15 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // gemini 0.59.0: `-i, --prompt-interactive  Execute the provided prompt and continue in
     // interactive mode`. NOT `-p`, which is headless and exits (read 2026-09-11).
     promptArgv: ["-i", "{prompt}"],
+    // .agents/skills, not .gemini/skills: gemini reads BOTH, and the same name in both is a "Skill conflict
+    // detected" warning — so it shares the fallback copy every index-only agent is pointed at, and there is one.
+    skillsDir: ".agents/skills",
+    skillsVerified: "2026-10-12 gemini 0.31.0: CLI LISTING — in a scratch git repo, `gemini skills list` (run with a "
+      + "placeholder GEMINI_API_KEY only to pass its auth-method gate; no model call is made) discovered "
+      + ".agents/skills/gov-verify-agents/SKILL.md and .gemini/skills/gov-verify-gem/SKILL.md with gov's front matter "
+      + "(name, description, gov-ids, policy-version) as [Enabled] workspace skills. No model run: no credentials here.",
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
-    credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey",
+    credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey", vendor: "Google",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "gemini",
         install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" } },
@@ -181,7 +295,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // execute this prompt`. NOT `-p`, which is non-interactive (read 2026-09-11).
     promptArgv: ["-i", "{prompt}"],
     install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" },
-    signupUrl: "https://github.com/features/copilot",
+    signupUrl: "https://github.com/features/copilot", vendor: "GitHub",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "copilot",
         install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" } },
@@ -216,7 +330,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "cline", tool: "Cline / Roo Code", launch: "cli", cmd: "cline",
     // cline 3.0.61: `[prompt]  Your prompt. Default to start in act mode` (read 2026-09-11)
     promptArgv: ["{prompt}"],
-    install: { npm: "cline", url: "https://cline.bot" },
+    install: { npm: "cline", url: "https://cline.bot" }, vendor: "Cline",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cline", install: { npm: "cline", url: "https://cline.bot" } },
       { kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] },
@@ -229,7 +343,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // cn 1.5.47: `[prompt]  Optional prompt to send to the assistant`. The bare positional,
     // not `-p, --print`, which prints and exits (read 2026-09-11).
     promptArgv: ["{prompt}"],
-    install: { npm: "@continuedev/cli", url: "https://continue.dev" },
+    install: { npm: "@continuedev/cli", url: "https://continue.dev" }, vendor: "Continue",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cn", install: { npm: "@continuedev/cli", url: "https://continue.dev" } },
       { kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] },
@@ -248,19 +362,36 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // Corporation; that is the only channel here. Restore an npm package only when it sits
   // in an IBM-owned scope, and let `every-npm-package-is-the-vendor's` say so.
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
-    install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
+    install: { script: "https://bob.ibm.com/download/bobshell.sh", url: "https://bob.ibm.com" },
     // Verified on a container: Bob prints its own sign-in URL and waits (#208).
-    // bob 2.0.2: `-p, --prompt <prompt>  Prompt to send to the agent`. `run [prompt...]` is
-    // the headless form and is deliberately not used (read 2026-09-11). This is the answer
-    // to #6: gov CAN hand IBM Bob the session-start protocol as its first message.
+    //
+    // `-p` IS ONE-SHOT — corrected 2026-09-22 on a walk (bob 2.0.4). This comment used to say `-p` hands the
+    // protocol over "as its first message" and stop there, which was checked only as far as Bob ACCEPTING the
+    // flag. What it DOES: runs the prompt, prints a transcript, `Task Summary · Total Cost · Task ID`, and EXITS.
+    // So the walk got a correct context manifest ending "Awaiting: your direction" — and a shell prompt. The
+    // first launch agreed: refusing the licence, Bob said "Launch Bob Shell in interactive mode".
+    //
+    // `bob chat` is the interactive client and takes no first message (`bob chat --help`). But
+    // `bob chat --resume <task-id>` reopens a task WITH its history — verified on the walk: the prompt, the
+    // answer, and the context and cost carried over. So: `-p` delivers the protocol, `resume` hands the person
+    // the live session. Tasks are per user and per machine (a resume from another container: "No task found").
     promptArgv: ["-p", "{prompt}"],
-    credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
+    // NO skillsDir (L15, 2026-10-12): bob 2.0.2's bundle documents `.bob/skills/<name>/SKILL.md`, but it has no
+    // listing command and a run needs a signed-in account, so nothing was SEEN loading. It reads the index in
+    // AGENTS.md until a run confirms the location.
+    resume: { argv: ["chat", "--resume", "{taskId}"], pickerArgv: ["chat", "--resume"], taskIdPattern: /Task ID:\s+([0-9a-f]{32})/ },
+    credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com", vendor: "IBM",
+    // SEEN on a container walk, 2026-10-08 (F24): "Error: Your Free trial has expired. You have reached the end of
+    // your free trial period. Upgrade your plan to continue." gov called it a first-run step and offered Bob again.
+    accountFailures: [
+      { pattern: /free trial (has )?expired|end of your free trial/i, reason: "its account's free trial has expired" },
+    ],
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to
       // authenticate, so there is nothing for gov to run — which is tier 1 working
       // exactly as intended, with gov never near the credential.
       { kind: "cli", label: "in the terminal", cmd: "bob",
-        install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
+        install: { script: "https://bob.ibm.com/download/bobshell.sh", url: "https://bob.ibm.com" } },
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
@@ -303,16 +434,25 @@ export function agentStatuses(
  * The approved set. An org that has not decided yet gets the framework's own list,
  * and is told so — an empty menu on day one would make the feature useless exactly
  * when it is needed most.
+ *
+ * AN EMPTY LIST IS A DECISION, NOT A GAP (Policy Owner, 2026-09-28). `null` means nobody has
+ * answered; `[]` means the organization authorized NO agents — structure-only — and
+ * `config/approved-agents.ts` now keeps those two apart. Both used to land in the fallback below,
+ * so an org that had explicitly chosen to run no agents was shown the whole framework catalogue as
+ * "yours by default": the unowned state #196 removed at adoption, re-created at the one moment the
+ * org had already answered. `structureOnly` says WHICH empty menu this is, so a caller can explain
+ * instead of showing nothing.
  */
 export function approvedAgents(orgApproved: readonly string[] | null): {
-  readonly ids: readonly string[]; readonly usingDefaults: boolean;
+  readonly ids: readonly string[]; readonly usingDefaults: boolean; readonly structureOnly: boolean;
 } {
-  if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false };
+  if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false, structureOnly: false };
+  if (orgApproved) return { ids: [], usingDefaults: false, structureOnly: true };
   // THE FALLBACK MUST NOT OFFER MORE THAN ADOPTION DOES. A walk saw all ten listed here,
   // Windsurf included — gov proposing, as an organization's defaults, agents its own adoption
   // menu declines to offer. `deferred` means "not offered"; that has to hold on every path
   // that shows a list, not only the one that asks the question.
-  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true };
+  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true, structureOnly: false };
 }
 
 /**
@@ -323,7 +463,7 @@ export function approvedAgents(orgApproved: readonly string[] | null): {
  * input. gov once leaned on a Claude-only SessionStart hook to close that gap, and the hook was
  * removed (2026-09-11) — not because it failed, but because a mechanism one vendor has makes
  * that vendor the better-governed choice for a reason unrelated to the agent, and it biases the
- * selection at Q10.
+ * selection at Q12.
  *
  * It cost nothing to remove, because an instructions file read on EVERY TURN was always the
  * stronger half: it governs the whole session rather than its opening. So when this returns a
@@ -393,7 +533,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
     "",
     ...(usingDefaults
       ? ["  Your organization has not approved any agents yet, so these are the framework's",
-         "  defaults. Narrow them in governance/policies/llm-governance.md when you decide.",
+         "  defaults. Narrow them in policies/governance.yaml (authorized_agents) when you decide.",
          ""]
       : []),
     "  Approved and available to install:",
@@ -409,7 +549,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
 }
 
 /**
- * The agent ids an org has approved, read from its own `llm-governance.md`.
+ * The agent ids an org has authorized, read from its own `policies/governance.yaml` (authorized_agents).
  *
  * Deliberately forgiving: the file is prose with a table in it, maintained by a
  * human, and a parse failure must not empty the menu. Null means "could not tell",

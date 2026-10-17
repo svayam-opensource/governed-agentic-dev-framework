@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install gov — Governed Agentic Development Framework</title>
 <meta name="robots" content="{{ROBOTS}}">
-<meta name="description" content="Install the gov client. One command on macOS, Linux and Windows — gov brings its own Node and touches nothing you already have.">
+<meta name="description" content="Install the gov client: one door each for macOS, Linux and Windows, then the same first-run flow. gov brings its own Node and touches nothing you already have.">
 <link rel="stylesheet" href="./style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#9881;</text></svg>">
 </head>
@@ -35,22 +35,23 @@
   </section>
 
   <section class="install">
-    <!-- Tabs, not a grid of binaries: the payload is a script and an npm package, so the thing
-         to hand over is a command. The detected OS is selected first and the others stay one
-         click away — reorder and annotate, never withhold (#221). -->
+    <!-- One door per OS (#181, spec 04 §2.1). Tabs, not a grid of binaries: on macOS and Linux the
+         payload is a script, so the thing to hand over is a command. The detected OS is selected first
+         and the others stay one click away — reorder and annotate, never withhold (#221). -->
     <div class="tabs" role="tablist" aria-label="Operating system">
-      <button class="tab" role="tab" id="tab-unix" aria-controls="p-unix" aria-selected="true">macOS &amp; Linux</button>
+      <button class="tab" role="tab" id="tab-mac" aria-controls="p-mac" aria-selected="true">macOS</button>
+      <button class="tab" role="tab" id="tab-linux" aria-controls="p-linux" aria-selected="false">Linux</button>
       <button class="tab" role="tab" id="tab-win" aria-controls="p-win" aria-selected="false">Windows</button>
     </div>
 
-    <div class="panel" role="tabpanel" id="p-unix" aria-labelledby="tab-unix">
+    <div class="panel" role="tabpanel" id="p-mac" aria-labelledby="tab-mac">
       <div class="cmd">
-        <code id="cmd-unix">curl -fsSL https://{{HOST}}/install.sh -o install.sh &amp;&amp; bash install.sh</code>
-        <button type="button" data-copy="cmd-unix">Copy</button>
+        <code id="cmd-mac">curl -fsSL https://{{HOST}}/install.sh -o install.sh &amp;&amp; bash install.sh</code>
+        <button type="button" data-copy="cmd-mac">Copy</button>
       </div>
       <p class="note">
-        Reads the plan to you and asks before it installs anything. Set <code>GOV_YES=1</code> to skip the
-        prompt in a script. Prefer to read it first? <a href="./install.sh">View install.sh</a>.
+        In Terminal. Reads the plan to you and asks before it installs anything; when it finishes,
+        <code>gov</code> starts the first-run flow below. <a href="./install.sh">View install.sh</a>.
       </p>
       <p class="note">
         Fetch, then run: piped straight into <code>bash</code>, a failed download exits 0 and installs
@@ -59,26 +60,60 @@
       </p>
     </div>
 
+    <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="tab-linux" hidden>
+      <div class="cmd">
+        <code id="cmd-linux">curl -fsSL https://{{HOST}}/install.sh -o install.sh &amp;&amp; bash install.sh</code>
+        <button type="button" data-copy="cmd-linux">Copy</button>
+      </div>
+      <p class="note">
+        The same installer as macOS. It needs only <code>curl</code> and <code>tar</code>, asks before it
+        installs anything, and then <code>gov</code> starts the first-run flow below.
+        Set <code>GOV_YES=1</code> to skip the prompt in a script. <a href="./install.sh">View install.sh</a>.
+      </p>
+    </div>
+
     <div class="panel" role="tabpanel" id="p-win" aria-labelledby="tab-win" hidden>
       <div class="cmd">
-        <code id="cmd-win">irm https://{{HOST}}/install.ps1 | iex</code>
+        <code id="cmd-win">winget install Svayam.Gov</code>
         <button type="button" data-copy="cmd-win">Copy</button>
       </div>
       <p class="note">
-        PowerShell 5.1 or later. <a href="./install.ps1">View install.ps1</a>.
-        Installing an <em>AI agent</em> through gov does not work on Windows yet —
-        <a href="{{REPO}}/issues/223">#223</a> tracks it, and the rest of gov is unaffected.
+        gov installs for you alone — no administrator rights, its own Node, <code>gov</code> on your PATH —
+        and the installer's last page offers <b>Launch gov</b>, which starts the first-run flow below.
+        The installer is unsigned until a production certificate exists, so use <code>winget</code>: a
+        <code>.msi</code> downloaded directly from the <a href="{{REPO}}/releases">release page</a> shows
+        "Unknown publisher".
+      </p>
+      <p class="note">
+        <b>Not live yet:</b> the Windows door opens with the first release of the installer. Until then
+        <code>winget</code> will not find <code>Svayam.Gov</code>, so there is no Windows door yet.
       </p>
     </div>
+  </section>
+
+  <section class="first-run" id="first-run">
+    <h2>Then: the first-run flow — the same on every OS</h2>
+    <ol>
+      <li>gov checks <code>git</code> and <code>gh</code>, installs what is missing if you agree, and asks you
+        to sign in to GitHub. Re-running resumes; it never repeats a finished step.</li>
+      <li>It asks: are you <b>adopting</b> the framework for your organization, <b>joining</b> one that already
+        has it, or <b>not sure</b>? Not sure explains the difference and changes nothing.</li>
+      <li>Adopt creates and seeds your governance repo; join finds it on GitHub and clones it.</li>
+      <li>gov installs an approved AI agent, if you agree, and helps you sign it in.</li>
+      <li>It opens a first project and launches the agent, which posts its <b>context manifest</b>.
+        That is the end of setup.</li>
+    </ol>
   </section>
 
   <div class="cols">
     <div>
       <h2>What it does to this machine</h2>
       <ul>
-        <li>Installs a private Node under <code>~/.local/share/gov</code>.</li>
-        <li>Links <code>gov</code> into <code>~/.local/bin</code>, and says so.</li>
-        <li>Adds one marked line to your shell profile, so it can be found and removed.</li>
+        <li>macOS and Linux: a private Node under <code>~/.local/share/gov</code>, and <code>gov</code> linked
+          into <code>~/.local/bin</code>. If that folder is not on your PATH, one marked line is appended to your shell
+          profile, and the installer names the file.</li>
+        <li>Windows: one per-user program (<code>%LOCALAPPDATA%\Programs\gov</code>), removable from
+          Settings → Apps; your <code>~/.gov</code> stays.</li>
         <li>Installs git or <code>gh</code> only if they are missing — and asks first.</li>
       </ul>
     </div>
@@ -124,13 +159,12 @@
 (function () {
   "use strict";
   // ── OS detection, used only to ORDER the tabs ────────────────────────────────────────────────
-  // A wrong guess must never hide a route: both tabs are always present and clickable, and the
+  // A wrong guess must never hide a route: every tab is always present and clickable, and the
   // detection only decides which opens first. userAgentData where available, UA string otherwise;
-  // if neither says Windows, the unix tab stays selected, which is the markup's default.
-  var tabs = [
-    { btn: document.getElementById("tab-unix"), panel: document.getElementById("p-unix") },
-    { btn: document.getElementById("tab-win"),  panel: document.getElementById("p-win")  }
-  ];
+  // if nothing matches, the macOS tab stays selected, which is the markup's default.
+  var tabs = ["mac", "linux", "win"].map(function (k) {
+    return { btn: document.getElementById("tab-" + k), panel: document.getElementById("p-" + k) };
+  });
   function select(i) {
     tabs.forEach(function (t, n) {
       t.btn.setAttribute("aria-selected", String(n === i));
@@ -140,7 +174,8 @@
   tabs.forEach(function (t, i) { t.btn.addEventListener("click", function () { select(i); }); });
 
   var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.userAgent || "";
-  if (/win/i.test(plat)) select(1);
+  if (/win/i.test(plat)) select(2);
+  else if (/linux|x11|cros/i.test(plat) && !/android/i.test(plat)) select(1);
 
   // ── copy, with a spoken result ──────────────────────────────────────────────────────────────
   // A copy button that silently does nothing is the worst version of this control, and clipboard

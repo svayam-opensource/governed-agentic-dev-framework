@@ -1,0 +1,11 @@
+2026-10-12T10:01:52.000Z info    gov-work:cli:bin                   start                  0    run started meta={ run: 'c3d4', argv: [ 'doctor', '--fix' ], command: 'doctor', project: null, version: '2.0.0-rc.1', pid: 102, tty: true, node: 'v24.12.0' }
+2026-10-12T10:01:55.000Z info    gov-work:cli:checklist             phase                  0    phase step-3 meta={ run: 'c3d4', phase: 'step-3', text: 'Install dependency — git' }
+2026-10-12T10:01:56.000Z info    gov-work:cli:main                  doctor-fix-step        0    ran meta={ run: 'c3d4', cmd: 'sudo', args: [ 'apt-get', 'install', '-y', 'git' ], ms: 13000, exitCode: 0 }
+2026-10-12T10:02:10.000Z info    gov-work:cli:checklist             phase                  0    phase step-3-done meta={ run: 'c3d4', phase: 'step-3-done', ok: true }
+2026-10-12T10:02:11.000Z info    gov-work:cli:checklist             phase                  0    phase step-4 meta={ run: 'c3d4', phase: 'step-4', text: 'Install dependency — gh, the GitHub CLI' }
+2026-10-12T10:02:29.000Z info    gov-work:cli:checklist             phase                  0    phase step-4-done meta={ run: 'c3d4', phase: 'step-4-done', ok: true }
+2026-10-12T10:02:30.000Z info    gov-work:cli:checklist             phase                  0    phase step-5 meta={ run: 'c3d4', phase: 'step-5', text: 'Authorize gov for GitHub' }
+2026-10-12T10:03:30.000Z info    gov-work:cli:checklist             phase                  0    phase step-5-done meta={ run: 'c3d4', phase: 'step-5-done', ok: true }
+2026-10-12T10:03:31.000Z info    gov-work:cli:checklist             phase                  0    phase step-6 meta={ run: 'c3d4', phase: 'step-6', text: 'Configure git' }
+2026-10-12T10:03:40.000Z info    gov-work:cli:checklist             phase                  0    phase step-6-done meta={ run: 'c3d4', phase: 'step-6-done', ok: true }
+2026-10-12T10:03:41.000Z info    gov-work:cli:bin                   end                    0    run finished meta={ run: 'c3d4', exitCode: 0, ms: 109000 }

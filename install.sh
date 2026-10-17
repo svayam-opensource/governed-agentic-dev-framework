@@ -37,6 +37,16 @@ NODE_MAJOR=24
 # takes, rather than through a different one that proves less: GOV_PKG=/path/to.tgz
 # or GOV_PKG='@svayam-opensource/gov@next'.
 GOV_PKG="${GOV_PKG:-@svayam-opensource/gov}"
+# THE REGISTRY THAT PACKAGE COMES FROM. Empty on a released install — npm uses the adopter's
+# own default, which is what an adopter wants and what prod must never override.
+#
+# Non-prod install sites set it, because build-once-promote publishes a new version to the
+# DEV registry FIRST and only moves it to the public one on promotion. Without this, gov-dev
+# could only ever install the released client — i.e. the code a dev change just replaced —
+# and a walk against it would pass while testing the wrong binary.
+#
+# Scoped to this one npm call: no `npm config set`, nothing written to the adopter's ~/.npmrc.
+GOV_REGISTRY="${GOV_REGISTRY:-}"
 GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
 # A NODE ARCHIVE ALREADY ON DISK, for a machine that cannot reach nodejs.org.
@@ -215,34 +225,52 @@ on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
 # ~/.local/bin is on PATH by default on Fedora, RHEL, Rocky and most Debian
 # derivatives. When it is, a symlink there means `gov` works in the shell you are
 # standing in, with nothing to source and nothing to reopen.
-# Append the PATH line to the user's shell profile, once.
-add_to_path() {
-  local dir="$1" prof; prof="$(profile_file)"
+#
+# THE PROFILE IS THE LAST RESORT, AND IT IS APPENDED TO — NEVER PREPENDED (#211, Q13 B).
+#
+# The PATH line used to PREPEND gov's private Node, on every machine, even where the wrapper
+# above had just been proven to work. From the next terminal on, `node` meant gov's Node and
+# not the one the person had installed — after this script had told them it was "leaving it
+# alone". So: directories are only COLLECTED while installing (need_on_path), and once gov is
+# in place exactly one of two things happens —
+#
+#   · the ~/.local/bin wrapper is proven → no profile is touched at all;
+#   · otherwise → ONE line is appended, last in the file, so whatever was on PATH before keeps
+#     precedence, and one line on screen names the file.
+PATH_DIRS=()
+need_on_path() { PATH_DIRS+=("$1"); }
+
+append_to_path() {
+  local prof dir missing=()
+  prof="$(profile_file)"
   touch "$prof"
-  if grep -Fq "$dir" "$prof" 2>/dev/null; then
+  for dir in "$@"; do
+    grep -Fq "$dir" "$prof" 2>/dev/null || missing+=("$dir")
+  done
+  if [ ${#missing[@]} -eq 0 ]; then
     skip "PATH entry in $(tilde "$prof")"
   else
-    { printf '\n%s\n' "$MARKER"; printf 'export PATH="%s:$PATH"\n' "$dir"; } >> "$prof"
-    ok "added to PATH in $(tilde "$prof")"
+    local joined; joined="$(IFS=:; printf '%s' "${missing[*]}")"
+    { printf '\n%s\n' "$MARKER"; printf 'export PATH="$PATH:%s"\n' "$joined"; } >> "$prof"
+    ok "added gov to your PATH: one line appended to the end of $(tilde "$prof")"
   fi
   PROFILE_TOUCHED="$prof"
 }
 
-link_into_path() {
-  local target="$1" dir="$HOME/.local/bin"
-  on_path "$dir" || return 1
+# A WRAPPER for gov: puts gov's Node first for its own invocation only, and hands over.
+write_wrapper() {
+  local dir="$1" target="$2"
   mkdir -p "$dir" || return 1
 
   # A SYMLINK IS NOT ENOUGH, and claiming otherwise is worse than saying nothing.
   # The `gov` npm ships is a script whose shebang is `#!/usr/bin/env node`. Link it
   # somewhere on PATH and the shell finds `gov` — then fails with
-  # `env: 'node': No such file or directory`, because Node lives in the directory we
-  # just added to a profile the running shell has not read. Found but unrunnable is
-  # a worse answer than not found.
+  # `env: 'node': No such file or directory` (or runs it on the machine's own, older
+  # Node), because gov's Node is not on the PATH of the shell that started it. Found
+  # but unrunnable is a worse answer than not found.
   #
-  # So: a two-line wrapper that puts Node on PATH for its own invocation and hands
-  # over. Self-contained, no sourcing, and it keeps working after the profile is
-  # read because prepending an already-present directory changes nothing.
+  # So: a small wrapper that puts gov's Node on PATH for its own invocation and hands
+  # over. Self-contained, no sourcing, and nothing outside gov's own process changes.
   {
     printf '#!/bin/sh\n'
     printf '%s\n' "$MARKER"
@@ -251,15 +279,36 @@ link_into_path() {
   } > "$dir/gov" || return 1
   chmod +x "$dir/gov" || return 1
 
-  # Prove it, rather than announce it. If the wrapper cannot run, the old
-  # open-a-new-terminal message is the honest ending.
+  # Prove it, rather than announce it.
   if ! "$dir/gov" --version >/dev/null 2>&1; then
     rm -f "$dir/gov"
     return 1
   fi
+  return 0
+}
+
+link_into_path() {
+  local target="$1" dir="$HOME/.local/bin"
+  on_path "$dir" || return 1
+  write_wrapper "$dir" "$target" || return 1
   IMMEDIATELY_USABLE=1
   ok "linked into $(tilde "$dir"), which is already on your PATH"
   return 0
+}
+
+# How gov stays reachable after this script exits — the wrapper when it can be proven, the
+# profile (appended) when it cannot.
+make_reachable() {
+  local gov_bin="$1"
+  [ -n "$gov_bin" ] && link_into_path "$gov_bin" && return 0
+  [ ${#PATH_DIRS[@]} -gt 0 ] || return 0
+  # The profile route. gov's own Node goes LAST on PATH, so a machine with an older Node keeps
+  # it — and `gov` itself must not be run by that older Node. So the wrapper goes to a folder
+  # of gov's own, which is appended ahead of the Node folder.
+  if [ -n "$gov_bin" ] && write_wrapper "$GOV_HOME/bin" "$gov_bin"; then
+    PATH_DIRS=("$GOV_HOME/bin" "${PATH_DIRS[@]}")
+  fi
+  append_to_path "${PATH_DIRS[@]}"
 }
 
 # ── steps ─────────────────────────────────────────────────────────────────────
@@ -275,6 +324,7 @@ install_node() {
     if [ -n "$mine" ]; then
       skip "Node $mine (installed here previously)"
       export PATH="$NODE_DIR/bin:$PATH"
+      need_on_path "$NODE_DIR/bin"
       return
     fi
   fi
@@ -423,7 +473,7 @@ install_node() {
   to let this script download the right one."
   fi
   export PATH="$NODE_DIR/bin:$PATH"
-  add_to_path "$NODE_DIR/bin"
+  need_on_path "$NODE_DIR/bin"
   ok "Node $ver"
   say "===> 1. [✓] Install Node version 24"
 }
@@ -444,19 +494,38 @@ install_gov() {
       mkdir -p "$HOME/.npm-global"
       npm config set prefix "$HOME/.npm-global"
       export PATH="$HOME/.npm-global/bin:$PATH"
-      add_to_path "$HOME/.npm-global/bin"
+      need_on_path "$HOME/.npm-global/bin"
     fi
   fi
 
+  # An ARRAY, not an unquoted ${VAR:+…}. The expansion form relies on word splitting to become
+  # two arguments — which bash does and zsh does not, and this script has been read under both.
+  local npm_args=(install -g --silent)
+  if [ -n "$GOV_REGISTRY" ]; then
+    npm_args+=(--registry "$GOV_REGISTRY")
+    # --registry ALONE IS SILENTLY IGNORED FOR A SCOPED PACKAGE whenever `@<scope>:registry` is set in
+    # any npmrc — the scope mapping outranks it. Measured 2026-09-21: with
+    # `@svayam-opensource:registry=https://registry.npmjs.org` in the user npmrc and `--registry` aimed
+    # at the dev registry, npm read the PUBLIC one and saw only `latest`. So a developer (whose npmrc
+    # carries exactly that mapping) got the released client, with nothing printed to say so.
+    #
+    # A fresh container has no npmrc, which is why every container test passed with the bug in place.
+    # The scoped flag is what wins; `--registry` stays for an unscoped GOV_PKG.
+    case "$GOV_PKG" in
+      @*/*) npm_args+=("--${GOV_PKG%%/*}:registry=$GOV_REGISTRY") ;;
+    esac
+    say "    (from $GOV_REGISTRY)"
+  fi
+  npm_args+=("$GOV_PKG")
   spin "downloading and installing gov (this takes a moment)" \
-    npm install -g --silent "$GOV_PKG" \
+    npm "${npm_args[@]}" \
     || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
   say "===> 2. [✓] Install the governance client — gov"
 
   # Prefer the shell the person is actually in over a shell they have to go and open.
   local gov_bin; gov_bin="$(command -v gov 2>/dev/null || true)"
-  [ -n "$gov_bin" ] && link_into_path "$gov_bin" || true
+  make_reachable "$gov_bin" || true
 }
 
 # ── run ───────────────────────────────────────────────────────────────────────
@@ -595,8 +664,10 @@ elif have_tty; then
   # green report and a different command to discover, is the same "last mile handed
   # back" the report-only ending already was, one step further along.
   #
-  # Any gov command triggers the first-run flow; `list` is the least surprising one
-  # to be holding when it does.
+  # Bare `gov`: the first-run flow on a new machine, the menu on one already set up —
+  # and the same word the "Stopped here" branch and finish() tell them to type. It
+  # used to be `gov list`, a verb with no help page that the menu no longer offers
+  # (#257): a machine that was already set up printed a project list and stopped.
   say ""
   say "${B}Next: your organization.${RST}"
   say "${DIM}gov will ask whether you are adopting the framework or joining an existing setup.${RST}"
@@ -611,7 +682,7 @@ elif have_tty; then
       ;;
     *)
       say ""
-      gov list < /dev/tty || true
+      gov < /dev/tty || true
       ;;
   esac
   finish

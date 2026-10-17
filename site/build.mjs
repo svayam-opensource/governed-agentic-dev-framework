@@ -71,7 +71,73 @@ if (!envName || !cfg.envs[envName]) {
   console.error(`usage: node site/build.mjs <${Object.keys(cfg.envs).join("|")}> [--verify]`);
   process.exit(2);
 }
-const env = cfg.envs[envName];
+/**
+ * WHAT THE CATALOG DECIDES, AND WHAT IT DOES NOT (PRJ-121, corrected 2026-09-21).
+ *
+ * `gov deploy` passes GOV_DEPS — what this unit's declared `deps:` resolve to: [{unit, package, semver,
+ * registries}]. For uat and dev it supplies the package NAME and the env's REGISTRY. It does NOT supply a
+ * version: non-prod asks for its own dist-tag, and PROD IS NEVER DERIVED — it is a release pair in envs.json.
+ * (A first cut took `<package>@<semver>` from here for every env; that pinned dev at the released client and
+ * paired a 1.2.3 installer with a 1.2.4 client on prod. Both reasons are in the comment below.)
+ *
+ * WHY envs.json STILL CARRIES PINS. A plain `docker build`, or a contributor running build.mjs to look at
+ * the page, has no deploy behind it, and a LOCAL build receives no GOV_DEPS at all. Falling back keeps those
+ * working, and for non-prod the fallback is exactly what GOV_DEPS would have said.
+ *
+ * `local` IS NOT BUILT HERE. It reads the working tree, which this file refuses on principle; see
+ * build-local.mjs.
+ */
+/**
+ * WHAT A SITE ASKS npm FOR: an exact version on prod, the env's DIST-TAG everywhere else (2026-09-21).
+ *
+ * The first cut pinned `<package>@<semver>` for every env, and it was wrong for dev in both directions.
+ * gov-cicd's release model (versioning-and-release-lines.md) publishes, per env:
+ *
+ *   dev   `<semver>-dev.g<sha7>`, content-addressed, on dist-tag `dev`
+ *   uat   the clean `<semver>`, on dist-tag `uat`
+ *   prod  a dist-tag move onto that clean version: `latest`
+ *
+ * So `<package>@<semver>` on dev either named the RELEASED version (semver not yet bumped — the site
+ * installs the code a dev change replaced, which is the bug this whole change exists to remove) or a
+ * version that does not exist yet (bumped — `No matching version found`). The dev build's version is only
+ * known once it is published, and the dist-tag is the name that follows it.
+ *
+ * The tag names are `distTagFor(env)` in gov-cicd — `prod → latest`, every other env its own name — and a
+ * site that disagreed would ask for a tag nobody set.
+ *
+ * PROD IS NEVER DERIVED — it is a RELEASE PAIR (corrected 2026-09-21). The first cut let GOV_DEPS set prod's
+ * `pkg` from the catalog `semver`, and running the real build showed what that meant:
+ *
+ *     script from gov-work-1.2.3 · installs @svayam-opensource/gov@1.2.4
+ *
+ * A 1.2.3 installer installing a 1.2.4 client. The catalog `semver` is the NEXT release — between a bump and
+ * its cut it names a version the public registry does not have — so the next promotion of this image would
+ * have pinned prod at something that may not exist. And it broke the rule this site was built on (decision
+ * 2026-09-17): the installer and the client it installs are ONE gov release. So prod's `ref` and `pkg` stay
+ * in envs.json and move together, after a release, as that file's own comment instructs. An install site
+ * that said `latest` instead would serve whatever moves the tag next — the moving pin #231 exists to remove.
+ */
+function envWithDepPins(base, name) {
+  if (name === "prod") return base;   // a release pair — see above; nothing here may move it
+  const raw = (process.env.GOV_DEPS ?? "").trim();
+  if (!raw) return base;
+  let pins;
+  try {
+    pins = JSON.parse(raw);
+  } catch (e) {
+    die(`GOV_DEPS is not valid JSON (${e.message}).\n  gov deploy passes it; a hand-run build should leave it unset rather than guess at it.`);
+  }
+  const gov = (Array.isArray(pins) ? pins : []).find((p) => p?.unit === "gov-work");
+  if (!gov) return base;
+  if (!gov.package) {
+    die(`GOV_DEPS names gov-work but without a package (got ${JSON.stringify(gov)}).\n  The catalog entry for gov-work is incomplete — fix it there, not here.`);
+  }
+  // Only the package NAME and the env's REGISTRY come from the catalog. The version is the dist-tag, so the
+  // catalog `semver` is deliberately unused here — the dev build's version is not known until it publishes.
+  const registry = gov.registries?.[name];
+  return { ...base, pkg: `${gov.package}@${name}`, ...(registry ? { registry } : { registry: undefined }) };
+}
+let env = envWithDepPins(cfg.envs[envName], envName);
 
 /** The DN gov would derive: prod is bare, every other env carries `-<env>`. */
 const dnFor = (e) => (e === "prod" ? `${cfg.app_domain}.${cfg.base}` : `${cfg.app_domain}-${e}.${cfg.base}`);
@@ -99,9 +165,16 @@ function readAtRef(ref, relPath) {
 }
 
 /** Replace exactly one occurrence, or fail. A pin that did not apply must never reach a host. */
-function pin(text, pattern, replacement, what) {
+function pin(text, pattern, replacement, what, hint) {
   const hits = text.match(pattern);
-  if (!hits) die(`could not pin ${what} — no line matched ${pattern}.\n  The installer changed shape. Fix this build script rather than shipping an unpinned site.`);
+  if (!hits) {
+    die(
+      `could not pin ${what} — no line matched ${pattern}.\n` +
+      (hint ? `  ${hint}\n` : "") +
+      `  Either the installer changed shape, or the pinned ref predates this pin. Fix whichever is\n` +
+      `  actually true — never ship an unpinned site.`,
+    );
+  }
   if (hits.length > 1) die(`could not pin ${what} — ${hits.length} lines matched ${pattern}, so the intended one is ambiguous.`);
   return text.replace(pattern, replacement);
 }
@@ -120,12 +193,56 @@ function releaseVersion(tag) {
 
 const RE_URL = /^GOV_INSTALL_URL="\$\{GOV_INSTALL_URL:-[^"]*"$/m;
 const RE_PKG = /^GOV_PKG="\$\{GOV_PKG:-[^"]*"$/m;
+const RE_REG = /^GOV_REGISTRY="\$\{GOV_REGISTRY:-[^"]*"$/m;
 
-/** The installer as served: the ref's bytes, with exactly the two pins applied. */
-function installerFor(ref, pkg, urlPath, hostName) {
+/**
+ * AN ENV WHOSE INSTALLER CANNOT ROUTE A REGISTRY IS SERVED THE RELEASED PAIR — AND SAYS SO (2026-09-21).
+ *
+ * The image builds EVERY env in one `set -e` loop. So an env whose ref predates GOV_REGISTRY does not fail
+ * alone: it fails the whole image, and a deploy to DEV — where the ref does carry the line — dies because
+ * of UAT's ref. Measured the day this landed: `dev` had the line, `uat` did not, and nothing could deploy.
+ *
+ * Failing is wrong because it couples every env to the slowest one. Pinning the registry anyway is
+ * impossible: there is no line to pin. And pinning `@uat` WITHOUT a registry is worse than either — the old
+ * installer would ask the adopter's default registry, which has no `uat` tag, and die with "No matching
+ * version found".
+ *
+ * So such an env gets exactly what an installer of its vintage can install: the released pair, from the
+ * adopter's own registry — prod's `pkg`. That is not a regression; it is what the env served before routing
+ * existed. It is announced on every build, because an env quietly serving the released client while
+ * labelled `uat` is the failure this change set out to remove, and the notice is what stops it being quiet.
+ * It resolves itself: once install.sh reaches this env's ref, the next build routes it.
+ */
+let legacyRouting = false;
+if (envName !== "prod" && env.registry && !RE_REG.test(readAtRef(env.ref, "install.sh").text)) {
+  legacyRouting = true;
+  console.warn(
+    `\n  NOTE ${envName}: its ref ('${env.ref}') predates GOV_REGISTRY, so this site CANNOT route to ${env.registry}.\n` +
+    `  Serving the released pair instead — ${cfg.envs.prod.pkg}, from the adopter's own registry — which is what\n` +
+    `  ${envName} served before registry routing existed. A walk here tests the RELEASED client, not ${envName}'s.\n` +
+    `  It routes itself once install.sh reaches '${env.ref}'.\n`,
+  );
+  env = { ...env, pkg: cfg.envs.prod.pkg, registry: undefined };
+}
+
+/** The installer as served: the ref's bytes, with exactly the pins applied.
+ *
+ * GOV_REGISTRY IS PINNED ONLY WHEN THE ENV DECLARES ONE, and prod never does. Build-once-promote
+ * publishes a new version to the DEV registry first and moves it to the public one on promotion,
+ * so a non-prod site must install from its own registry or it serves the RELEASED client — the
+ * code a dev change just replaced. Leaving prod unpinned keeps the adopter's own default registry,
+ * which is the only correct answer for a released install.
+ */
+function installerFor(ref, pkg, urlPath, hostName, registry) {
   const { text, resolved } = readAtRef(ref, "install.sh");
   let sh = pin(text, RE_URL, `GOV_INSTALL_URL="\${GOV_INSTALL_URL:-https://${hostName}${urlPath}}"`, "GOV_INSTALL_URL");
   sh = pin(sh, RE_PKG, `GOV_PKG="\${GOV_PKG:-${pkg}}"`, "GOV_PKG");
+  if (registry) {
+    sh = pin(sh, RE_REG, `GOV_REGISTRY="\${GOV_REGISTRY:-${registry}}"`, "GOV_REGISTRY",
+      `GOV_REGISTRY reached install.sh later than this environment's ref ('${ref}'). The ref must carry\n` +
+      `  the line before a site that pins it can build — land install.sh on '${ref}' first, or drop\n` +
+      `  'registry' for this environment until it has.`);
+  }
   return { sh, source: text, resolved };
 }
 
@@ -151,13 +268,38 @@ writeFileSync(join(out, "index.html"), html);
 copyFileSync(join(HERE, "template", "style.css"), join(out, "style.css"));
 
 // ── the current pair, at the root ────────────────────────────────────────────────────────────────
-const current = installerFor(env.ref, env.pkg, "/install.sh", host);
+const current = installerFor(env.ref, env.pkg, "/install.sh", host, env.registry);
 writeFileSync(join(out, "install.sh"), current.sh);
 
-const ps1src = readAtRef(env.ref, "install.ps1");
-writeFileSync(join(out, "install.ps1"), pin(ps1src.text,
-  /^#\s+irm https:\/\/\S+install\.ps1 \| iex$/m,
-  `#   irm https://${host}/install.ps1 | iex`, "the install.ps1 self-reference"));
+/**
+ * THE WINDOWS INSTALLER GETS THE SAME PINS AS install.sh (PRJ-121, 2026-09-21).
+ *
+ * It used to get only its self-reference. install.ps1 hardcoded '@svayam-opensource/gov' and nothing pinned
+ * it, so gov-dev's and gov-uat's Windows installers installed the RELEASED client from the public registry —
+ * a Windows walk of dev tested the code a change had just replaced, the same failure install.sh had before
+ * #259. Now `$GovPkgDefault` gets the env's pkg and, where the env routes one, `$GovRegistryDefault` its
+ * registry.
+ *
+ * A REF WHOSE install.ps1 PREDATES THOSE LINES is served as it always was, and announced — the same
+ * reasoning as install.sh's legacy routing: failing would sink the whole image over one env's older ref.
+ */
+const RE_PS1_PKG = /^\$GovPkgDefault\s*=\s*'[^']*'$/m;
+const RE_PS1_REG = /^\$GovRegistryDefault\s*=\s*'[^']*'$/m;
+function ps1For(ref, pkg, registry, selfPin) {
+  let text = readAtRef(ref, "install.ps1").text;
+  if (selfPin) text = pin(text, /^#\s+irm https:\/\/\S+install\.ps1 \| iex$/m, selfPin, "the install.ps1 self-reference");
+  if (!RE_PS1_PKG.test(text)) return { text, legacy: true };
+  text = pin(text, RE_PS1_PKG, `$GovPkgDefault      = '${pkg}'`, "install.ps1 $GovPkgDefault");
+  if (registry) text = pin(text, RE_PS1_REG, `$GovRegistryDefault = '${registry}'`, "install.ps1 $GovRegistryDefault");
+  return { text, legacy: false };
+}
+const ps1 = ps1For(env.ref, env.pkg, env.registry, `#   irm https://${host}/install.ps1 | iex`);
+if (ps1.legacy) {
+  console.warn(`\n  NOTE ${envName}: install.ps1 at '${env.ref}' predates the package pin, so the Windows installer here installs\n` +
+    `  the RELEASED client from the adopter's own registry, as it always has. ` +
+    (RELEASE_TAG.test(env.ref) ? `A release tag never moves: the NEXT release carries the pin.\n` : `It is pinned once install.ps1 reaches '${env.ref}'.\n`));
+}
+writeFileSync(join(out, "install.ps1"), ps1.text);
 
 // ── VERSIONED PAIRS (#231, Q6) ──────────────────────────────────────────────────────────────────
 //
@@ -173,7 +315,8 @@ for (const v of cfg.versioned ?? []) {
   mkdirSync(dir, { recursive: true });
   const built = installerFor(v, `@svayam-opensource/gov@${bare}`, `/v/${bare}/install.sh`, host);
   writeFileSync(join(dir, "install.sh"), built.sh);
-  writeFileSync(join(dir, "install.ps1"), readAtRef(v, "install.ps1").text);
+  // The same release's own client — pinned where that release's install.ps1 can be (it was served raw before).
+  writeFileSync(join(dir, "install.ps1"), ps1For(v, `@svayam-opensource/gov@${bare}`, undefined, null).text);
   versionedBuilt.push({ v, resolved: built.resolved });
 }
 
@@ -206,12 +349,46 @@ if (verify) {
   if (a.length !== b.length) {
     fail.push(`served install.sh has ${b.length} lines, the ref's has ${a.length} — it is not the ref's script`);
   } else {
+    // THE PIN COUNT IS DERIVED, NEVER A CONSTANT. It is 2 for prod (url + pkg) and 3 wherever the
+    // env declares a registry. Hardcoding it was right while there were only two pins and would now
+    // fail every non-prod build — and, worse, a stale constant would let a FOURTH pin through
+    // unnoticed. The point of this assertion is that the served script differs from the ref's bytes
+    // in exactly the ways we intended and no other.
+    const expected = [RE_URL, RE_PKG, ...(env.registry ? [RE_REG] : [])];
     const differing = a.map((l, i) => (l === b[i] ? null : i)).filter((i) => i !== null);
-    if (differing.length !== 2) {
-      fail.push(`served install.sh differs from ${env.ref} on ${differing.length} line(s); exactly 2 (the pins) are expected`);
-    } else if (!differing.every((i) => RE_URL.test(a[i]) || RE_PKG.test(a[i]))) {
-      fail.push(`served install.sh differs from ${env.ref} on a line that is NOT one of the two pins (lines ${differing.map((i) => i + 1).join(", ")})`);
+    if (differing.length !== expected.length) {
+      fail.push(`served install.sh differs from ${env.ref} on ${differing.length} line(s); exactly ${expected.length} (the pins) are expected`);
+    } else if (!differing.every((i) => expected.some((re) => re.test(a[i])))) {
+      fail.push(`served install.sh differs from ${env.ref} on a line that is NOT one of the ${expected.length} pins (lines ${differing.map((i) => i + 1).join(", ")})`);
     }
+  }
+
+  // THE CLIENT SPEC, BOTH WAYS ROUND. Prod names an exact release; every other env names its own
+  // dist-tag. A version on dev is the bug that shipped in the first cut of this change — it asks for
+  // the released client, or for a version the dev build never published.
+  const spec = env.pkg.slice(env.pkg.lastIndexOf("@") + 1);
+  // PROD SERVES ITS RELEASE PAIR, EXACTLY. Nothing derived may move it — not GOV_DEPS, not the catalog
+  // `semver`, which names the NEXT release and so is often a version the public registry lacks.
+  if (envName === "prod" && env.pkg !== cfg.envs.prod.pkg) {
+    fail.push(`prod installs '${env.pkg}' but its release pair says '${cfg.envs.prod.pkg}' — the installer and the client must be ONE release`);
+  }
+  if (envName === "prod" || legacyRouting) {
+    // prod, and an env whose installer predates routing, name the exact released version.
+    if (!/^\d+\.\d+\.\d+$/.test(spec)) fail.push(`${envName} installs '${env.pkg}' — it must name an exact release, never a tag that moves`);
+    if (legacyRouting && env.pkg !== cfg.envs.prod.pkg) fail.push(`${envName} predates routing but does not serve prod's released pair (${cfg.envs.prod.pkg})`);
+  } else if (spec !== envName) {
+    fail.push(`${envName} installs '${env.pkg}' — a non-prod site must ask for its own dist-tag ('@${envName}'), or it serves the released client`);
+  }
+
+  // THE REGISTRY PIN, BOTH WAYS ROUND. A missing pin on dev is the bug this whole change exists to
+  // remove — the site would install the released client and a walk would pass on the wrong binary.
+  // A pin PRESENT on prod is worse: every adopter would be routed at our private registry.
+  if (env.registry) {
+    if (!shOut.includes(`GOV_REGISTRY="\${GOV_REGISTRY:-${env.registry}}"`)) {
+      fail.push(`install.sh was not pinned to the ${envName} registry ${env.registry}`);
+    }
+  } else if (/^GOV_REGISTRY="\$\{GOV_REGISTRY:-.+\}"$/m.test(shOut)) {
+    fail.push(`${envName} declares no registry, but install.sh carries a registry pin — adopters would be routed off their own registry`);
   }
 
   if (!shOut.includes(`https://${host}/install.sh`)) fail.push("install.sh was not pinned to the host");
@@ -220,6 +397,16 @@ if (verify) {
     fail.push("install.sh still carries a raw.githubusercontent URL for our own artefact");
   }
   if (!psOut.includes(`https://${host}/install.ps1`)) fail.push("install.ps1 was not pinned to the host");
+  // THE WINDOWS PINS, BOTH WAYS ROUND — the same contract install.sh is held to above.
+  if (!ps1.legacy && !psOut.includes(`$GovPkgDefault      = '${env.pkg}'`)) {
+    fail.push(`install.ps1 was not pinned to ${env.pkg} — the Windows installer would install the released client`);
+  }
+  if (env.registry && !ps1.legacy && !psOut.includes(`$GovRegistryDefault = '${env.registry}'`)) {
+    fail.push(`install.ps1 was not pinned to the ${envName} registry ${env.registry}`);
+  }
+  if (!env.registry && /^\$GovRegistryDefault\s*=\s*'[^']+'$/m.test(psOut)) {
+    fail.push(`${envName} declares no registry, but install.ps1 carries one — adopters would be routed off their own registry`);
+  }
 
   // PROD PINS SOMETHING THAT CANNOT MOVE. A branch name serves whatever lands on it next, which is the
   // `main` pin this site exists to replace (#231). A gov release tag, or a full commit sha where the
@@ -244,10 +431,12 @@ if (verify) {
     if (!page.includes(needed)) fail.push(`index.html does not state ${needed}`);
   }
   if (page.includes("{{")) fail.push("index.html has an unsubstituted {{TOKEN}}");
-  // The copy button hands over whatever is in #cmd-unix. Piped into bash, a failed download exits 0.
-  const primary = page.match(/<code id="cmd-unix">([^<]*)<\/code>/)?.[1] ?? "";
-  if (!primary.includes("-o install.sh")) fail.push("the primary install command does not fetch to a file first");
-  if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push("the primary install command pipes curl into bash, which hides a failed download");
+  // The copy buttons hand over whatever is in #cmd-mac / #cmd-linux. Piped into bash, a failed download exits 0.
+  for (const id of ["cmd-mac", "cmd-linux"]) {
+    const primary = page.match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
+    if (!primary.includes("-o install.sh")) fail.push(`the #${id} install command does not fetch to a file first`);
+    if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push(`the #${id} install command pipes curl into bash, which hides a failed download`);
+  }
   if (env.label && !page.includes(env.label)) fail.push("a non-prod build is missing its environment banner");
   if (!env.label && page.includes("envbar")) fail.push("the prod build carries an environment banner");
   for (const f of ["index.html", "style.css", "install.sh", "install.ps1", "CNAME", "robots.txt"]) {
@@ -259,5 +448,6 @@ if (verify) {
     for (const f of fail) console.error(`  ✗ ${f}`);
     process.exit(1);
   }
-  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in the two pins`);
+  const pinNames = ["GOV_INSTALL_URL", "GOV_PKG", ...(env.registry ? ["GOV_REGISTRY"] : [])];
+  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in ${pinNames.length} pins (${pinNames.join(", ")})`);
 }

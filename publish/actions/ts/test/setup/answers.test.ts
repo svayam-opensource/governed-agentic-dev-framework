@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /** Answer validation (#192) — every rejection is about the VALUE, not the field. */
 import { expect } from "chai";
-import { nonEmpty, orgSlug, emailShape, isoDate, orgRepoTarget, branchChoice, parseBranchChoice, branchName } from "../../src/setup/answers.js";
+import { nonEmpty, orgSlug, githubHandle, isReservedSlug, emailShape, isoDate, orgRepoTarget, branchChoice, parseBranchChoice, branchName } from "../../src/setup/answers.js";
 
 describe("gov-work — answer validation (#192)", () => {
   it("accepts a good org slug and says what is wrong with a bad one", () => {
@@ -11,6 +11,25 @@ describe("gov-work — answer validation (#192)", () => {
     expect(orgSlug("TOOLONGSLUG")).to.contain("11 character");
     expect(orgSlug("GENEVA-1"), "names the actual problem").to.contain("other than letters and digits");
     expect(orgSlug(""), "and why it matters").to.contain("~/.gov/<slug>/");
+  });
+
+  // rule-model Q7 (2026-10-06): GOV-FRM-NNN are the framework's ids. An org whose slug were FRM would issue ids
+  // indistinguishable from the framework's, and the two issuers' promise never to collide would be broken.
+  it("refuses FRM as an org slug, in any case — it is the framework's rule scope", () => {
+    for (const s of ["FRM", "frm", " Frm "]) {
+      expect(isReservedSlug(s)).to.equal(true);
+      expect(orgSlug(s)).to.match(/reserved for the framework/);
+    }
+    expect(isReservedSlug("FRMX")).to.equal(false);
+    expect(orgSlug("FRMX")).to.equal(null);
+  });
+
+  it("a GitHub handle is required, with or without its @", () => {
+    expect(githubHandle("@dave")).to.equal(null);
+    expect(githubHandle("dave-k")).to.equal(null);
+    expect(githubHandle("")).to.match(/cannot be empty/);
+    expect(githubHandle("@")).to.match(/cannot be empty/);
+    expect(githubHandle("dave k")).to.match(/not a GitHub handle/);
   });
 
   it("tells a clone URL apart from a name to create — they need different answers", () => {

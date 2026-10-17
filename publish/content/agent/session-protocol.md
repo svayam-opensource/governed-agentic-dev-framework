@@ -22,7 +22,7 @@ substantive reply. Part C is reference you will need once.
 During an active project:
 
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
-- ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (POL-086b). Never treat your own unratified edits as authority.
+- ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (GOV-FRM-086). Never treat your own unratified edits as authority.
 - ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 
@@ -35,7 +35,7 @@ During an active project:
 ## A.3 While you work
 
 - Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
-- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — GOV-FRM-460)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
 - Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
 - When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
 
@@ -69,6 +69,8 @@ Use this structure in your first reply:
 - **Status:** <derived from the GitHub board (open = active), or n/a>
 - **Repos:** <the board's linked repos, or n/a>
 - **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Incoming signals:** <open signals to this project, from `gov signal list`, or "none">
+- **Outgoing signals:** <open signals from this project, from `gov signal list`, or "none">
 - **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
 - **Awaiting:** your direction (no tasks proposed)
 ```
@@ -79,12 +81,13 @@ After the manifest, **stop**. Do not propose implementation work unless the user
 
 Read `org-config.yaml` at the workspace repo root before anything else. The framework ships
 with no org-specific values baked in: files refer to them through angle-bracketed tokens that
-map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<WORKSPACE_REPO>` is
-`workspace_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
+map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<ORG_GOV_REPO>` is
+`org_gov_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
 its index.
 
 If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE
-state. Hard-stop and tell the human to run `gov setup`.
+state. Hard-stop and tell the human the organization is not set up yet: install.sh, then the
+first-run flow (adopt / join / not sure); on Windows, the installer.
 
 ## B.2 Load four knowledge layers — fresh every session
 
@@ -114,8 +117,9 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 The token map (`<ORG_NAME>` → `org_name` and the rest) and the full policy text are not
 reproduced here, to keep what you carry every turn short:
 
-- **`knowledge/policies/org-ai-agent-governance-policy.md`** — the full policy. Part A above is its
-  C01 digest, copied verbatim by the renderer; this is the source.
+- **`framework/framework-specification.md`** — how the framework works. Part A above
+  is the resident cue of each rule that binds you every turn; the rule rows in `framework/rules/rules.yaml`
+  and `policies/rules/rules.yaml` are the source, and `agent/harness/rule-map.md` lists every rule.
 - **`docs/DEVELOPER_GUIDE.md`** — the human walkthrough, with example prompts.
 - **`projects/<PROJECT_ID>/agent.md`** — your project-specific entrypoint, once seeded.
 - **`org-config.yaml`** — every org token's value, at the workspace root.

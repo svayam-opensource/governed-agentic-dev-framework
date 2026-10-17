@@ -1,0 +1,450 @@
+---
+domain: governance
+layer: use-case
+owner: policy-owner
+compliance: C02
+status: current
+---
+# Working on a project
+
+The session loop: start a project, run the session-start protocol, do the work, end the
+session. This is the one you will reread — the rest are read once.
+
+## The path at a glance
+
+As a developer, your normal path runs through a handful of `gov-work` verbs:
+
+```
+[ install.sh, then the first-run flow (adopt / join / not sure) ]
+                                         ← on Windows, the installer; adopt creates the org's repo once
+       ↓
+[ owner: gov manage assign ]             ← grants you write access to the GitHub Project
+       ↓
+[ gov seed / gov join ]                  ← start a new project / join an existing one
+       ↓ creates a per-project workspace under $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/
+       ↓   ├── <workspace_repo>/   ← git worktree on the project branch
+       ↓   └── <each-code-repo>/   ← git worktree on the project branch
+       ↓
+[ cd $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/<workspace_repo> ]
+       ↓
+[ gov sync ]     ← sync with latest base and continue; repeat each session
+       ↓
+[ gov merge / gov close ] ← submit a task (merge) or close the project (governance gate)
+```
+
+`gov seed`/`gov join`, `gov task`, `gov sync`, `gov merge`, and `gov close` are
+the developer surface; the sections below describe each in detail.
+
+**Key invariant (Direction A):** the HOME workspace stays on the default branch
+the entire project lifetime. All project-branch work — code, scaffolding,
+knowledge — happens inside the per-project workspace under `$AGENT_WORK_ROOT`.
+Each per-project workspace is a set of **git worktrees** of one shared base
+clone per repo (under `$AGENT_WORK_ROOT/.bases/`), not a full clone per project.
+N parallel projects ⇒ N per-project worktrees, but only one home checkout that
+never switches branches.
+
+---
+
+## 2. Start the project
+
+To start a **new** project, run `gov project`, then `gov seed` (or both at once with `gov project --seed`). To
+join an **existing** one, run `gov join`. This section walks through both.
+
+**First, the board.** A project starts as a GitHub Project board with an anchor issue on it. `gov project` makes
+both, from your governance workspace:
+
+```bash
+gov project "Invoice API v2" --repo acme/invoice-api      # add --seed to go straight on to gov seed
+```
+
+```mermaid
+flowchart LR
+  A["pre-seed checks<br/>(the board contract)"] -->|all pass| B[board]
+  A -->|any fails| X["fixable message —<br/>nothing created"]
+  B --> C["anchor issue in the governance repo<br/>label anchor · assigned to you · on the board"]
+  C --> D["one issue per --repo,<br/>on the board"]
+  D -->|--seed| E["gov seed &lt;board-url&gt;"]
+  B & C & D -.->|a later step fails| R["report: what exists,<br/>exit 1"]
+```
+
+- **The checks come first** — the board contract `gov seed` would otherwise apply later
+  ([framework specification §4.2](../../framework-specification.md)). The board needs a **name** that can become a
+  project id; the governance repo must be readable and gov must know who you are, because the anchor is the board's
+  first **linked item** and is assigned to you; each `--repo` must be a **repository** you can read. If any fails, gov
+  says what to fix and creates nothing. A **description** is optional; the anchor marks the project's **scope**.
+- **Repositories take part through issues.** An issue from a repository, on the board, is how the board says that
+  repository takes part — `gov seed` gives each one a project branch. `--repo` creates that issue for you, assigned
+  to you. The governance repository always takes part, so it needs no `--repo`.
+- **A partial result is reported, never left silent.** If GitHub refuses a step after the board exists, gov lists
+  exactly what exists (board, anchor, which repositories) and what was not created, and exits 1. Finish that board
+  rather than running `gov project` again, which would make a second one.
+- **Starting a project is a person's decision.** An automated account cannot run `gov project`; an agent may
+  suggest a project, but you start it.
+
+`gov seed` still checks the board itself — it refuses one with no name or no linked item, warns about one with no
+description, and reuses the anchor issue `gov project` made rather than creating a second. The project id is
+issued by `gov seed`, not by you.
+
+Run from the **HOME workspace** repo root, **on the default branch**:
+
+```bash
+git checkout main         # must be on default branch
+gov seed                  # (or gov join for an existing project)
+```
+
+Walk through the prompts:
+
+1. **GitHub org / user owning the Project** — accept the default if it's right.
+2. **Pick the GitHub Project from the list** — only projects you have write access to appear.
+3. **Assignee email** — defaults to your `git config user.email`.
+4. **Confirm initialize** — `y` to proceed.
+
+What happens:
+
+- A project ID is allocated, e.g. `PRJ-001-feature-x`, with a project branch `brnch-001-feature-x`.
+- **In the HOME workspace, on the default branch**: a `projects/PRJ-001-feature-x/.gitkeep` stub is written, committed, and pushed. Project state lives in GitHub (the board and its anchor issue), not in any per-project state file. The home checkout stays on the default branch.
+- **A per-project workspace is created** at `$AGENT_WORK_ROOT/PRJ-001-feature-x/`. Inside:
+  - The workspace repo is checked out as a **git worktree** (`<workspace_repo>/`) on `brnch-001-feature-x` from the shared base clone under `$AGENT_WORK_ROOT/.bases/`. The full `projects/PRJ-001-feature-x/` scaffolding (agent.md, knowledge/, etc.) lives here, on the project branch.
+  - Each impacted code repo gets a **git worktree** at `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch, from that repo's shared base clone.
+
+At the end you'll see a **"Next steps"** block printing the exact `cd` target plus a ready-to-paste first-session prompt with the project name baked in. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
+
+**Important:** project-branch work (code, knowledge) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `gov close` merges the project branch back.
+
+---
+
+## 3. Each working session
+
+### Choosing your agent
+
+`gov work` opens an AI agent in the project. If your organization approves only one agent
+and it is installed, gov opens it straight away and prints one line saying which agent and
+why. If your organization approves more than one, gov first lists them all — including ones
+not yet installed on this machine:
+
+```
+  Agent for PRJ-31 (approved by Geneva ERS):
+    1) IBM Bob        installed · organization default
+    2) OpenAI Codex   not installed — choose it to install now
+    3) Claude Code    not installed — choose it to install now
+  Choose [1/2/3] (Enter = 1, IBM Bob) :
+```
+
+- **Press Enter** to take the default: the agent you used last time on this project. For a
+  project you are starting from scratch, or when last time's agent is no longer approved or
+  no longer installed, the default is your organization's default instead. gov remembers
+  your choice per project, on this machine only, in your own state folder
+  (`preferences/<your-gh-login>/state/agent/`) — never in the governance repository.
+- **Pick one that is not installed** and gov offers to install it for you, the same way
+  `gov agent install <id>` does. Say no, and you are back at the list.
+- **If an agent cannot run because of its account** — a free trial that has ended, a plan or
+  quota used up, an API key the vendor no longer accepts — gov says so plainly. That is
+  between you and the vendor; gov cannot fix it. The list comes back without that agent, so
+  you can carry on with another.
+
+To always open your default without being asked, run
+`gov preferences set work.agent.ask never`. gov still tells you which agent it opened, and
+`gov preferences set work.agent.ask always` brings the question back. There is no separate
+personal default: what you choose on a project is what Enter offers next time on it.
+
+When there is no terminal to ask in (a script, a CI job), gov does not ask: it uses the
+default and says so. Name a different one with `gov work --agent=<id>`.
+
+### Session-start protocol (C01 — non-negotiable)
+
+Sessions happen **inside the per-project workspace**, not in the HOME repo:
+
+```bash
+cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
+```
+
+`gov sync` is the "sync with latest and continue" verb — it syncs the project
+branch with the latest base and drops you into the worktree, so you can run it
+instead of the manual pull steps below. The full protocol the agent (or you, if
+working alone) must satisfy before any code change is:
+
+0. **Read `org-config.yaml` first** — every framework file references its values (`<ORG_NAME>`, `<DEFAULT_BRANCH>`, owners, etc.).
+1. **Confirm the project branch is current**:
+   ```bash
+   git status                   # should already be on brnch-001-feature-x
+   git pull origin brnch-001-feature-x
+   ```
+2. **Verify the project's GitHub board is open (active)** — your authorization comes from write access to the linked GitHub Project, and status is derived from whether the board is open.
+3. **Read all four knowledge layers, fresh** — never use cached context across sessions:
+   - `knowledge/` (org-wide policy)
+   - `projects/PRJ-001-feature-x/knowledge/` (project knowledge accumulated so far)
+   - `<repo>/knowledge/` for each code repo (repo conventions)
+   - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences)
+4. **Read `projects/PRJ-001-feature-x/knowledge/todo.md`** — surface its `## Open` items before planning new work.
+5. **Pull latest on the project branch in each code repo**:
+   ```bash
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>
+   git pull origin brnch-001-feature-x
+   ```
+
+### Prompting the agent (Pattern 1 — agent speaks first)
+
+**Pattern 1 is active** in `agent/session-protocol.md` §0. The agent should run the C01 checklist and post a **context manifest** as its **first reply** — you do not need to paste the long kickoff template every session.
+
+**How to try it (Cursor or Claude):**
+
+1. Open this repo (or `projects/<PID>/`) on the project branch; pull latest.
+2. **Cursor:** open a **new** Agent or Chat tab. **Claude:** run `claude` in the folder (new session).
+3. Send a minimal opener — e.g. `start` or `go` — or jump straight to a task; the agent should still lead with the manifest.
+4. Confirm the first reply includes `## Context manifest` with project, branch, todos, and layers loaded.
+5. **Cursor:** Settings → Rules → `agent.mdc` = **Always**. **Claude:** `/memory` should list `@agent/session-protocol.md`.
+
+If the agent skips the manifest, say: *"Follow session-protocol §0 — context manifest first."*
+
+**Optional human kickoff** (when you want to be explicit):
+
+```
+Starting session on PRJ-001-feature-x. Post context manifest per session-protocol §0, then wait.
+```
+
+The agent should respond with a short status summary, not a plan. You direct what comes next.
+
+### Session start by tool — Claude vs Cursor vs Gemini
+
+**Same rules (GOV-FRM-113…117) for everyone.** Tools differ only in *how protocol text gets into the model* before the first read of `knowledge/`.
+
+Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on the project branch.
+
+| Phase | What happens | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|---|
+| **You** | Open workspace + pull branches | `cd projects/<PID>/` | Open folder in Cursor | Open folder in VS Code / IntelliJ |
+| **You** | Start the AI | Run `claude` | Open Agent or Chat | Open Gemini chat panel |
+| **Tool** | Load protocol automatically | `@import` expands `CLAUDE.md` → protocol + `agent.md` | Injects `.cursor/rules/agent.mdc` every turn | Loads `.gemini/styleguide.md` |
+| **You** | Send kickoff prompt | Minimal `start` / `go` (Pattern 1) or a specific task | Same | Same |
+| **Agent** | First reply (Pattern 1) | **Context manifest** per session-protocol §0, then wait | Same | Same |
+| **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
+| **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
+
+**Not automatic for any tool:** full `framework/framework-specification.md`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
+
+Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/docs/design/agent-context-assembly-spec.md) Appendix D.
+
+Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/agent/harness-manifest.yaml).
+
+### Doing the actual work
+
+- **Code changes** go in the code-repo worktrees under `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch.
+- **Project knowledge** goes in `projects/PRJ-001-feature-x/knowledge/` in the workspace repo:
+  - `notes.md` — decisions, design rationale, anything future-you would need.
+  - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
+- **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
+- **Writing down a new piece of work.** When you (a person) decide a piece of work exists, record it with
+  `gov issue`, not in the GitHub web page. It creates the issue assigned to you, puts it on the current
+  project's board (or the one `--board <n>` names), and, with `--intent <NN>`, tags it into intent `<NN>` with
+  the label `gov-intent:<NN>`:
+  ```bash
+  gov issue --title "retry the upload on a dropped connection" --intent 03
+  gov issue --from https://github.com/other-org/repo/issues/9 --board 42   # mirror someone else's issue
+  ```
+  It prints one line per thing that happened. If the issue was created but could not be put on the board or
+  labelled, it says so and why, and exits 1: add it to the board or the label by hand, or gov cannot see it.
+  If nothing could be created, it says why and exits 1.
+- **What gov does to the board.** `gov task` assigns each issue to you and sets its board **Status** to *In
+  progress*; `gov merge` closes the issue and sets its Status to *Done*; `gov close` and `gov cancel` close the
+  board itself. Each prints one `board:` line saying what happened — `board: #42 Status → In progress`, or
+  `board: Status not set — <why> (…)` when the board could not be updated. The command still succeeds: the
+  branches are the task, and the Status is its reflection. *When something goes wrong* explains each `<why>`.
+- **NEVER** edit:
+  - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — GOV-FRM-086).
+  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+  - GitHub Issues unilaterally — those represent business intent humans add to the board.
+
+### Prompting style during the session
+
+- Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
+- When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/projects/...` so it doesn't get confused with the workspace repo's tree.
+- For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
+- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (GOV-FRM-012).
+
+### Session-end protocol
+
+Before you walk away (you're still inside the per-project workspace):
+
+1. **Commit** any pending changes in the workspace-repo worktree (`projects/PRJ-001-feature-x/` content). All commits go on `brnch-001-feature-x`.
+2. **Move resolved items** in `todo.md` from `## Open` to `## Done` with a short note.
+3. **Push** everything:
+   ```bash
+   # In the workspace-repo worktree:
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
+   git push origin brnch-001-feature-x
+   # And in each code repo:
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>
+   git push origin brnch-001-feature-x
+   ```
+4. Optionally: write a one-line session summary to `notes.md` so the next session knows where you stopped.
+
+The HOME repo stays on the default branch throughout — there's no `git push` needed there during the project.
+
+---
+
+## 4. Starting an intent
+
+An intent is the business reason for a piece of work, made from one or more issues on the board. When your org
+has adopted a lifecycle (`policies/active/ai-sdlc-lifecycle.md`), start one with `gov intent`, from inside the
+project:
+
+```bash
+gov intent https://github.com/acme/app/issues/42
+gov intent https://github.com/acme/app/issues/42 https://github.com/acme/app/issues/43 --slug paging
+```
+
+```mermaid
+flowchart LR
+  I["Open board issues"] --> T["Intent tracking issue<br/>assigned to you, on the board,<br/>label gov-intent:NN"]
+  T --> B["Branch &lt;project-branch&gt;.INTENT-NN-intent<br/>intents/NN-slug/intent.md (DRAFT)"]
+  B --> CR["Change request to the project branch<br/>Traces to: the tracking issue"]
+  CR --> G1["Owner interview, then a person approves (G1)"]
+```
+
+What it does, in order:
+
+1. **Checks the lifecycle.** If `policies/active/ai-sdlc-lifecycle.md` is absent, it says so and changes nothing.
+   It uses the template named in the lifecycle's Intent step.
+2. **Reads the issues.** Each must be open. Several issues make one intent.
+3. **Creates the intent tracking issue.** The issue is assigned to you, added to the project's board and
+   labelled `gov-intent:<NN>`. The issues you named get the same label. Every change request for this intent's
+   artifacts (intent, spec, plan, build) traces to the tracking issue, so the board has one card per intent.
+4. **Writes the draft.** It writes `projects/<PRJ>/intents/<NN-slug>/intent.md`. `<NN>` is the next free
+   two-digit number, counting intents still on a branch. The slug comes from the first issue's title unless you
+   give `--slug`. The draft has Status `DRAFT`, every section the template requires, and the issues listed
+   under "Board items".
+5. **Lists the interview questions.** Under "Interview decisions" it writes the questions the issues leave open:
+   outcome, who benefits, priority, success measure, in and out of scope, constraints and risks. An issue answers
+   a question when it has a heading or a `Label:` line for it with real text, such as `## Acceptance criteria`.
+   That text then fills the matching section (Goal, Done when or Out). Each question has a `Recommendation:`
+   line for the agent to fill in before the interview.
+6. **Commits and opens a change request.** It commits on `<project-branch>.INTENT-<NN>-intent`, pushes, and
+   opens a change request to the project branch. The request's body says `Traces to: <tracking issue>`. You are
+   left on the new branch.
+
+Next comes the owner interview. Ask the business owner one question at a time, record each answer under its
+question, and commit to the same branch. The intent passes its gate as described in the next section.
+
+It refuses when the workspace has uncommitted changes, or when you cannot write to the project's board.
+If a step fails after the tracking issue exists, gov says what exists and exits 1. `gov task` is unchanged: it
+starts build work on task issues and never creates an intent.
+
+---
+
+## 5. How a gate is passed
+
+When your org has adopted a lifecycle (`policies/active/ai-sdlc-lifecycle.md`), each intent lives in
+`projects/<PRJ>/intents/<NN-slug>/` as `intent.md`, `spec.md`, `plan.md` and `build.md`. That folder is the only
+place gov looks: the name must be two digits, a dash and a lowercase slug (`03-lifecycle-signals-ports`). gov
+lists any other folder there as skipped, and never reads the older `issues/<n>/` path. If your org has not
+adopted a lifecycle, gov says so and does nothing with intents.
+
+Each artifact opens with a **Status** line: `DRAFT`, `APPROVED by <who> <date> (<change request link>)`, or
+`STALE (<why>)`. An agent drafts the artifact. A person approves it, and only on the code host:
+
+```mermaid
+flowchart LR
+  D["Agent drafts the artifact<br/>Status: DRAFT"] --> CR["Change request opened"]
+  CR --> R{"Approving review<br/>from a person?"}
+  R -- "no (only bots, or changes requested)" --> D
+  R -- yes --> M{"Merged?"}
+  M -- no --> CR
+  M -- yes --> W["gov writes the Status line<br/>APPROVED by login date (link)"]
+```
+
+- **Only a person's review counts.** Approvals from bot accounts (a `[bot]` login, or an account the host
+  marks as a bot) count for nothing. Each reviewer counts by their latest review: if you approve and then
+  request changes, or your approval is dismissed, the artifact is not approved. A later comment does not cancel
+  an approval. If the lifecycle's Gates section names who approves a step, only those people count.
+- **The change request must be merged.** An approved change request that is still open does not pass the gate.
+- **gov writes the Status line, you don't.** When the change request merges, gov replaces the artifact's
+  Status line with `**Status: APPROVED by <login> <yyyy-mm-dd> (<change request link>)**` and leaves the rest of
+  the file as it was.
+- **gov checks the text.** A Status line that says APPROVED is only a claim. gov follows its link to the change
+  request and checks it on the host. If there is no link, the change request isn't merged, only bots approved
+  it, or the person named didn't approve it, the artifact is not approved and gov tells you why.
+
+**Stale plans.** If the spec changes after its plan was approved, the plan is out of date. gov marks it
+`STALE (spec changed <date> after the plan was approved <date>)`, and the spec and plan go back through their
+gates.
+
+**Letting gov draft between the gates.** `gov autorun` drafts the next artifact for every item whose gate a
+person has passed — spec, plan, task issues, build record — and opens each as a change request for review. See
+[Running the lifecycle](running-the-lifecycle.md) for what it does, its budgets, and how to stop it.
+
+**Shipped in.** When a release's `releases/<unit>/<version>/deploy.md` lists your project and intent in its
+"Included intents" table, gov adds `releases/<unit>/<version>` to the "Shipped in" section of the intent's
+`build.md`. An intent that ships in more than one unit gets one line for each.
+
+---
+
+## 6. Pausing, resuming, syncing
+
+- **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
+- **`gov resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
+- **`gov sync`** — for "I want to pull upstream changes mid-project without pausing." Same merge mechanics as resume, but keeps the project active and drops you back into the worktree to continue.
+
+After any of these, **re-load all four knowledge layers** before doing anything else.
+
+---
+
+## 7. Switching between projects in a single session
+
+Sessions are agent-lifecycle (one continuous conversation). Projects are git-branch-scoped. You can switch — but it's not free.
+
+When you `git checkout xyz-002-other` to a different project's branch:
+
+1. Re-run the **full** session-start protocol for the new project.
+2. Read the new project's `todo.md`. Do not carry over `## Open` items from the previous project — those stay on their own branch.
+3. The agent must drop in-memory state derived from the previous project's knowledge layers.
+
+This is part of GOV-FRM-113.
+
+---
+
+## 8. Signals between projects
+
+When your project needs something from another project, or has news for it, send a **signal**. Letters
+(`for-<project>.md` files in your folder) are retired: `gov doctor` flags a new one. One signal is one issue in the governance repository, labelled `gov-signal:<kind>`, on both projects'
+boards, so both sides see it in their session manifest (**Incoming signals** / **Outgoing signals**).
+
+| Kind | Use it when | Closes when |
+|---|---|---|
+| `ask` | you need an answer | the other project answers: `gov signal ack <url> --answer "…"` |
+| `depends` | your work waits on theirs — your anchor (or `--items`) is marked blocked by the signal | they answer; the block clears |
+| `notice` | they should know something; no answer needed | they run `gov signal ack <url>` |
+| `handover` | items move to them now: `--items` leave your board and join theirs | at once (an act, not a request) |
+| `merge` | your project folds into theirs: every item moves, your board and anchor close with a pointer (you must own both boards) | at once |
+
+```
+gov signal ask --to PRJ-119-gov-iam --title "which claim carries the tenant?" --body-file why.md
+gov signal list            # incoming and outgoing for this project
+gov signal list --add      # put incoming signals that are missing from your board onto it
+gov signal ack <signal-url> --answer "the 'tid' claim"
+```
+
+**A person sends.** `gov signal` asks you to confirm each one and refuses inside an agent session. An agent that
+thinks a signal is needed writes a draft in `projects/<PRJ>/signals/drafts/<name>.md` (front matter `kind`, `to`,
+`title`, optional `items`, then the body); you read it and send it with `gov signal send <draft>`.
+
+If you cannot write the other project's board, the signal is still created; they find it by its label and marker
+(`gov signal list` shows it and offers to add it).
+
+## 9. Common situations
+
+**"The agent suggested doing X — should I let it?"** — Compare against the four knowledge layers in priority order. If org policy says no, the agent is wrong regardless of what it claims. If repo conventions say no, same. Developer preferences cannot override either.
+
+**"I forgot to check `todo.md` last time and now there are stale open items."** — That's the system working. Surface them, resolve or de-scope them, move what's resolved to `## Done`, leave the rest.
+
+**"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov seed`/`gov join` and `gov close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
+
+**"I'm not sure if a change is C01, C02, or C03."** — Ask the agent for the rule's GOV id; `gov rules show <id>` prints its level. A C03 rule you depart from is one line under `## Deviations` in the pull request. A C02 rule needs a merged exception first. Only C01 hard-stops require pausing.
+
+**"The project now needs a repository it did not start with."** — Run `gov add-repo <repo-url>` from the
+project workspace. It clones the repository next to the others and cuts its project branch, from the
+organization's default code branch unless you pass `--base-branch <branch>`. Check that the new worktree is
+under `$AGENT_WORK_ROOT/PRJ-<board#>-<slug>/` before you start work in it.
+
+**"I want to know what's left."** — `gov list` shows projects + statuses. For an individual project, `gov status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
+
+---

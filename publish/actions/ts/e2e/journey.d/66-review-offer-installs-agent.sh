@@ -48,7 +48,14 @@ drive "$(conv <<C
 < y
 > Choose:
 < 1
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \\[1\\]
+< 1
 > Install IBM Bob now
+< y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
 < y
 > Choose \\[1-3\\]
 < 2
@@ -95,8 +102,15 @@ info "#6 — the protocol is HANDED to the agent, not handed to the human"
 saw "gov says that governance happened" "Handing ibm-bob the session-start protocol as its first message"
 never "there is nothing to paste any more" "Paste this as your first message"
 never "and nothing is described as starting bare" "so it is starting bare"
-ran "the interactive flag is the one used" "arg1=-p"
+ran "the protocol goes by -p (one-shot in Bob 2.0.4 — it answers and exits)" "arg1=-p"
+# THE SESSION COMES BACK (PRJ-121, 2026-09-22). Without this the walk ended at a shell under a manifest that
+# said "Awaiting: your direction". gov must reopen THAT task — with the id Bob printed, not any id.
+ran "then gov reopens the conversation interactively" "arg1=chat"
+ran "by resuming the task" "arg2=--resume"
+ran "the one Bob just ran — the id it printed" "arg3=0123456789abcdef0123456789abcdef"
+says "and gov says why it is reopening it" "Reopening that conversation"
 ran "and the protocol itself is arg 2, not a paste instruction" "arg2=Run the session-start protocol"
 # THE LICENCE NOTE MUST NOT DEPEND ON HOW THE PROMPT TRAVELS. It lived inside the paste branch,
 # so wiring promptArgv silently removed it — a fix taking away an unrelated fix.
 saw "and it still warns about IBM Bob's own licence screen" "Press \`y\` to accept"
+saw "and about the folder-trust question that comes BEFORE it (PRJ-121 #11)" "Do you trust this folder?"

@@ -32,9 +32,19 @@ cp /src/publish/actions/ts/e2e/stub/agent-double "$NODEBIN/bob"
 chmod +x "$NODEBIN/bob"
 
 info "the premise, stated as two different shells"
-bash -lc "bob --version" >/dev/null 2>&1 \
-  && pass "a NEW login shell finds it — install.sh's profile edit is read at login" \
-  || fail "even a new login shell cannot find it; the profile edit did not take"
+# #211 SPLIT THIS IN TWO. Where the ~/.local/bin wrapper is proven (rocky, fedora) install.sh no
+# longer touches the profile, so gov's Node folder is on NO shell's PATH and an agent there is
+# reached only through the shortcut gov writes beside its own (96). Where it is not (debian,
+# ubuntu) the folder is APPENDED to the profile and a new login shell finds it.
+if [ -x "$HOME/.local/bin/gov" ]; then
+  bash -lc "bob --version" >/dev/null 2>&1 \
+    && fail "#211 — a new login shell finds gov's Node folder, so the profile was edited after all" \
+    || pass "#211 — gov's Node folder is on no login PATH; agents are reached through ~/.local/bin (96)"
+else
+  bash -lc "bob --version" >/dev/null 2>&1 \
+    && pass "a NEW login shell finds it — install.sh's appended profile line is read at login" \
+    || fail "even a new login shell cannot find it; the profile edit did not take"
+fi
 
 # THE SHELL THAT MATTERS. `env -i` is the honest stand-in for "the terminal you are already
 # in": the profile has not been read, so only what is on PATH right now counts.

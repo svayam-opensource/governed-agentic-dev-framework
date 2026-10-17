@@ -8,6 +8,10 @@ Two **required** status checks protect `main`. Both are fixed *commands*, so
 `npm test` globs **`test/**/*.test.ts`**. A new case = a new `it()` or a new
 `*.test.ts` file. Auto-discovered, zero config.
 
+Each test may take up to **10s** (`.mocharc.json`; mocha's own default is 2s). A test that runs
+in under a second on a laptop can pass 2s on a loaded CI agent — Jenkins gov-work dev #21/#22 failed
+that way. A test that needs longer still sets `this.timeout(…)` itself.
+
 | put it here | for |
 |---|---|
 | `test/<area>/*.test.ts` | a function's / module's behavior |
@@ -39,7 +43,7 @@ echo 'has "$(gov deps 2>&1)" "git" "gov deps lists prerequisites"' \
 `e2e/adopter-journey.sh` runs the full lifecycle against real GitHub, self-cleaning.
 **Real-GitHub lifecycle conditions go here** (a new step in seed→task→merge→close).
 Run: `E2E_ORG=<throwaway-org> GH_TOKEN=<token> npm run test:adopter`. Gated in CI on
-`GOV_E2E_TOKEN` + `GOV_E2E_ORG`; skips (never fails) when unset.
+`TESTBED_BOT_PAT` + `TESTBED_SANDBOX_ORG`; skips (never fails) when unset, naming what is missing.
 
 ## Where does a new test go?
 

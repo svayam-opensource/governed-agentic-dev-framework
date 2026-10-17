@@ -6,6 +6,7 @@ import { projectBranchOf, boardNumberFromBranch } from "../../src/lifecycle/task
 import { createGhIssues } from "../../src/lifecycle/issues.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import type { Issues, IssueState } from "../../src/lifecycle/issues.js";
 import { pxAll } from "../helpers/paths.js";
 
@@ -59,12 +60,15 @@ function fakeIssues(state: IssueState = "OPEN") {
   const issues: Issues = {
     state: () => state,
     assign: (u, a) => acted.push(`assign ${u} ${a}`),
-    setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
     close: (u) => acted.push(`close ${u}`),
     resolveIssueUrl: () => null,
-    closeBoard: () => {},
   };
-  return { issues, acted };
+  // The board Status goes through the WorkTrackerPort now (gadf#225); same log, so the order stays visible.
+  const tracker: BoardWriter = {
+    setState: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
+    closeProject: () => ({ ok: true }),
+  };
+  return { issues, acted, tracker };
 }
 function fakeVcs(branch = "BRNCH-43-governance-common-project") {
   const log: string[] = [];
@@ -93,6 +97,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     pushDelete: (r) => log.push(`pushDelete ${r}`),
     clone: () => {},
     fetch: () => {},
+    fetchDefault: () => "remote-sha",
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: (r, b) => log.push(`checkoutNew ${r} ${b}`),
@@ -104,10 +109,10 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
 const fsPresent = (present: boolean): FsProbe => ({ pathExists: () => present });
 
 describe("prj-work Phase 2 — task orchestrator (model A)", () => {
-  it("derives the project from cwd, branches workspace + present code repo, reflects on GitHub", () => {
+  it("GOV-FRM-453 derives the project from cwd, branches workspace + present code repo, reflects on GitHub", () => {
     const { vcs, log } = fakeVcs();
-    const { issues, acted } = fakeIssues("OPEN");
-    const r = task({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, INPUT);
+    const { issues, acted, tracker } = fakeIssues("OPEN");
+    const r = task({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues, tracker }, CONFIG, INPUT);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.boardNumber).to.equal(43);
@@ -142,7 +147,7 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
     if (!r.ok) expect(r.reason).to.equal("not-a-project-branch");
   });
 
-  it("honors an authorization deny", () => {
+  it("GOV-FRM-454 honors an authorization deny", () => {
     const deps: TaskDeps = {
       board: fakeBoard(),
       vcs: fakeVcs().vcs,

@@ -28,6 +28,14 @@ me="$(basename "$0")"
   printf '%s\n' '--'
 } >> "$AGENT_DOUBLE_LOG"
 
+# AN ACCOUNT THAT STOPS THE AGENT — not a first-run step, and nothing gov can settle (F24, 2026-10-08).
+#
+# Armed by naming the binary in AGENT_DOUBLE_TRIAL_EXPIRED. Bob's words, as a container walk saw them.
+if [ -n "${AGENT_DOUBLE_TRIAL_EXPIRED:-}" ] && [ "$me" = "$AGENT_DOUBLE_TRIAL_EXPIRED" ]; then
+  echo "Error: Your Free trial has expired. You have reached the end of your free trial period. Upgrade your plan to continue." >&2
+  exit 1
+fi
+
 # A FIRST-RUN GATE, THE WAY A REAL VENDOR HAS ONE.
 #
 # IBM Bob refuses a first message until its licence is accepted:
@@ -64,5 +72,12 @@ fi
 if [ -n "${AGENT_DOUBLE_NEEDS_KEY:-}" ] && [ -z "${!AGENT_DOUBLE_NEEDS_KEY:-}" ] && [ "$#" -gt 0 ]; then
   echo "Error: ${me} API key is required. Set ${AGENT_DOUBLE_NEEDS_KEY} environment variable." >&2
   exit 4
+fi
+# A ONE-SHOT FIRST MESSAGE, AS BOB 2.0.4 ENDS ONE (PRJ-121, 2026-09-22). `bob -p` answers, prints a summary
+# with its task id, and exits; gov reads the id and reopens the session with `chat --resume <id>`. The line is
+# spaced exactly as the walk's log showed it, so the pattern gov uses is exercised against the real shape.
+if [ "${1:-}" = "-p" ]; then
+  echo "Task Summary"
+  echo "Task ID:                 0123456789abcdef0123456789abcdef"
 fi
 exit 0
