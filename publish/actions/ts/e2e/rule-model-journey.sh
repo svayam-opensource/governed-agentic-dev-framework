@@ -134,6 +134,14 @@ explain_wait() { local repo="$1" sha="$2" name="$3" queued
     echo "  Queued runs mean no runner carrying every one of those labels is online in $E2E_ORG — register one there, or set E2E_RUNS_ON."
     if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::rule-model journey: \"$name\" never completed — $queued run(s) queued; is a runner $RUNS_ON online in $E2E_ORG?"; fi
   } >&2; }
+# A RUNNER WITHOUT gh (run 39033584186): gov's check then says so, could not tell, and soft posture shows it green.
+# The journey stops at the first such check, naming the runner and the fix, rather than failing later on a symptom.
+runner_has_gh() { local repo="$1" id="$2"
+  [ "$DRY" = 1 ] || [ "$id" = - ] && return 0
+  if check_annotations "$repo" "$id" 2>/dev/null | grep -q 'GitHub CLI (`gh`) is not on this runner'; then
+    explain_check "$repo" "$id"
+    die "the runner $RUNS_ON in $E2E_ORG has no GitHub CLI (gh) on its PATH — gov's checks read and write GitHub through it. Install gh on the runner (https://cli.github.com) and restart its service"
+  fi; }
 # Wait for check run `name` on `sha` to complete. Prints "<conclusion> <check-run id>", or "timeout -".
 wait_check() { local repo="$1" sha="$2" name="$3" t0=$SECONDS line
   if [ "$DRY" = 1 ]; then printf '  + poll gh api repos/%s/commits/%s/check-runs until "%s" completes (≤%ss)\n' "$repo" "$sha" "$name" "$WAIT_SECS" >&3; echo "dry 0"; return 0; fi
@@ -339,6 +347,7 @@ SHA_A="$(head_of "$R_GOV" "$PR_A")"
 for id in GOV-FRM-455 GOV-FRM-467 GOV-FRM-468; do
   res="$(wait_check "$R_GOV" "$SHA_A" "$id · pull_request")"
   [ "${res%% *}" = success ] || [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
+  runner_has_gh "$R_GOV" "${res#* }"
   expect "(a) $id · pull_request passed on PR #$PR_A (got: ${res%% *})" test "${res%% *}" = success
 done
 x gh pr merge "$PR_A" --repo "$R_GOV" --merge --delete-branch >/dev/null || die "merge of #$PR_A failed"
