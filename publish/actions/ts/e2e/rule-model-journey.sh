@@ -363,6 +363,9 @@ expect "(c) GOV-FRM-467 failed on the prose change (got: ${res%% *})" test "${re
 expect_annotation "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
 expect_annotation "(c) the unreviewed finding sits on policies/build/policy.md" "^failure policies/build/policy\.md:[0-9]+ .*§2\.2 .*was added or changed" "$R_GOV" "${res#* }"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-468 · pull_request")"
+# WHAT THE PROPOSER SAID, always — passed or not. A pass can mean "committed", "nothing to commit" or "nothing stale",
+# and only its finding tells them apart (run 39028432190: passed, and the PR's head never moved).
+[ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
 BOT_PUSHED=1
 if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ] && [ "${res%% *}" = failure ]; then
   # The real model may ask instead of answering: 468 then fails, and says why on its check run.
