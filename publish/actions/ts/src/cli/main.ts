@@ -2377,7 +2377,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   }, {
     home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
     githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,
-    govVersion: readCliVersion(),
+    runner: readGovernance(home).ci, govVersion: readCliVersion(),
   });
   for (const line of r.lines) process.stdout.write(`${line}\n`);
   return r.code;
@@ -2704,6 +2704,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           const r = renderForRepo(true, loaded, {
             home, defaultBranch: upCfg.defaultBranch || "main", defaultCodeBranch: upCfg.defaultCodeBranch, githubOrg: upCfg.githubOrg,
             workspaceRepo: upCfg.workspaceRepo, posture: null, govPackage,
+            // The runner as governance.yaml says it AFTER this upgrade's migrations — read here, when the render runs.
+            runner: readGovernance(home).ci,
           });
           return r.ok ? r.files[0]?.text ?? null : null;
         };
@@ -2820,6 +2822,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }, {
           home, defaultBranch: doctorCfg.defaultBranch || "main", defaultCodeBranch: doctorCfg.defaultCodeBranch,
           githubOrg: doctorCfg.githubOrg, workspaceRepo: doctorCfg.workspaceRepo, agentWorkRoot: doctorCfg.agentWorkRoot, posture: null,
+          runner: readGovernance(home).ci,
         }))
       : undefined;
     const report = doctor({
@@ -3203,6 +3206,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }, {
       home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
       githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,
+      runner: readGovernance(home).ci,
     });
     for (const line of r.lines) process.stdout.write(`${line}\n`);
     return r.code;

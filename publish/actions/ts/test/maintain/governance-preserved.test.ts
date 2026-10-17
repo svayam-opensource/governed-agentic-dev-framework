@@ -52,6 +52,10 @@ models:
   command: ""
   ci_allowed: true
 
+# Our CI runs on our own machines (Actions spending limit $0).
+ci:
+  runs_on: [self-hosted, linux]
+
 # Ours, not gov's: gov reports it and leaves it alone.
 escalation_channel: "#gov-escalations"
 `;

@@ -44,6 +44,10 @@ The first 2.0 pre-release: everything PRJ-121 built. Install it only on purpose
 **Adopters**
 - Native Windows: spawning through PATH×PATHEXT, a per-user MSI (unsigned until a production certificate exists).
 - `gov work` lists agents only when the org approves more than one, defaulting to last time's agent on the project.
+- gov's GitHub workflows run on the organization's runner: `ci.runs_on` in `policies/governance.yaml` (one label, or a
+  list such as `[self-hosted, linux]`) goes into every job of `gov-checks.yml`, the approver check, and a newly
+  installed `gov-validate.yml`. Unset, they ask for `ubuntu-latest` as before. An organization whose CI runs only on
+  self-hosted runners (an Actions spending limit of $0) needs it, or its checks wait for a runner that never comes.
 - Many first-run fixes (#191–#224): failed seeds keep the workspace, wrong answers are asked again, forks, reopened
   projects, verified vendor installers, a stale mirror is never used (#180).
 

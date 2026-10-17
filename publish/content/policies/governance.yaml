@@ -49,3 +49,10 @@ autorun:
   item_minutes: 30
   run_items: 10
   run_crs: 10
+
+# WHERE GOV'S GITHUB WORKFLOWS RUN — the runner every workflow gov writes asks for (`runs-on:`).
+#   runs_on   one runner label, or a list of labels a runner must carry every one of. Left out, gov uses
+#             GitHub's hosted runner, ubuntu-latest. An organization that runs its CI on its own machines
+#             names their labels — without it, gov's checks wait for a hosted runner that never comes.
+# ci:
+#   runs_on: [self-hosted, linux]

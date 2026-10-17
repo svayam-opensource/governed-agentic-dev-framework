@@ -46,6 +46,7 @@ import {
 } from "./protection-check.js";
 import { frameworkOwners, parseGovernance, type PostureChoice } from "../config/governance.js";
 import { resolveRoles } from "../config/role-list.js";
+import { DEFAULT_RUNNER, runnerFor, withRunsOn, type RunnerChoice } from "../config/ci-runner.js";
 import { WORKFLOW_PATH as GOV_CHECKS_WORKFLOW } from "../rules/checks/render-github.js";
 import type { RequiredRuleCheck } from "./rule-checks.js";
 
@@ -94,6 +95,11 @@ export interface RepoProtectInput {
   readonly isGovernanceRepo?: boolean;
   /** The status checks the rules in force make required on this repository under hard posture. */
   readonly ruleChecks?: RuleChecksRead;
+  /**
+   * The organization's runner (`ci.runs_on`, config/ci-runner.ts) — the approver check's job asks for it. Absent or
+   * not chosen → the runner the installed copy already asks for, else the template's (`ubuntu-latest`).
+   */
+  readonly runner?: RunnerChoice;
 }
 
 /**
@@ -565,14 +571,26 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
     ] };
   }
   if (onBranch !== true) {
-    const template = deps.fs.readFile(path.join(input.home, WORKFLOW_TEMPLATE));
-    if (template === null) {
+    const shipped = deps.fs.readFile(path.join(input.home, WORKFLOW_TEMPLATE));
+    if (shipped === null) {
       return { code: 1, lines: [
         head,
         `  ✗ the framework's approver-check workflow is not in this workspace (${WORKFLOW_TEMPLATE}).`,
         "  `gov upgrade` brings the framework's content up to date; nothing was written.",
       ] };
     }
+    const runner = input.runner ?? DEFAULT_RUNNER;
+    if (runner.problem) {
+      return { code: 1, lines: [
+        head,
+        `  ✗ policies/governance.yaml ${runner.problem}.`,
+        "  gov will not write a workflow that asks for a runner it cannot name; nothing was written.",
+      ] };
+    }
+    const dest = input.repoDir ? path.join(input.repoDir, ...WORKFLOW_DEST.split("/")) : null;
+    const current = dest === null ? null : deps.fs.readFile(dest);
+    // The organization's runner (ci.runs_on); none chosen → whatever the installed copy already asks for.
+    const template = withRunsOn(shipped, runnerFor(runner, current));
     const lines: string[] = [
       head,
       ...(onBranch === null
@@ -580,9 +598,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
         : [`  ${WORKFLOW_DEST} is not on ${input.branch}.`]),
       "",
     ];
-    if (input.repoDir) {
-      const dest = path.join(input.repoDir, ...WORKFLOW_DEST.split("/"));
-      const current = deps.fs.readFile(dest);
+    if (dest !== null) {
       if (current === template) {
         // WRITE ONLY WHEN IT CHANGES — the discipline the harness mirror now follows. A rewritten identical
         // file is a dirty working tree and a diff somebody has to read to discover it says nothing.

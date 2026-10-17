@@ -21,7 +21,11 @@
  *   gov-checks.yml       its digest line still holds (render-github `digestHolds`); a copy from a gov older than the
  *                        digest counts as gov's while it carries the GENERATED banner — the rule `gov check install
  *                        --all` has always applied
- * Anything else is a conflict: listed, never overwritten. "Unchanged" (the template did not change, the render did not
+ * Anything else is a conflict: listed, never overwritten.
+ *
+ * THE ORGANIZATION'S RUNNER (`ci.runs_on`, config/ci-runner.ts). The approver check's job asks for it; a copy that
+ * differs from gov's only in its `runs-on:` is still gov's, and is refreshed to the runner governance.yaml names. With
+ * no runner chosen, the runner the installed copy asks for is kept — an organization that set it by hand keeps it. "Unchanged" (the template did not change, the render did not
  * change) is untouched, byte for byte — the pin is not bumped on its own.
  *
  * Permanent code (not bridge): every upgrade that changes a template runs it.
@@ -31,6 +35,7 @@ import * as path from "node:path";
 import { WORKFLOW_DEST } from "./repo-protect.js";
 import { WORKFLOW_PATH as GOV_CHECKS_PATH, digestHolds, pinnedGovPackage } from "../rules/checks/render-github.js";
 import { log } from "../log.js";
+import { DEFAULT_RUNNER, runnerFor, sameButRunner, withRunsOn, type RunnerChoice } from "../config/ci-runner.js";
 
 /** Where `gov repo protect apply` installs the approver check in a repository. */
 export const APPROVER_CHECK_INSTALLED = WORKFLOW_DEST;
@@ -59,21 +64,31 @@ export interface RerenderInput {
   readonly renderGovChecks?: (govPackage: string) => string | null;
   /** false: say what would happen, write nothing. */
   readonly apply: boolean;
+  /** The organization's runner (`ci.runs_on` in policies/governance.yaml, read after this upgrade's migrations). */
+  readonly runner?: RunnerChoice;
 }
 
 const readIf = (p: string): string | null => (fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null);
+
+/** The approver check as gov would install it now: the new template, asking for the organization's runner. */
+function approverText(input: RerenderInput, installed: string | null): string | null {
+  return input.newApproverTemplate === null ? null : withRunsOn(input.newApproverTemplate, runnerFor(input.runner ?? DEFAULT_RUNNER, installed));
+}
 
 function approverCheck(input: RerenderInput): RerenderOutcome {
   const at = APPROVER_CHECK_INSTALLED;
   const installed = readIf(path.join(input.adopterDir, at));
   const { oldApproverTemplate: before, newApproverTemplate: after } = input;
   if (installed === null) return { path: at, state: "absent", detail: "not installed — `gov repo protect apply` installs it" };
-  if (after === null || installed === after) return { path: at, state: "unchanged", detail: "already the template this content ships" };
-  if (before !== null && installed === before) {
+  if (after === null) return { path: at, state: "unchanged", detail: "this content ships no template" };
+  if (input.runner?.problem) return { path: at, state: "cannot-tell", detail: `policies/governance.yaml ${input.runner.problem} — left as it is` };
+  if (installed === approverText(input, installed)) return { path: at, state: "unchanged", detail: installed === after || before !== after ? "already the template this content ships" : "the template did not change" };
+  if (before !== null && sameButRunner(installed, before)) {
     return before === after
-      ? { path: at, state: "unchanged", detail: "the template did not change" }
+      ? { path: at, state: "rerendered", detail: "the organization's runner (ci.runs_on) changed — its runs-on refreshed" }
       : { path: at, state: "rerendered", detail: "the framework's template changed — refreshed from it" };
   }
+  if (sameButRunner(installed, after)) return { path: at, state: "rerendered", detail: "the organization's runner (ci.runs_on) changed — its runs-on refreshed" };
   return {
     path: at, state: "conflict",
     detail: before === null
@@ -110,7 +125,7 @@ export function rerenderInstalledWorkflows(input: RerenderInput): { outcomes: Re
   for (const o of outcomes) {
     if (o.state === "rerendered") {
       if (input.apply) {
-        const text = o.path === APPROVER_CHECK_INSTALLED ? input.newApproverTemplate! : input.renderGovChecks!(input.govPackage ?? `${GOV_PACKAGE_NAME}@${input.govVersion}`)!;
+        const text = o.path === APPROVER_CHECK_INSTALLED ? approverText(input, readIf(path.join(input.adopterDir, o.path)))! : input.renderGovChecks!(input.govPackage ?? `${GOV_PACKAGE_NAME}@${input.govVersion}`)!;
         fs.writeFileSync(path.join(input.adopterDir, o.path), text, "utf8");
         log("info", "re-rendered an installed workflow", "gov-work:maintain:workflow-rerender", "rerenderInstalledWorkflows", { path: o.path });
         lines.push(`  ${o.path}: ${o.detail}`);

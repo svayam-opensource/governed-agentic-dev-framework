@@ -124,7 +124,7 @@ Your organization's settings are in three places, grouped by who may change them
 | File | What it holds | Who approves a change |
 |---|---|---|
 | `org-config.yaml` | who your organization is: its name, its slug, its repositories and branches, and the addresses of the services it uses | anyone who may merge to the governance repository |
-| `policies/governance.yaml` | how your organization governs: its posture (§11.1), its Policy Owner and Check Owner, the AI agents it authorizes, whether it publishes its knowledge, and the model it approves for `gov rules propose` | the Policy Owner |
+| `policies/governance.yaml` | how your organization governs: its posture (§11.1), its Policy Owner and Check Owner, the AI agents it authorizes, whether it publishes its knowledge, the model it approves for `gov rules propose`, and the runner gov's GitHub workflows ask for (§9.5) | the Policy Owner |
 | `~/.gov/work-roots`, on your own machine | where your own project folders live, if not in `~/.gov/<slug>/projects` | you |
 
 Setup writes the first two. The framework decides which keys `org-config.yaml` may hold and what each one
@@ -508,6 +508,24 @@ its default branch is skipped, with the reason. gov never commits or pushes. It 
 changed and prints the commands to land them. Running it again changes nothing if the rules have not changed.
 `gov check status` tells you, for each repository, whether its workflow is current, out of date or missing, and
 `gov doctor` shows the same answer in one line. When gov cannot see a repository, it says it cannot tell.
+
+**Where the checks run.** Every workflow gov writes asks GitHub for a runner. Unless you say otherwise, it asks for
+GitHub's hosted runner, `ubuntu-latest`. If your organization runs its CI on its own machines — for example because
+its GitHub Actions spending limit is $0 — a hosted runner is never granted: the job waits, the check never reports,
+and a pull request that requires it waits with it. Name your runner once, in `policies/governance.yaml`:
+
+```yaml
+ci:
+  runs_on: [self-hosted, linux]
+```
+
+`runs_on` is one runner label, or a list of labels a runner must carry every one of. gov then uses it in the
+workflows it writes: `gov check install` writes it into every job of `gov-checks.yml`, `gov repo protect apply` into
+the approver check, and `gov upgrade` keeps both in step when you change it. The validation workflow
+(`gov-validate.yml`) gets it when it is first installed. After that, that file is yours, so if you change your runner
+later, change it there too. A value gov cannot use — a label with a space, an empty list — stops `gov check install`
+and `gov repo protect apply` before they write anything, and the message names `ci.runs_on`. `gov doctor` warns about
+it too. A runner you set by hand in gov's approver check is kept as long as `ci.runs_on` is not set.
 
 **Writing your own check action.** When the framework's actions cannot express a check, your organization can
 write one as a small `bash` or `python` program. It lives in its own folder, `policies/actions/<name>/`, and the

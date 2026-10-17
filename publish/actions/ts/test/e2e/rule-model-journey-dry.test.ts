@@ -89,6 +89,20 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
     expect(out, "the dry run's token has delete_repo").to.not.include("delete_repo scope");
   });
 
+  it("every workflow the sandbox repos run asks for the org's runner: ci.runs_on from E2E_RUNS_ON (default [self-hosted, linux, svayam-e2e])", () => {
+    expect(out).to.include("ci.runs_on: [self-hosted, linux, svayam-e2e] in policies/governance.yaml");
+    for (const a of ["gov-validate.yml asks for the org's runner [self-hosted, linux, svayam-e2e]",
+      "gov-checks.yml asks for the org's runner [self-hosted, linux, svayam-e2e]",
+      "(f) the code repo's gov-checks.yml asks for the org's runner [self-hosted, linux, svayam-e2e]"]) {
+      expect(out, a).to.include(`would assert: ${a}`);
+    }
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${path.join(dir, "bin")}${path.delimiter}${process.env.PATH ?? ""}`, E2E_RUNS_ON: "[self-hosted, arm64]" };
+    delete env.GH_TOKEN; delete env.GITHUB_ACTIONS; delete env.E2E_ORG; delete env.GOV_TARBALL; delete env.E2E_APP_CLIENT_ID;
+    const r = spawnSync("bash", [SCRIPT, "--dry-run"], { env, encoding: "utf8" });
+    expect(r.status, r.stderr).to.equal(0);
+    expect(`${r.stdout}${r.stderr}`).to.include("would assert: gov-checks.yml asks for the org's runner [self-hosted, arm64]");
+  });
+
   it("never prints a secret's value — they go on stdin", () => {
     expect(out).to.not.include("SECRET");
     expect(out).to.include("gh secret set GOV_APP_PRIVATE_KEY");

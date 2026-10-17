@@ -29,6 +29,9 @@
 #   E2E_APP_CLIENT_ID / E2E_APP_PRIVATE_KEY   the sandbox App (created once by a human) — enables (f)
 #   E2E_REAL_MODEL=1 + GEMINI_API_KEY [+ E2E_GEMINI_MODEL]   the real model instead of the stub
 #   E2E_KEEP=1            leave the repos for inspection
+#   E2E_RUNS_ON           the runner every workflow in the sandbox repos asks for — written as ci.runs_on in the gov
+#                         repo's governance.yaml (default [self-hosted, linux, svayam-e2e]: the sandbox org's own
+#                         self-hosted runner; its Actions spending limit is $0, so a hosted runner never starts)
 #   E2E_WAIT_SECS         cap on one wait for a check (default 480)
 #   E2E_DEADLINE_SECS     cap on the whole run's waiting (default 2100 — inside the job's timeout)
 #
@@ -63,6 +66,7 @@ export GH_TOKEN
 REAL_MODEL="${E2E_REAL_MODEL:-0}"
 if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ]; then : "${GEMINI_API_KEY:?E2E_REAL_MODEL=1 needs GEMINI_API_KEY}"; fi
 WAIT_SECS="${E2E_WAIT_SECS:-480}"
+RUNS_ON="${E2E_RUNS_ON:-[self-hosted, linux, svayam-e2e]}"
 DEADLINE=$((SECONDS + ${E2E_DEADLINE_SECS:-2100}))
 RUN_ID="${E2E_RUN_ID:-$(date +%s)-$((RANDOM % 1000))}"
 [ "$DRY" = 1 ] && RUN_ID="dry"
@@ -120,6 +124,16 @@ teardown() {
 trap teardown EXIT
 trap 'exit 130' INT TERM   # a cancelled job still deletes its repos
 
+# A check that never completed is, first, a job that never got a runner: say which runner it asked for, and how many
+# of the commit's workflow runs are still queued — a queued run means no runner with every one of those labels is
+# online in the sandbox org.
+explain_wait() { local repo="$1" sha="$2" name="$3" queued
+  queued="$(gh api "repos/$repo/actions/runs?head_sha=$sha&status=queued" --jq .total_count 2>/dev/null || echo "?")"
+  { echo "  \"$name\" did not complete on $sha within the wait."
+    echo "  Its job asks for the runner $RUNS_ON (ci.runs_on, from E2E_RUNS_ON); $queued workflow run(s) of that commit are still queued."
+    echo "  Queued runs mean no runner carrying every one of those labels is online in $E2E_ORG — register one there, or set E2E_RUNS_ON."
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::rule-model journey: \"$name\" never completed — $queued run(s) queued; is a runner $RUNS_ON online in $E2E_ORG?"; fi
+  } >&2; }
 # Wait for check run `name` on `sha` to complete. Prints "<conclusion> <check-run id>", or "timeout -".
 wait_check() { local repo="$1" sha="$2" name="$3" t0=$SECONDS line
   if [ "$DRY" = 1 ]; then printf '  + poll gh api repos/%s/commits/%s/check-runs until "%s" completes (≤%ss)\n' "$repo" "$sha" "$name" "$WAIT_SECS" >&3; echo "dry 0"; return 0; fi
@@ -127,7 +141,7 @@ wait_check() { local repo="$1" sha="$2" name="$3" t0=$SECONDS line
     line="$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" \
       --jq ".check_runs[] | select(.name == \"$name\") | \"\(.status) \(.conclusion) \(.id)\"" 2>/dev/null | head -1 || true)"
     if [ "${line%% *}" = "completed" ]; then echo "${line#* }"; return 0; fi
-    if [ $((SECONDS - t0)) -ge "$WAIT_SECS" ] || [ "$SECONDS" -ge "$DEADLINE" ]; then echo "timeout -"; return 0; fi
+    if [ $((SECONDS - t0)) -ge "$WAIT_SECS" ] || [ "$SECONDS" -ge "$DEADLINE" ]; then explain_wait "$repo" "$sha" "$name"; echo "timeout -"; return 0; fi
     sleep 10
   done
 }
@@ -223,7 +237,10 @@ models:
     model: "$MODEL"
   command: "$COMMAND"
   ci_allowed: true
+ci:
+  runs_on: $RUNS_ON
 YAML
+[ "$DRY" = 1 ] && printf '  + ci.runs_on: %s in policies/governance.yaml\n' "$RUNS_ON" >&3
 # THE STUB MODEL: ignores the request, returns one fixed valid proposal (an add for the edited section).
 cat > "$G/.gov-ci/stub-model.sh" <<'SH'
 #!/usr/bin/env bash
@@ -236,6 +253,8 @@ SH
 ( cd "$G" && x gov setup --non-interactive >"$ROOT/setup.log" 2>&1 ) || { tail -15 "$ROOT/setup.log"; die "gov setup failed"; }
 ( cd "$G" && x gov upgrade --apply --from "$CONTENT_DIR" --gov-home . >"$ROOT/upgrade.log" 2>&1 ) || { tail -15 "$ROOT/upgrade.log"; die "gov upgrade failed"; }
 expect "governance.yaml kept the CI model setting through setup + upgrade" grep -q 'ci_allowed: true' "$G/policies/governance.yaml"
+expect "governance.yaml kept the org's runner through setup + upgrade" grep -qF "runs_on: $RUNS_ON" "$G/policies/governance.yaml"
+expect "gov-validate.yml asks for the org's runner $RUNS_ON" grep -qF "runs-on: $RUNS_ON" "$G/.github/workflows/gov-validate.yml"
 expect "upgrade installed the framework rules" test -f "$G/framework/rules/rules.yaml"
 # THE BUILD PHASE'S STARTER IS SEED-NEW (spec 01 §3.2): `gov setup` creates it when it makes a NEW org, and `gov upgrade`
 # never does. This journey configures an existing repo in place, so neither ran — seed it the way the seed would, with
@@ -293,6 +312,8 @@ fi
 if [ "$APP_READY" = 1 ]; then
   ( cd "$G" && x gov check install --repo "$ROOT/app" --gov-package ./.gov-ci/gov.tgz --gov-home . >"$ROOT/app-install.log" 2>&1 ) \
     || { tail -10 "$ROOT/app-install.log"; die "gov check install (code repo) failed"; }
+  expect "(f) the code repo's gov-checks.yml asks for the org's runner $RUNS_ON" \
+    bash -c 'grep -qF "runs-on: $2" "$1" && ! grep -E "^ {4}runs-on:" "$1" | grep -vqF "runs-on: $2"' _ "$ROOT/app/.github/workflows/gov-checks.yml" "$RUNS_ON"
   x cp "$GOV_TARBALL" "$ROOT/app/.gov-ci/gov.tgz"
   x git -C "$ROOT/app" add -A && x git -C "$ROOT/app" commit -qm "gov checks (rule-model journey)" && x git -C "$ROOT/app" push -q origin "$APP_DEF" \
     || die "could not push the code repo's workflow"
@@ -308,6 +329,9 @@ x cp "$GOV_TARBALL" "$G/.gov-ci/gov.tgz"
 # gov-validate.yml installs the published gov; the journey tests the TARBALL everywhere.
 x perl -pi -e 's{npm install -g \@svayam-opensource/gov}{npm install -g ./.gov-ci/gov.tgz}' "$G/.github/workflows/gov-validate.yml"
 expect "gov-checks.yml installs the tarball" grep -q 'npm install -g ./.gov-ci/gov.tgz' "$G/.github/workflows/gov-checks.yml"
+# EVERY job, not the first: one job left on ubuntu-latest would wait for a runner the sandbox never grants.
+expect "gov-checks.yml asks for the org's runner $RUNS_ON" \
+  bash -c 'grep -qF "runs-on: $2" "$1" && ! grep -E "^ {4}runs-on:" "$1" | grep -vqF "runs-on: $2"' _ "$G/.github/workflows/gov-checks.yml" "$RUNS_ON"
 expect "gov-validate.yml installs the tarball" grep -q 'npm install -g ./.gov-ci/gov.tgz' "$G/.github/workflows/gov-validate.yml"
 x git -C "$G" add -A && x git -C "$G" commit -qm "gov checks on the packed gov" || die "commit failed"
 PR_A="$(open_pr e2e/checks "gov checks (workflows only)" "$G" "$R_GOV")"

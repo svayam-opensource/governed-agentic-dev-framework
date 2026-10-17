@@ -20,6 +20,7 @@
 import { createHash } from "node:crypto";
 import type { CheckBinding } from "../model/catalog.js";
 import type { BindingRenderer } from "../model/contracts.js";
+import { DEFAULT_RUNS_ON, runsOnYaml } from "../../config/ci-runner.js";
 import { GH_ACTION_OUTCOMES_ENV, ghActionKey, ghActionName, isOrgGhAction } from "./gh-org-actions.js";
 
 export const WORKFLOW_PATH = ".github/workflows/gov-checks.yml";
@@ -40,6 +41,11 @@ export interface GithubRendererOptions {
    * governance repository and to reading its contents. No personal token, no long-lived secret that can write.
    */
   readonly govCheckout?: { readonly repository: string };
+  /**
+   * Every job's `runs-on:` value, as YAML text (`runsOnYaml` — `ubuntu-latest`, `[self-hosted, linux]`): the
+   * organization's `ci.runs_on` in policies/governance.yaml (config/ci-runner.ts). Default: `ubuntu-latest`.
+   */
+  readonly runsOn?: string;
 }
 
 /**
@@ -280,7 +286,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `    if: ${cond}`,
       ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`] : []),
       ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
-      "    runs-on: ubuntu-latest",
+      `    runs-on: ${opts.runsOn ?? runsOnYaml(DEFAULT_RUNS_ON)}`,
       "    timeout-minutes: 10",
       "    steps:",
       "      - uses: actions/checkout@v4",

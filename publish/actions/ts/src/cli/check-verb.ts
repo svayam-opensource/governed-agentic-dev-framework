@@ -27,7 +27,8 @@ import path from "node:path";
 import type { GitRead } from "./policy-gate-io.js";
 import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
-import type { GovernancePosture } from "../config/governance.js";
+import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
+import { DEFAULT_RUNNER, runsOnYaml, type RunnerChoice } from "../config/ci-runner.js";
 import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
@@ -105,6 +106,11 @@ export interface CheckVerbConfig {
   readonly govPackage?: string;
   /** This gov's version, stamped on evidence records. */
   readonly govVersion?: string;
+  /**
+   * The organization's runner, `ci.runs_on` in policies/governance.yaml (config/ci-runner.ts). Every rendered job asks
+   * for it. Absent → `ubuntu-latest`. A value gov cannot use (`problem`) stops the render: nothing is written.
+   */
+  readonly runner?: RunnerChoice;
 }
 
 const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
@@ -386,6 +392,7 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
   for (const row of inForce([...loaded.set.framework, ...loaded.set.org])) {
     for (const check of row.checks ?? []) if (wanted.has(check.on.resource)) bindings.push({ id: row.id, check });
   }
+  if (cfg.runner?.problem) return { ok: false, reason: `${GOVERNANCE_PATH} ${cfg.runner.problem}` };
   const govRepo = govRepoOf(cfg);
   if (!isGov && !govRepo) {
     return { ok: false, reason: "org-config.yaml does not name the governance repo (`github_org`, `org_gov_repo`), which a code repository's workflow must check out to read the rules" };
@@ -394,6 +401,7 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
     defaultBranch: isGov ? cfg.defaultBranch : cfg.defaultCodeBranch,
     ...(cfg.govPackage ? { govPackage: cfg.govPackage } : {}),
     ...(isGov ? {} : { govCheckout: { repository: govRepo } }),
+    runsOn: runsOnYaml((cfg.runner ?? DEFAULT_RUNNER).runsOn),
   }).render(bindings);
   return { ok: true, files, bindings };
 }

@@ -39,6 +39,9 @@
 #                    CI (default: approver-check, GOV-FRM-455 · pull_request) — the bot is not the copy's approver
 #   GOV_CICD_PACKAGE the gov-cicd package or tarball for step 8; BRIDGE_CICD_UNIT the unit (default: the first listed)
 #   E2E_SKIPS_FILE   each skipped assertion, by name, for e2e/live-verdict.sh (a skip makes the journey incomplete)
+#   E2E_RUNS_ON      the runner every workflow in the copy and the code repo asks for (default [self-hosted, linux,
+#                    svayam-e2e] — the sandbox's self-hosted runner; its Actions spending limit is $0): written into the
+#                    copy's own workflows at step 0 and as ci.runs_on in its governance.yaml from step 2 on
 #   E2E_WAIT_SECS / E2E_DEADLINE_SECS   caps on one wait (480) and on the whole run's waiting (2700)
 #
 #   --dry-run (or E2E_DRY_RUN=1)  HERMETIC: prints every gh / git / gov / gov-cicd / npm call instead of making it.
@@ -77,6 +80,7 @@ export GH_TOKEN
 
 WAIT_SECS="${E2E_WAIT_SECS:-480}"
 DEADLINE=$((SECONDS + ${E2E_DEADLINE_SECS:-2700}))
+RUNS_ON="${E2E_RUNS_ON:-[self-hosted, linux, svayam-e2e]}"
 RUN_ID="${E2E_RUN_ID:-$(date +%s)-$((RANDOM % 1000))}"
 [ "$DRY" = 1 ] && RUN_ID="dry"
 ROOT="$(mktemp -d)"
@@ -193,6 +197,12 @@ x cp "$GOV_TARBALL" "$C/.gov-ci/gov.tgz"
 if [ "$DRY" = 1 ] || [ -f "$C/.github/workflows/gov-validate.yml" ]; then
   x perl -pi -e 's{npm install -g \@svayam-opensource/gov\S*}{npm install -g ./.gov-ci/gov.tgz}' "$C/.github/workflows/gov-validate.yml"
 fi
+# THE SANDBOX'S RUNNER: the copy's own workflows are the org's (gov never rewrites them), so the rehearsal points their
+# jobs at it here; gov's own workflows get it from ci.runs_on, which lands with the stub model at step 2.
+for wf in "$C"/.github/workflows/*.yml; do
+  [ "$DRY" = 1 ] || [ -f "$wf" ] || continue
+  x perl -pi -e 's{^(    runs-on:[ \t]*)(?!.*\$\{\{).*$}{${1}'"$RUNS_ON"'}' "$wf"
+done
 x git -C "$C" add -A && x git -C "$C" commit -qm "rehearsal pointer: the sandbox org, the gov under test (bridge journey $RUN_ID)" \
   && x git -C "$C" push -q origin "$DEF" || die "could not push the rehearsal pointer"
 ok "rehearsal pointer on $DEF"
@@ -226,6 +236,13 @@ models:
   command: "bash .gov-ci/stub-model.sh"
   ci_allowed: true
 YAML
+  mv "$ROOT/gov.yaml" "$C/policies/governance.yaml"
+fi
+# …and the sandbox's runner, which every workflow gov writes from here on asks for (protect apply, check install).
+if [ "$DRY" = 1 ]; then printf '  + ci.runs_on: %s in policies/governance.yaml\n' "$RUNS_ON" >&3
+else
+  awk 'BEGIN { skip = 0 } /^ci:/ { skip = 1; next } skip && /^[^[:space:]#]/ { skip = 0 } !skip { print }' "$C/policies/governance.yaml" >"$ROOT/gov.yaml"
+  printf 'ci:\n  runs_on: %s\n' "$RUNS_ON" >>"$ROOT/gov.yaml"
   mv "$ROOT/gov.yaml" "$C/policies/governance.yaml"
 fi
 cat >"$C/.gov-ci/stub-model.sh" <<'SH'
@@ -277,6 +294,7 @@ else
   INST_OUT="$(xino "$C" "wrote $A/.github/workflows/gov-checks.yml" gov check install --repo "$A" --gov-package ./.gov-ci/gov.tgz --gov-home . 2>&1)" \
     || { printf '%s\n' "$INST_OUT" | tail -15; die "gov check install (code repo) failed"; }
   expect "gov check install wrote the code repo's gov-checks.yml" grep -q "gov-checks.yml" <<<"$INST_OUT"
+  expect "the code repo's gov-checks.yml asks for the sandbox's runner $RUNS_ON" grep -qF "runs-on: $RUNS_ON" "$A/.github/workflows/gov-checks.yml"
   x cp "$GOV_TARBALL" "$A/.gov-ci/gov.tgz"
   x git -C "$A" add -A && x git -C "$A" commit -qm "gov checks (bridge journey $RUN_ID)" && x git -C "$A" push -q -u origin "$APP_BRANCH" \
     || die "could not push $R_APP@$APP_BRANCH"
