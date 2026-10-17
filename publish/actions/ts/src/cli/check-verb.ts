@@ -27,7 +27,9 @@ import path from "node:path";
 import type { GitRead } from "./policy-gate-io.js";
 import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
-import type { GovernancePosture } from "../config/governance.js";
+import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
+import { DEFAULT_RUNNER, runsOnYaml, type RunnerChoice } from "../config/ci-runner.js";
+import { syncSeededWorkflowRunners } from "../maintain/org-workflow-runner.js";
 import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
@@ -56,6 +58,11 @@ import type { LoadedModule } from "../check-seam/loader.js";
 export interface CheckVerbDeps {
   readonly git: GitRead;
   readonly gh: Gh;
+  /**
+   * Whether a tool gov needs (`git`, `gh`) is on this machine's PATH. In GitHub Actions gov reads the rules through
+   * git and reads and writes GitHub through gh; a self-hosted runner may lack either. Absent → assumed present.
+   */
+  readonly toolOnPath?: (tool: RequiredTool) => boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Absolute path → text, or null. */
   readonly readFile: (file: string) => string | null;
@@ -84,6 +91,33 @@ export interface CheckVerbDeps {
  * The proposer on a pull request (cli/rules-propose-ci.ts), as `gov check run` calls it: the rule's tag, the
  * event, and the checkout it runs in. Injected so this file stays free of the model and the forge.
  */
+/**
+ * A RUNNER WITHOUT A TOOL GOV NEEDS (svayam-e2e's self-hosted runner, run 39033584186: no `gh`). GitHub's hosted runners
+ * ship git and the GitHub CLI; a self-hosted runner need not. Without gh every GitHub read failed one by one — the
+ * proposer could not tell, which soft posture showed as a green check that did nothing. So in GitHub Actions gov looks
+ * once, before it runs anything, and names the missing tool. Such a check FAILS under any posture (Policy Owner
+ * ruling, 2026-10-17): it could not run, which says nothing about the change. Every other "could not tell" keeps the
+ * posture's rules.
+ */
+export type RequiredTool = "git" | "gh";
+export const GIT_MISSING =
+  "`git` is not on this runner's PATH, and gov reads the rules and the change through it, so nothing was checked. "
+  + "GitHub's hosted runners have it; on a self-hosted runner install it (https://git-scm.com) where the runner "
+  + "service's PATH finds it, then re-run this check.";
+export const GH_MISSING =
+  "the GitHub CLI (`gh`) is not on this runner's PATH, and gov reads and writes GitHub through it (pull requests, "
+  + "review comments, violation records), so nothing was checked. GitHub's hosted runners have it; on a self-hosted "
+  + "runner install it (https://cli.github.com) where the runner service's PATH finds it, then re-run this check.";
+
+const REQUIRED_TOOLS: readonly (readonly [RequiredTool, string])[] = [["git", GIT_MISSING], ["gh", GH_MISSING]];
+export const TOOL_MISSING_FAILS = "FAILED — this runner lacks a tool gov needs, so the check could not run; that fails under any posture (exit 1).";
+
+/** The messages for the tools this runner lacks — in GitHub Actions only; elsewhere, none. */
+function missingTools(deps: Pick<CheckVerbDeps, "env" | "toolOnPath">): string[] {
+  if (deps.env.GITHUB_ACTIONS !== "true" || !deps.toolOnPath) return [];
+  return REQUIRED_TOOLS.filter(([tool]) => !deps.toolOnPath!(tool)).map(([, why]) => why);
+}
+
 export type ProposeOnPr = (tag: string, eventName: string, event: unknown, repoDir: string) => Promise<BuiltinOutcome>;
 
 export interface CheckVerbConfig {
@@ -105,6 +139,11 @@ export interface CheckVerbConfig {
   readonly govPackage?: string;
   /** This gov's version, stamped on evidence records. */
   readonly govVersion?: string;
+  /**
+   * The organization's runner, `ci.runs_on` in policies/governance.yaml (config/ci-runner.ts). Every rendered job asks
+   * for it. Absent → `ubuntu-latest`. A value gov cannot use (`problem`) stops the render: nothing is written.
+   */
+  readonly runner?: RunnerChoice;
 }
 
 const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
@@ -162,7 +201,8 @@ export async function checkCommandAsync(
     }
   }
   const binds = mine.some((b) => b.action === PROPOSE_ACTION);
-  if (!binds || !deps.proposeOnPr) return checkCommand(positionals, flags, deps, cfg);
+  // A missing tool: the proposer would only fail at its first read; the run below says why, once.
+  if (!binds || !deps.proposeOnPr || missingTools(deps).length) return checkCommand(positionals, flags, deps, cfg);
   const repoDirFlag = flagStr(flags, "repo-dir");
   const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
   const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
@@ -209,6 +249,11 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ],
   });
 
+  // Before anything reads: without git the rules cannot be read either, and that must not pass as "could not tell".
+  const lacking = missingTools(deps).map((why) => `${id}: ${why}`);
+  if (lacking.length) {
+    return { result: { code: 1, lines: [...lines, ...lacking, `${id}: ${TOOL_MISSING_FAILS}`] }, annotate: { verdict: { verdict: "fail", findings: lacking } } };
+  }
   const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
   const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
   if (!loaded.ok) {
@@ -386,6 +431,7 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
   for (const row of inForce([...loaded.set.framework, ...loaded.set.org])) {
     for (const check of row.checks ?? []) if (wanted.has(check.on.resource)) bindings.push({ id: row.id, check });
   }
+  if (cfg.runner?.problem) return { ok: false, reason: `${GOVERNANCE_PATH} ${cfg.runner.problem}` };
   const govRepo = govRepoOf(cfg);
   if (!isGov && !govRepo) {
     return { ok: false, reason: "org-config.yaml does not name the governance repo (`github_org`, `org_gov_repo`), which a code repository's workflow must check out to read the rules" };
@@ -394,6 +440,7 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
     defaultBranch: isGov ? cfg.defaultBranch : cfg.defaultCodeBranch,
     ...(cfg.govPackage ? { govPackage: cfg.govPackage } : {}),
     ...(isGov ? {} : { govCheckout: { repository: govRepo } }),
+    runsOn: runsOnYaml((cfg.runner ?? DEFAULT_RUNNER).runsOn),
   }).render(bindings);
   return { ok: true, files, bindings };
 }
@@ -422,7 +469,9 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
   if (!rendered.ok) return { code: 1, lines: [`check install: ${rendered.reason}. Nothing was written.`] };
   const { files, bindings } = rendered;
   const govRepo = govRepoOf(cfg);
-  if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`] };
+  // The org's gov-validate.yml follows ci.runs_on — its runs-on lines only, each reported (ruling 2026-10-17).
+  const runner = syncSeededWorkflowRunners(target, cfg.runner ?? DEFAULT_RUNNER, { read: deps.readFile, write: deps.writeFile }, true).lines;
+  if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`, ...runner] };
 
   const lines: string[] = [];
   for (const f of files) {
@@ -430,6 +479,7 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
     deps.writeFile(abs, f.text);
     lines.push(`wrote ${abs}`);
   }
+  lines.push(...runner);
   const jobs = [...new Set(bindings.map((b) => `${b.id} · ${b.check.on.event}`))].sort();
   lines.push(
     `  ${bindings.length} binding(s) from ${ref}: ${jobs.join(", ")}`,

@@ -17,6 +17,7 @@
  */
 import { expect } from "chai";
 import * as path from "node:path";
+import { classifyRunsOn } from "../../src/config/ci-runner.js";
 import {
   approverLogins, buildProtectionBody, FORCE_PUSH_RULESET, protectRepo, WORKFLOW_DEST, WORKFLOW_TEMPLATE,
   type GhApi, type ProtectFs,
@@ -219,6 +220,37 @@ describe("gov-work — repo protect apply", () => {
     const { gh } = fakeGh({});
     const text = protectRepo({ gh, fs }, base, "apply").lines.join("\n");
     expect(text).to.contain("already correct in the working tree");
+  });
+
+  describe("the approver check runs on the organization's runner (ci.runs_on)", () => {
+    const DEST = path.join("/clones/acme-gov", ".github", "workflows", "approver-check.yml");
+    const SHIPPED = "jobs:\n  approver-check:\n    runs-on: ubuntu-latest\n    steps: []\n";
+    const shipped = (): Record<string, string> => ({ [path.join(HOME, WORKFLOW_TEMPLATE)]: SHIPPED });
+
+    it("a chosen runner is written into the job", () => {
+      const fs = fakeFs(shipped());
+      protectRepo({ gh: fakeGh({}).gh, fs }, { ...base, runner: classifyRunsOn(["self-hosted", "linux"]) }, "apply");
+      expect(fs.files[DEST]).to.equal(SHIPPED.replace("ubuntu-latest", "[self-hosted, linux]"));
+    });
+
+    it("none chosen: the shipped default — and a runner the org put in its installed copy by hand is kept", () => {
+      const fresh = fakeFs(shipped());
+      protectRepo({ gh: fakeGh({}).gh, fs: fresh }, base, "apply");
+      expect(fresh.files[DEST]).to.equal(SHIPPED);
+      const own = SHIPPED.replace("ubuntu-latest", "[self-hosted]");
+      const fs = fakeFs({ ...shipped(), [DEST]: own });
+      const text = protectRepo({ gh: fakeGh({}).gh, fs }, base, "apply").lines.join("\n");
+      expect(fs.files[DEST]).to.equal(own);
+      expect(text).to.contain("already correct in the working tree");
+    });
+
+    it("a value gov cannot use refuses, naming ci.runs_on, and writes nothing", () => {
+      const fs = fakeFs(shipped());
+      const r = protectRepo({ gh: fakeGh({}).gh, fs }, { ...base, runner: classifyRunsOn("self hosted") }, "apply");
+      expect(r.code).to.equal(1);
+      expect(r.lines.join("\n")).to.contain("policies/governance.yaml ci.runs_on:").and.contain("nothing was written");
+      expect(fs.files[DEST]).to.equal(undefined);
+    });
   });
 
   it("GOV-FRM-447 writes the four settings, RE-READS, and reports from the re-read", () => {

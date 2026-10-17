@@ -317,8 +317,8 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   // Read BEFORE the plan writes: the template the installed approver-check was copied from (Q9).
   const workflows = opts.seed ? null : installedWorkflowInputs(entries, readContent, readAdopter);
   if (!opts.apply) {
-    const rerender = workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: false }).lines : [];
-    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
+    const rerender = workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: false }).lines : [];
+    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...orgWorkflowRunners(adopterDir, opts.seed === true, false), ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
   const notes: string[] = [];
@@ -347,8 +347,10 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...replaceFrameworkReadme(adopterDir, contentDir, true),
       ...settleRoleList(adopterDir),
       ...(opts.seed ? [] : fillTokens(adopterDir, createdPaths(plan, res.applied))),
+      ...(opts.seed ? [] : fillRunner(adopterDir, createdPaths(plan, res.applied))),
+      ...orgWorkflowRunners(adopterDir, opts.seed === true, true),
       ...refreshCodeowners(adopterDir),
-      ...(workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines : []),
+      ...(workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: true }).lines : []),
     ],
   };
 }
@@ -370,8 +372,10 @@ function installedWorkflowInputs(entries: readonly { src: string; dst: string }[
   };
 }
 
-function workflowPin(opts: { govVersion?: string } & WorkflowOpts, contentDir: string): Pick<RerenderInput, "govVersion" | "govPackage" | "renderGovChecks"> {
+function workflowPin(opts: { govVersion?: string } & WorkflowOpts, contentDir: string, adopterDir: string): Pick<RerenderInput, "govVersion" | "govPackage" | "renderGovChecks" | "runner"> {
   return {
+    // Read when the re-render runs — after this upgrade's migrations, which may have written governance.yaml.
+    runner: readGovernance(adopterDir).ci,
     govVersion: opts.govVersion ?? contentVersion(contentDir),
     ...(opts.govPackage ? { govPackage: opts.govPackage } : {}),
     ...(opts.renderGovChecks ? { renderGovChecks: opts.renderGovChecks } : {}),
@@ -443,6 +447,44 @@ export function fillTokens(adopterDir: string, created: readonly string[], today
 }
 
 /**
+ * A WORKFLOW GOV CREATES ASKS FOR THE ORGANIZATION'S RUNNER (`ci.runs_on`, config/ci-runner.ts). The framework ships
+ * `.github/workflows/*.yml` asking for `ubuntu-latest`; the run that CREATES one writes the runner
+ * policies/governance.yaml names. Only `created` — an existing workflow is the organization's (GOV-FRM-445) — and only
+ * when a runner was chosen: none chosen, the shipped bytes stay. An unusable value is named, never written.
+ */
+export function fillRunner(adopterDir: string, created: readonly string[]): string[] {
+  const workflows = created.filter((rel) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(rel));
+  if (!workflows.length) return [];
+  const runner = readGovernance(adopterDir).ci;
+  if (runner.problem) return [`  ! ${GOVERNANCE_PATH} ${runner.problem} — left asking for ${runsOnYaml(DEFAULT_RUNS_ON)}: ${workflows.join(", ")}`];
+  if (!runner.chosen) return [];
+  const value = runsOnYaml(runner.runsOn);
+  const filled: string[] = [];
+  for (const rel of workflows) {
+    const p = path.join(adopterDir, rel);
+    const before = readIf(p);
+    if (before === null) continue;
+    const after = withRunsOn(before, value);
+    if (after === before) continue;
+    fs.writeFileSync(p, after, "utf8");
+    filled.push(rel);
+  }
+  if (!filled.length) return [];
+  log("info", "wrote the organization's runner into the workflows this upgrade created", "gov-work:maintain:upgrade-run", "fillRunner", { files: filled, runner: value });
+  return [`  runner ${value} (ci.runs_on) written into ${filled.length} workflow(s) this upgrade created: ${filled.join(", ")}`];
+}
+
+/**
+ * THE ORG'S gov-validate.yml FOLLOWS ci.runs_on — its runs-on lines only (Policy Owner ruling, 2026-10-17;
+ * maintain/org-workflow-runner.ts). Not in setup's seed, where governance.yaml is not the org's yet.
+ */
+function orgWorkflowRunners(adopterDir: string, seed: boolean, apply: boolean): string[] {
+  if (seed) return [];
+  const io = { read: (abs: string) => readIf(abs), write: (abs: string, text: string) => fs.writeFileSync(abs, text, "utf8") };
+  return syncSeededWorkflowRunners(adopterDir, readGovernance(adopterDir).ci, io, apply).lines;
+}
+
+/**
  * THE FRAMEWORK'S README, LEFT BY THE TEMPLATE COPY, BECOMES THE ORG'S (F22 — framework-readme.ts). Only a README
  * whose fingerprint is one the framework shipped, and only in an adopter repo (one with org-config.yaml): in the
  * framework's own checkout that README is the framework's. The org README's tokens are filled from org-config.yaml
@@ -499,7 +541,9 @@ import { ROLE_LIST_PATH, ROLE_HOLDER_TOKENS, settleRoleListTokens } from "../con
 import { normalizeHandle } from "../config/codeowners.js";
 import { log } from "../log.js";
 import { parseApprovedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
-import { GOVERNANCE_PATH } from "../config/governance.js";
+import { GOVERNANCE_PATH, readGovernance } from "../config/governance.js";
+import { DEFAULT_RUNS_ON, runsOnYaml, withRunsOn } from "../config/ci-runner.js";
+import { syncSeededWorkflowRunners } from "./org-workflow-runner.js";
 import { recordWorkRoot } from "../config/work-root.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";
 import { settleFrameworkReadme } from "./framework-readme.js";
@@ -645,10 +689,10 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     // put the new rules into force, and by `gov sync`.
     // Tokens are filled in every file this run created (§3.8) — with the migrations, once org-config is split.
     // The installed workflows travel in the same commit (Q9): the PR's own CI runs the gov that wrote them.
-    const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines;
+    const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir, adopterDir), apply: true }).lines;
     // The org's rules that cite a file this upgrade moved follow it, in this commit (spec §3.5, T8): re-sourced, patch bump, snapshot, entry.
     const relocationLines = relocateOrgRows(adopterDir, returnTo, appliedMoves(plan.actions, applied));
-    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...relocationLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...fillRunner(adopterDir, createdPaths(plan, applied)), ...orgWorkflowRunners(adopterDir, false, true), ...relocationLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
     commitPart("migrations");
     proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;   // reads what commit 4 retires, so before applying it
     applyPart("proposed-prose");

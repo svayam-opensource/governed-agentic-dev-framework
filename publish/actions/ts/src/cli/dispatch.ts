@@ -48,7 +48,7 @@ import { approverLogins, protectRepo, type GhApi, type RuleChecksRead } from "..
 import { requiredRuleChecks } from "../maintain/rule-checks.js";
 import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
-import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens } from "../config/governance.js";
+import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens, parseGovernance } from "../config/governance.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { rules } from "./rules-verb.js";
 import { showRule } from "./rules-show.js";
@@ -820,7 +820,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         {
           repo, branch, home: ctx.home, posture: readPosture(governanceText),
           approvers: approverLogins(governanceText, ctx.fs.readFile(path.join(ctx.home, ROLE_LIST_PATH))),
-          isGovernanceRepo, ruleChecks,
+          isGovernanceRepo, ruleChecks, runner: parseGovernance(governanceText).ci,
           ...(repoDir ? { repoDir } : {}),
           ...(check ? { approverCheck: check } : {}),
         },

@@ -13,6 +13,7 @@
  *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
  *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
  *   models                 which model the org approves for `gov rules propose` (framework §9.3)
+ *   ci                     ci.runs_on — the runner every workflow gov writes asks for (config/ci-runner.ts)
  *
  * SEED-ONCE. The framework ships it empty, `gov setup` fills it, and from then on it is the organization's: `gov
  * upgrade` never writes it again, except the one recorded `org-config-split` migration that carries an older org's
@@ -24,12 +25,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import yaml from "js-yaml";
 import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.js";
+import { classifyRunsOn, runsOnYaml, DEFAULT_RUNNER, RUNS_ON_KEY, type RunnerChoice } from "./ci-runner.js";
 
 /** Where the file lives, repo-relative. */
 export const GOVERNANCE_PATH = "policies/governance.yaml";
 
 /** The top-level keys gov reads in governance.yaml — anything else is reported, never acted on. */
-export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "autorun"] as const;
+export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "autorun", "ci"] as const;
+/** The keys gov reads inside `ci:`. */
+const CI_KEYS = ["runs_on"] as const;
 
 /**
  * Keys gov once wrote here and no longer reads. An org's file may still hold one: it stays exactly as written, and gov
@@ -93,6 +97,8 @@ export interface GovernanceConfig {
     readonly command: string;
     readonly ciAllowed: boolean;
   };
+  /** `ci.runs_on`: the runner gov's workflows ask for. Absent or unusable → `ubuntu-latest`, `chosen: false`. */
+  readonly ci: RunnerChoice;
   /** What gov could not use: bad YAML, a key it does not read, a provider it does not know. Never fatal. */
   readonly problems: readonly string[];
 }
@@ -131,6 +137,15 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   if (ciRaw !== undefined && ciRaw !== null && typeof ciRaw !== "boolean") {
     problems.push("models.ci_allowed: expected true or false — read as false");
   }
+  let ci: RunnerChoice = DEFAULT_RUNNER;
+  if (doc.ci !== undefined && doc.ci !== null) {
+    if (!isMap(doc.ci)) problems.push(`ci: expected a mapping with ${RUNS_ON_KEY.split(".")[1]} (for example \`ci: { runs_on: [self-hosted, linux] }\`) — gov is using ${runsOnYaml(DEFAULT_RUNNER.runsOn)}`);
+    else {
+      for (const k of Object.keys(doc.ci)) if (!(CI_KEYS as readonly string[]).includes(k)) problems.push(`ci.${k}: gov does not read this key in ${GOVERNANCE_PATH} — ignored`);
+      ci = classifyRunsOn(doc.ci.runs_on);
+      if (ci.problem) problems.push(`${ci.problem}; gov is using ${runsOnYaml(ci.runsOn)}`);
+    }
+  }
   return {
     present: text !== null && text !== undefined,
     posture: classifyPosture(str(doc.governance_posture)),
@@ -139,6 +154,7 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
     // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
     authorizedAgents: readAuthorizedAgents(text ?? null),
     models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
+    ci,
     problems,
   };
 }
@@ -207,6 +223,8 @@ export function describeGovernanceChanges(baseText: string | null, headText: str
   pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
   pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
   if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
+  const runner = (c: RunnerChoice): string => `${runsOnYaml(c.runsOn)}${c.chosen ? "" : " (the default)"}`;
+  pair(`CI runner (${RUNS_ON_KEY})`, runner(b.ci), runner(h.ci));
   return out;
 }
 
@@ -280,6 +298,13 @@ autorun:
   item_minutes: 30
   run_items: 10
   run_crs: 10
+
+# WHERE GOV'S GITHUB WORKFLOWS RUN — the runner every workflow gov writes asks for (\`runs-on:\`).
+#   runs_on   one runner label, or a list of labels a runner must carry every one of. Left out, gov uses
+#             GitHub's hosted runner, ubuntu-latest. An organization that runs its CI on its own machines
+#             names their labels — without it, gov's checks wait for a hosted runner that never comes.
+# ci:
+#   runs_on: [self-hosted, linux]
 `;
 }
 

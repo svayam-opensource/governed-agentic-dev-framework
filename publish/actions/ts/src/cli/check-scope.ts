@@ -19,6 +19,8 @@
  * Pure over injected readers and writers; main.ts wires them.
  */
 import path from "node:path";
+import { syncSeededWorkflowRunners } from "../maintain/org-workflow-runner.js";
+import { DEFAULT_RUNNER } from "../config/ci-runner.js";
 import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
 import { renderForRepo, withInstalledPin, type CheckVerbConfig, type CheckVerbDeps, type RuleSetLoad } from "./check-verb.js";
@@ -169,6 +171,10 @@ export function checkInstallAll(flags: Readonly<Record<string, string | boolean>
       row("written", t.name, `${file} (on ${r.branch}, ${rendered.bindings.length} binding(s))`);
       done.push({ t, outcome: "written", branch: r.branch });
     }
+    // The org's gov-validate.yml follows ci.runs_on — its runs-on lines only, each reported (ruling 2026-10-17).
+    const runner = syncSeededWorkflowRunners(t.dir, cfg.runner ?? DEFAULT_RUNNER, { read: deps.readFile, write: deps.writeFile }, true);
+    for (const l of runner.lines) row(runner.changed.length ? "written" : "cannot tell", t.name, l.trim());
+    if (runner.changed.length && !done.some((d) => d.t === t)) done.push({ t, outcome: "written", branch: r.branch });
   }
   if (s.codeUnknown) { refused++; row("cannot tell", "code repos", s.codeUnknown); }
 

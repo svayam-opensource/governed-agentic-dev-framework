@@ -460,6 +460,11 @@ jobs:
           E2E_REAL_MODEL: ${{ inputs.real_model && '1' || '0' }}
           GEMINI_API_KEY: ${{ inputs.real_model && secrets.GEMINI_API_KEY || '' }}
           E2E_DEADLINE_SECS: "2100"
+          # THE SANDBOX'S RUNNER (Policy Owner, 2026-10-17): the sandbox org's Actions spending limit is $0, so every
+          # workflow in its ephemeral repos must ask for its self-hosted runner — written as ci.runs_on in the journey's
+          # governance.yaml. A repo variable overrides the default; without a runner online the checks stay queued and
+          # the journey says so (explain_wait).
+          E2E_RUNS_ON: ${{ vars.E2E_RUNS_ON || '[self-hosted, linux, svayam-e2e]' }}
           # Every skipped assertion is written here by name; the verdict reads it (a skip is never a silent pass).
           E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
         run: |
@@ -521,6 +526,7 @@ jobs:
           GOV_CICD_PACKAGE: ${{ vars.GOV_CICD_PACKAGE }}
           E2E_DEADLINE_SECS: "2700"
           E2E_SKIPS_FILE: ${{ runner.temp }}/bridge-skips.tsv
+          E2E_RUNS_ON: ${{ vars.E2E_RUNS_ON || '[self-hosted, linux, svayam-e2e]' }}
         run: |
           if [ "$LIVE" = 1 ]; then
             # A live rehearsal needs the sandbox; missing either is a failure on a dispatch (ruling Q2), named.

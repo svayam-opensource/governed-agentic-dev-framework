@@ -3,6 +3,7 @@
 //
 // THE CHECK ENGINE, THIRD SLICE (W6): GitHub events → payloads, the thin GitHub adapters, the rule set with
 // ownership and roles, and `gov check run` / `gov check install` end to end over fakes and the shipped stores.
+import { classifyRunsOn } from "../../../src/config/ci-runner.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -520,6 +521,40 @@ describe("gov check install", () => {
     expect(text).to.contain("blocks force pushes on BRNCH-*").and.contain("GOV-FRM-466");
     expect(text, "the raw `gh api` ruleset command is gone: `gov repo protect apply` installs it").to.not.contain("gh api").and.not.contain("non_fast_forward");
     expect(ghCalled).to.equal(false);
+  });
+
+  it("every job asks for the organization's runner (ci.runs_on) — gov repo and code repo alike", () => {
+    const written: Record<string, string> = {};
+    const cfg = { ...CFG, runner: classifyRunsOn(["self-hosted", "linux"]) };
+    expect(checkCommand(["install"], {}, mk(written), cfg).code).to.equal(0);
+    expect(checkCommand(["install"], { repo: "/work/billing" }, mk(written), cfg).code).to.equal(0);
+    for (const wf of Object.values(written)) {
+      expect(wf).to.match(/^ {4}runs-on: \[self-hosted, linux\]$/m);
+      expect(wf).to.not.contain("ubuntu-latest");
+    }
+  });
+
+  it("the org's gov-validate.yml: only its runs-on lines follow ci.runs_on, each reported; absent ci.runs_on → untouched", () => {
+    const VALIDATE_ABS = "/gov/.github/workflows/gov-validate.yml";
+    const ORG = "name: gov-validate # ours\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./ours.sh\n";
+    const withFile = (written: Record<string, string>): CheckVerbDeps => ({ ...mk(written), readFile: (f) => (pxAbs(f) === VALIDATE_ABS ? ORG : null) });
+    const set: Record<string, string> = {};
+    const r = checkCommand(["install"], {}, withFile(set), { ...CFG, runner: classifyRunsOn(["self-hosted", "linux"]) });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(set[VALIDATE_ABS]).to.equal(ORG.replace("runs-on: ubuntu-latest", "runs-on: [self-hosted, linux]"));
+    expect(r.lines.join("\n")).to.contain(".github/workflows/gov-validate.yml:4  runs-on: ubuntu-latest → [self-hosted, linux]");
+    const unset: Record<string, string> = {};
+    const r2 = checkCommand(["install"], {}, withFile(unset), CFG);
+    expect(unset[VALIDATE_ABS]).to.equal(undefined);
+    expect(r2.lines.join("\n")).to.not.contain("gov-validate.yml");
+  });
+
+  it("an unusable ci.runs_on: nothing is written, exit 1, the key named", () => {
+    const written: Record<string, string> = {};
+    const r = checkCommand(["install"], {}, mk(written), { ...CFG, runner: classifyRunsOn("two words") });
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("policies/governance.yaml ci.runs_on:").and.contain("Nothing was written");
+    expect(written).to.deep.equal({});
   });
 
   it("rules that cannot be read: nothing is written, exit 1", () => {

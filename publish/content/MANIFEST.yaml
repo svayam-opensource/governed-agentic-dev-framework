@@ -222,6 +222,10 @@ files:
   # ships beside it under framework/build/templates/ (the directory row above) and is always up to date to diff
   # against. (A row once named a reference file that never existed, so it shipped nothing; a test now checks every
   # src here exists.)
+  # THE RUNNER (2026-10-17): it ships asking for ubuntu-latest; the run that CREATES it writes the runner the org named
+  # in policies/governance.yaml (ci.runs_on — upgrade-run.ts fillRunner). After that the file is the org's, save one
+  # thing (Policy Owner ruling): while ci.runs_on is set, gov upgrade and gov check install keep its runs-on lines on
+  # it, and only those (maintain/org-workflow-runner.ts).
   - { src: .github/workflows/gov-validate.yml,       dst: .github/workflows/gov-validate.yml,       mode: seed-once }
 
   # .gitignore: the org's, after the first install — they add their own build artefacts.

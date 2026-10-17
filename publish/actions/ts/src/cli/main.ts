@@ -140,6 +140,9 @@ function tryRun(cmd: string, args: string[]): string | undefined {
   return tryRunProcess(cmd, args, { pgm: "gov-work:cli:main" });
 }
 
+/** Is a tool gov's checks need on PATH? Asked once per tool per `gov check` run in GitHub Actions (check-verb.ts). */
+const toolOnPath = (tool: "git" | "gh"): boolean => okProcess(tool, ["--version"], { pgm: "gov-work:cli:check", fn: "toolOnPath" });
+
 /**
  * What GitHub says about this adopter's standing in a repo (#194): may they push,
  * and do they have a fork of it under their own org? Both are one API call each,
@@ -2358,7 +2361,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   const bot = botIdentity(process.env);
   setEvidenceFor(home, config.githubOrg);
   const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
-    git, gh, env: process.env,
+    git, gh, env: process.env, toolOnPath,
     paidModule: () => ensureCheckModule({ surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local", govHome: home, env: process.env, govVersion: readCliVersion() }, { keychain: createKeychain() }),
     readFile: (f) => fs.readFile(f),
     writeFile: (f, t) => fs.writeFile(f, t),
@@ -2377,7 +2380,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   }, {
     home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
     githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,
-    govVersion: readCliVersion(),
+    runner: readGovernance(home).ci, govVersion: readCliVersion(),
   });
   for (const line of r.lines) process.stdout.write(`${line}\n`);
   return r.code;
@@ -2704,6 +2707,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           const r = renderForRepo(true, loaded, {
             home, defaultBranch: upCfg.defaultBranch || "main", defaultCodeBranch: upCfg.defaultCodeBranch, githubOrg: upCfg.githubOrg,
             workspaceRepo: upCfg.workspaceRepo, posture: null, govPackage,
+            // The runner as governance.yaml says it AFTER this upgrade's migrations — read here, when the render runs.
+            runner: readGovernance(home).ci,
           });
           return r.ok ? r.files[0]?.text ?? null : null;
         };
@@ -2820,6 +2825,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }, {
           home, defaultBranch: doctorCfg.defaultBranch || "main", defaultCodeBranch: doctorCfg.defaultCodeBranch,
           githubOrg: doctorCfg.githubOrg, workspaceRepo: doctorCfg.workspaceRepo, agentWorkRoot: doctorCfg.agentWorkRoot, posture: null,
+          runner: readGovernance(home).ci,
         }))
       : undefined;
     const report = doctor({
@@ -3194,7 +3200,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
     const r = checkCommand(parsed.positionals, parsed.flags, {
       git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
-      gh,
+      gh, toolOnPath,
       env: process.env,
       readFile: (f) => fs.readFile(f),
       writeFile: (f, t) => fs.writeFile(f, t),
@@ -3203,6 +3209,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }, {
       home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
       githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,
+      runner: readGovernance(home).ci,
     });
     for (const line of r.lines) process.stdout.write(`${line}\n`);
     return r.code;

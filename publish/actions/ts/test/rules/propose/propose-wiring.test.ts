@@ -476,6 +476,59 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 });
 
+describe("a runner without a tool gov needs FAILS the check, whatever the posture (Policy Owner ruling, 2026-10-17)", () => {
+  // On chinhut-e2e, `gh` was not installed (run 39033584186): the proposer read "the review comments on #3 could not
+  // be read", could not tell, and soft posture showed a green check that did nothing. A check that cannot RUN is not
+  // a "could not tell" about the change: it fails, soft or hard, naming the tool and the fix. git likewise.
+  const store = `- id: GOV-FRM-468\n  source: { doc: framework/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov proposes."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
+  const catalog = "resources:\n  - id: vcs.gov-repo\n    renderer: github-actions\n    events:\n      - { name: pull_request, mode: gate }\ntools:\n  - id: gov-builtin\nactions:\n  - id: gov-builtin/rules-propose\n    tool: gov-builtin\n    params: { type: object, additionalProperties: false, properties: {} }\n";
+  const git = treeAsGit(memTree({ "org-config.yaml": "org_slug: \"SVM\"\n", "framework/rules/rules.yaml": store, "framework/rules/checks-catalog.yaml": catalog }));
+  const CFG = (posture: "soft" | "hard") => ({ home: "/gov", defaultBranch: "main", defaultCodeBranch: "dev", githubOrg: "acme", workspaceRepo: "gov", posture });
+  const runWith = async (env: Record<string, string>, missing: readonly string[], posture: "soft" | "hard" = "soft", proposer: "pass" | "cannot-tell" = "pass") => {
+    const seen: string[] = [];
+    const r = await checkCommandAsync(["run", "GOV-FRM-468"], { resource: "vcs.gov-repo", event: "pull_request" }, {
+      git, gh: () => null, env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: "/e.json", ...env },
+      readFile: (f) => (f === "/e.json" ? JSON.stringify(EVENT) : null), writeFile: () => {},
+      toolOnPath: (tool) => !missing.includes(tool),
+      proposeOnPr: async (tag) => { seen.push(tag); return proposer === "pass" ? { verdict: "pass", findings: [] } : { verdict: "cannot-tell", findings: [`${tag}: something else could not be read`] }; },
+    }, CFG(posture));
+    return { r, text: r.lines.join("\n"), seen };
+  };
+
+  for (const posture of ["soft", "hard"] as const) {
+    it(`no gh, ${posture} posture: exit 1, nothing run, the tool and the fix named — as an ::error`, async () => {
+      const { r, text, seen } = await runWith({ GITHUB_ACTIONS: "true" }, ["gh"], posture);
+      expect(r.code, text).to.equal(1);
+      expect(seen, "nothing ran").to.deep.equal([]);
+      expect(text).to.contain("GOV-FRM-468: the GitHub CLI (`gh`) is not on this runner's PATH").and.contain("https://cli.github.com");
+      expect(text).to.contain("fails under any posture");
+      expect(text).to.match(/^::error [^\n]*the GitHub CLI \(`gh`\) is not on this runner's PATH/m);
+    });
+  }
+
+  it("no git: the same — exit 1 under soft, git named", async () => {
+    const { r, text, seen } = await runWith({ GITHUB_ACTIONS: "true" }, ["git"], "soft");
+    expect(r.code, text).to.equal(1);
+    expect(seen).to.deep.equal([]);
+    expect(text).to.contain("GOV-FRM-468: `git` is not on this runner's PATH").and.contain("https://git-scm.com");
+  });
+
+  it("any other could-not-tell keeps the posture rules: soft exit 0, hard exit 1", async () => {
+    const soft = await runWith({ GITHUB_ACTIONS: "true" }, [], "soft", "cannot-tell");
+    expect(soft.text).to.contain("something else could not be read");
+    expect(soft.r.code).to.equal(0);
+    expect((await runWith({ GITHUB_ACTIONS: "true" }, [], "hard", "cannot-tell")).r.code).to.equal(1);
+  });
+
+  it("tools present, or not in GitHub Actions: no such finding, and the proposer runs", async () => {
+    for (const [env, missing] of [[{ GITHUB_ACTIONS: "true" }, []], [{}, ["gh", "git"]]] as const) {
+      const { text, seen } = await runWith(env, missing);
+      expect(text).to.not.contain("not on this runner's PATH");
+      expect(seen).to.have.length(1);
+    }
+  });
+});
+
 // ── the gate starts from the prose (Policy Owner, 2026-10-07): PR #5 in the sandbox ──────────────────────────
 describe("GOV-FRM-468 a changed section with no rules is stale too — CI runs the model on it, and the changelog says so", () => {
   // §4 changes; §4 has no rule rows. Before: the gate saw no `sha` finding, CI went to finishOnly, and the model
