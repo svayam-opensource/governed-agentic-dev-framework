@@ -1,0 +1,10 @@
+{
+  "env": "uat",
+  "host": "gov-uat.svayamtech.com",
+  "ref": "uat",
+  "pkg": "@svayam-opensource/gov@uat",
+  "registry": "https://npm.svayamtech.com",
+  "label": "UAT — release candidate. Not the version to adopt.",
+  "versioned": [{ "version": "1.2.3", "sh": "/v/1.2.3/install.sh", "ps1": "/v/1.2.3/install.ps1" }],
+  "built": "2026-10-18T00:00:00.000Z"
+}

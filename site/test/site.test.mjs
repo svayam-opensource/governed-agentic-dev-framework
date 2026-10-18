@@ -7,25 +7,31 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderCaddyfile, sitesIn, PORT } from "../caddyfile.mjs";
+import { dnFor, portalOrigin, versionsDoc, pinsOf, versionsMismatches, pagesIn, PORTAL_PATH } from "../lib.mjs";
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(SITE, p), "utf8");
-const SITES = [{ env: "dev", host: "gov-dev.svayamtech.com" }, { env: "prod", host: "gov.svayamtech.com" }];
+const SITES = [
+  { env: "dev", host: "gov-dev.svayamtech.com", portal: "https://portal-dev.svayamtech.com" },
+  { env: "prod", host: "gov.svayamtech.com", portal: "https://portal.svayamtech.com" },
+];
 
 test("each env is served ONLY on its own host, from its own build", () => {
   const cf = renderCaddyfile(SITES);
-  assert.match(cf, /@dev host gov-dev\.svayamtech\.com\n\thandle @dev \{\n\t\troot \* \/srv\/dev/);
-  assert.match(cf, /@prod host gov\.svayamtech\.com\n\thandle @prod \{\n\t\troot \* \/srv\/prod/);
+  assert.match(cf, /@dev host gov-dev\.svayamtech\.com\n\thandle @dev \{\n[\s\S]*?\t\troot \* \/srv\/dev\n/);
+  assert.match(cf, /@prod host gov\.svayamtech\.com\n\thandle @prod \{\n[\s\S]*?\t\troot \* \/srv\/prod\n/);
 });
 
 test("a missing path is a 404 — never a page an adopter would pipe into a shell", () => {
   const cf = renderCaddyfile(SITES);
-  assert.doesNotMatch(cf, /try_files|rewrite|index\.html/);
+  assert.doesNotMatch(cf, /try_files|rewrite/);
+  // index.html is named ONLY by the redirect matcher — it is never served, never a fallback.
+  for (const line of cf.split("\n").filter((l) => l.includes("index.html"))) assert.match(line, /^\t\t@page path \/ \/index\.html$/);
   assert.match(cf, /\thandle \{\n\t\trespond "not found" 404\n\t\}\n\}\n$/);
 });
 
@@ -57,11 +63,11 @@ test("refuses to render a server with nothing to serve", () => {
 
 test("sites are discovered from the build's CNAMEs — no second copy of the DN rule", () => {
   const dist = mkdtempSync(join(tmpdir(), "site-dist-"));
-  for (const [env, host] of [["prod", "gov.svayamtech.com"], ["dev", "gov-dev.svayamtech.com"]]) {
-    mkdirSync(join(dist, env)); writeFileSync(join(dist, env, "CNAME"), `${host}\n`);
+  for (const [env, host, portal] of [["prod", "gov.svayamtech.com", "https://portal.svayamtech.com"], ["dev", "gov-dev.svayamtech.com", "https://portal-dev.svayamtech.com"]]) {
+    mkdirSync(join(dist, env)); writeFileSync(join(dist, env, "CNAME"), `${host}\n`); writeFileSync(join(dist, env, "PORTAL"), `${portal}\n`);
   }
   mkdirSync(join(dist, "stray"));                              // no CNAME → not a site build
-  assert.deepEqual(sitesIn(dist), [{ env: "dev", host: "gov-dev.svayamtech.com" }, { env: "prod", host: "gov.svayamtech.com" }]);
+  assert.deepEqual(sitesIn(dist), SITES);
 });
 
 test("the image builds EVERY env in envs.json — one image, promoted unchanged", () => {
@@ -78,49 +84,6 @@ test("envs.json: prod pins refs that cannot move", () => {
   assert.match(envs.prod.ref, /^(gov-work-\d+\.\d+\.\d+|[0-9a-f]{40})$/);
   assert.match(envs.prod.pkg, /^@svayam-opensource\/gov@\d+\.\d+\.\d+$/);
   for (const t of versioned ?? []) assert.match(t, /^gov-work-\d+\.\d+\.\d+$/);
-});
-
-test("every install.sh door fetches to a file, then runs it", () => {
-  for (const id of ["cmd-mac", "cmd-linux"]) {
-    const cmd = read("template/index.html").match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
-    assert.match(cmd, /-o install\.sh/, id);
-    assert.doesNotMatch(cmd, /\|\s*bash/, id);
-  }
-});
-
-// ── one door per OS, ending in the first-run flow (#181, plan 04 T07, spec 04 §2.1) ─────────────────
-
-test("the start page names three doors — macOS, Linux, Windows — one tab each", () => {
-  const page = read("template/index.html");
-  const tabs = [...page.matchAll(/<button class="tab" role="tab"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
-  assert.deepEqual(tabs, ["macOS", "Linux", "Windows"]);
-  for (const id of ["p-mac", "p-linux", "p-win"]) assert.match(page, new RegExp(`role="tabpanel" id="${id}"`), id);
-});
-
-// P1 REVISED (Policy Owner, 2026-10-14): the installer is UNSIGNED until a production certificate exists, so the
-// Windows door is winget alone, and a directly downloaded .msi is described as showing "Unknown publisher".
-test("the Windows door is winget; a downloaded .msi shows 'Unknown publisher'; not live before the first release", () => {
-  const win = read("template/index.html").match(/id="p-win"[\s\S]*?<\/div>\s*<\/section>/)?.[0] ?? "";
-  assert.match(win, /<code id="cmd-win">winget install Svayam\.Gov<\/code>/);
-  assert.match(win, /\.msi\b/);
-  assert.match(win, /\{\{REPO\}\}\/releases/, "the .msi comes from the release page");
-  assert.match(win, /Unknown publisher/);
-  assert.match(win, /until a production certificate exists/i);
-  assert.doesNotMatch(win, /signed (<code>)?\.msi|first signed release/i, "nothing promises a signed installer");
-  assert.match(win, /first release/i);
-  assert.doesNotMatch(win, /Git Bash/i);
-});
-
-test("every door ends in the same first-run flow: adopt, join, or not sure", () => {
-  const page = read("template/index.html");
-  const flow = page.match(/<section class="first-run"[\s\S]*?<\/section>/)?.[0] ?? "";
-  assert.ok(flow, "the page has a first-run section");
-  assert.ok(page.indexOf('<section class="first-run"') > page.indexOf('id="p-win"'), "the first-run flow comes after the doors");
-  for (const step of [/adopt/i, /join/i, /not sure/i, /context manifest/i]) assert.match(flow, step);
-});
-
-test("the start page never names the host that does not resolve", () => {
-  assert.doesNotMatch(read("template/index.html"), /gov\.svayam\.ai/);
 });
 
 test("every base image is fully qualified — the deploy agent's podman cannot resolve short names", () => {
@@ -275,7 +238,6 @@ test("the local installer asks for the SERVED client over plain http, and pins n
   const b = read("build-local.mjs");
   assert.match(b, /GOV_PKG="\\\$\{GOV_PKG:-http:\/\/\$\{SELF\}\/gov\.tgz\}"/, "the walk must install YOUR client, not @dev");
   assert.match(b, /must not pin a registry/, "GOV_PKG is a URL; a registry pin would be meaningless");
-  assert.match(b, /\.replaceAll\("https:\/\/\{\{HOST\}\}", "http:\/\/\{\{HOST\}\}"\)/, "nothing local serves TLS");
 });
 
 test("the local site answers ONLY to local names", () => {
@@ -323,4 +285,143 @@ test("build.mjs pins the Windows installer's package and registry, and --verify 
 test("an older ref's install.ps1 is served as it was — never a failed image", () => {
   // One image builds every env; failing on uat's or a release tag's older ps1 would sink a dev deploy.
   assert.match(read("build.mjs"), /if \(!RE_PS1_PKG\.test\(text\)\) return \{ text, legacy: true \};/);
+});
+
+// ── scripts only: the page moved to the portal (PRJ-121 intent 02 addendum, IS-E2, rulings A5 + A14) ────────
+//
+// gov-install serves install.sh / install.ps1, the /v/<ver>/ pairs, versions.json and (when it starts carrying
+// them) the .msi files winget fetches. The install PAGE is the portal's /install now, so `/` and the old page path
+// `/index.html` answer 302 to that env's portal. A script path never redirects: a redirect is how a shell gets
+// handed HTML, which is the failure this site exists to prevent.
+
+const ENVS = JSON.parse(read("envs.json"));
+const blockOf = (cf, env) => cf.match(new RegExp(`\\thandle @${env} \\{\\n([\\s\\S]*?)\\n\\t\\}`))?.[1] ?? "";
+
+test("each env's portal follows the DN rule: portal-dev, portal-uat, and bare portal on prod", () => {
+  assert.equal(ENVS.portal_slug, "portal", "envs.json names the portal slug; hosts stay derived");
+  assert.equal(portalOrigin(ENVS, "dev"), "https://portal-dev.svayamtech.com");
+  assert.equal(portalOrigin(ENVS, "uat"), "https://portal-uat.svayamtech.com");
+  assert.equal(portalOrigin(ENVS, "prod"), "https://portal.svayamtech.com");
+  // The scripts host keeps its own derivation, from the same rule.
+  assert.equal(dnFor(ENVS, "prod"), "gov.svayamtech.com");
+  assert.equal(dnFor(ENVS, "uat"), "gov-uat.svayamtech.com");
+  assert.equal(PORTAL_PATH, "/install");
+});
+
+test("`/` and `/index.html` answer 302 to THAT env's portal /install — and nothing else redirects", () => {
+  const cf = renderCaddyfile([...SITES, { env: "uat", host: "gov-uat.svayamtech.com", portal: "https://portal-uat.svayamtech.com" }]);
+  for (const [env, portal] of [["dev", "portal-dev"], ["uat", "portal-uat"], ["prod", "portal"]]) {
+    const b = blockOf(cf, env);
+    assert.match(b, /\t\t@page path \/ \/index\.html\n/, `${env}: only / and /index.html are the old page`);
+    assert.match(b, new RegExp(`\\t\\tredir @page https://${portal}\\.svayamtech\\.com/install 302\\n`), `${env} → ${portal}`);
+    assert.equal((b.match(/redir/g) ?? []).length, 1, `${env}: exactly one redirect, guarded by @page`);
+  }
+  // A 302, never a 301: the page moves again when the gov app gets its own DN (A14), and a cached 301 would not follow.
+  assert.doesNotMatch(cf, /\b30[178]\b/);
+});
+
+test("no script path, /v/ path or .msi can match the redirect — scripts never redirect", () => {
+  const cf = renderCaddyfile(SITES);
+  const matchers = [...cf.matchAll(/@page path ([^\n]*)/g)].map((m) => m[1].split(" "));
+  for (const paths of matchers) {
+    assert.deepEqual(paths, ["/", "/index.html"]);
+    for (const p of paths) assert.doesNotMatch(p, /\*|\.sh$|\.ps1$|\.msi$|^\/v\//, `${p} is a wildcard or a script path`);
+  }
+  // The .msi winget fetches is served as a file, typed, never redirected.
+  assert.match(blockOf(cf, "prod"), /\t\t@msi path \*\.msi\n\t\theader @msi Content-Type "application\/x-msi"\n/);
+  // No other directive can turn a request into a redirect or a different file.
+  assert.doesNotMatch(cf, /\b(rewrite|try_files|uri |reverse_proxy)\b/);
+});
+
+test("versions.json is served as JSON, readable cross-origin by THAT env's portal only", () => {
+  const cf = renderCaddyfile(SITES);
+  for (const { env, portal } of SITES) {
+    const b = blockOf(cf, env);
+    assert.match(b, /\t\t@versions path \/versions\.json\n/);
+    assert.match(b, /\t\theader @versions Content-Type "application\/json; charset=utf-8"\n/);
+    assert.match(b, new RegExp(`\\t\\theader @versions Access-Control-Allow-Origin "${portal.replace(/\./g, "\\.")}"\\n`));
+    assert.equal((b.match(/Access-Control-Allow-Origin/g) ?? []).length, 1, `${env}: one origin, on versions.json only`);
+  }
+  assert.doesNotMatch(cf, /Access-Control-Allow-Origin "\*"/, "never any origin");
+  assert.doesNotMatch(blockOf(cf, "dev"), /portal\.svayamtech\.com"/, "dev never trusts prod's portal");
+});
+
+test("a build without its portal is refused — a redirect target is never guessed", () => {
+  const dist = mkdtempSync(join(tmpdir(), "site-dist-"));
+  mkdirSync(join(dist, "dev")); writeFileSync(join(dist, "dev", "CNAME"), "gov-dev.svayamtech.com\n");
+  assert.throws(() => sitesIn(dist), /dev.*PORTAL/);
+  writeFileSync(join(dist, "dev", "PORTAL"), "portal-dev.svayamtech.com/install\n");   // not an origin
+  assert.throws(() => sitesIn(dist), /PORTAL/);
+  assert.throws(() => renderCaddyfile([{ env: "dev", host: "gov-dev.svayamtech.com" }]), /portal/);
+});
+
+test("versions.json carries exactly what the scripts are pinned to (spec §7.2 shape)", () => {
+  const doc = versionsDoc({
+    env: "uat", host: "gov-uat.svayamtech.com", ref: "uat", pkg: "@svayam-opensource/gov@uat",
+    registry: "https://npm.svayamtech.com", label: "UAT — release candidate. Not the version to adopt.",
+    versions: ["1.2.3"], built: "2026-10-18T00:00:00.000Z",
+  });
+  assert.deepEqual(Object.keys(doc), ["env", "host", "ref", "pkg", "registry", "label", "versioned", "built"]);
+  assert.deepEqual(doc.versioned, [{ version: "1.2.3", sh: "/v/1.2.3/install.sh", ps1: "/v/1.2.3/install.ps1" }]);
+  // The fixture the portal's Install page (IS-E1) is built against has the same shape — it cannot drift.
+  const fixture = JSON.parse(read("test/fixtures/versions.uat.json"));
+  assert.deepEqual(Object.keys(fixture), Object.keys(doc));
+  assert.deepEqual({ ...fixture, built: doc.built }, doc);
+  // Prod declares no registry, and says so with null rather than leaving the key out.
+  assert.equal(versionsDoc({ env: "prod", host: "gov.svayamtech.com", ref: "gov-work-1.2.3", pkg: "@svayam-opensource/gov@1.2.3", label: null, versions: [], built: "x" }).registry, null);
+});
+
+const SH = (url, pkg, reg = "") =>
+  `#!/usr/bin/env bash\nGOV_INSTALL_URL="\${GOV_INSTALL_URL:-${url}}"\nGOV_PKG="\${GOV_PKG:-${pkg}}"\nGOV_REGISTRY="\${GOV_REGISTRY:-${reg}}"\n`;
+
+test("pinsOf reads the three pins back out of a served install.sh", () => {
+  assert.deepEqual(pinsOf(SH("https://gov-uat.svayamtech.com/install.sh", "@svayam-opensource/gov@uat", "https://npm.svayamtech.com")),
+    { url: "https://gov-uat.svayamtech.com/install.sh", pkg: "@svayam-opensource/gov@uat", registry: "https://npm.svayamtech.com" });
+  assert.equal(pinsOf(SH("u", "p")).registry, "");
+});
+
+test("--verify's versions check: versions.json must equal the served scripts' pins", () => {
+  const doc = versionsDoc({ env: "uat", host: "gov-uat.svayamtech.com", ref: "uat", pkg: "@svayam-opensource/gov@uat",
+    registry: "https://npm.svayamtech.com", label: "L", versions: ["1.2.3"], built: "x" });
+  const sh = SH("https://gov-uat.svayamtech.com/install.sh", "@svayam-opensource/gov@uat", "https://npm.svayamtech.com");
+  const v123 = SH("https://gov-uat.svayamtech.com/v/1.2.3/install.sh", "@svayam-opensource/gov@1.2.3");
+  assert.deepEqual(versionsMismatches(doc, { sh, versioned: { "1.2.3": v123 } }), []);
+  // Each way it can disagree is caught, by name.
+  assert.match(versionsMismatches({ ...doc, pkg: "@svayam-opensource/gov@1.2.3" }, { sh, versioned: { "1.2.3": v123 } }).join(), /pkg/);
+  assert.match(versionsMismatches({ ...doc, registry: null }, { sh, versioned: { "1.2.3": v123 } }).join(), /registry/);
+  assert.match(versionsMismatches({ ...doc, host: "gov.svayamtech.com" }, { sh, versioned: { "1.2.3": v123 } }).join(), /host/);
+  assert.match(versionsMismatches(doc, { sh, versioned: {} }).join(), /1\.2\.3/);
+  assert.match(versionsMismatches(doc, { sh, versioned: { "1.2.3": SH("https://gov-uat.svayamtech.com/v/1.2.3/install.sh", "@svayam-opensource/gov@1.2.2") } }).join(), /1\.2\.3/);
+});
+
+test("--verify fails if a page is emitted: pagesIn finds any .html, .htm or .css, at any depth", () => {
+  const dir = mkdtempSync(join(tmpdir(), "site-out-"));
+  for (const f of ["install.sh", "install.ps1", "versions.json", "CNAME", "PORTAL", "robots.txt"]) writeFileSync(join(dir, f), "x");
+  mkdirSync(join(dir, "v", "1.2.3"), { recursive: true }); writeFileSync(join(dir, "v", "1.2.3", "install.sh"), "x");
+  assert.deepEqual(pagesIn(dir), []);
+  writeFileSync(join(dir, "index.html"), "<html>"); writeFileSync(join(dir, "v", "style.css"), "x");
+  assert.deepEqual(pagesIn(dir).sort(), ["index.html", "v/style.css"]);
+});
+
+test("build.mjs emits no page and checks the scripts-only output in --verify", () => {
+  const b = read("build.mjs");
+  const code = b.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /index\.html"|style\.css"|template/, "the page is the portal's now");
+  assert.match(code, /writeFileSync\(join\(out, "versions\.json"\)/);
+  assert.match(code, /writeFileSync\(join\(out, "PORTAL"\)/);
+  assert.match(code, /pagesIn\(out\)/, "--verify must refuse any emitted page");
+  assert.match(code, /versionsMismatches\(/, "--verify must hold versions.json to the scripts' pins");
+  assert.match(code, /portalOrigin\(cfg, envName\)/, "the portal follows the DN rule, from one place");
+});
+
+test("the page template is retired — nothing in site/ renders HTML any more", () => {
+  assert.equal(existsSync(join(SITE, "template")), false);
+  assert.doesNotMatch(read("build-local.mjs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""), /template|index\.html/);
+});
+
+test("the local build also redirects `/` — to a portal on this machine — and serves versions.json", () => {
+  const b = read("build-local.mjs");
+  assert.match(b, /LOCAL_PORTAL = "http:\/\/localhost:4001"/, "portal-web's serve port in the catalog");
+  assert.match(b, /writeFileSync\(join\(OUT, "PORTAL"\)/);
+  assert.match(b, /writeFileSync\(join\(OUT, "versions\.json"\)/);
 });

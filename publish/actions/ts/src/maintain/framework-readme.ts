@@ -39,6 +39,7 @@ export const FRAMEWORK_README_FINGERPRINTS: ReadonlySet<string> = new Set([
   "f78b2186dc4a19e11af2e82d3abec76b2ad54799ec5f673a1b74162e08269272",   // PRJ-121 I04 T07 (#267)
   "84b1f65a397e976b4f42ae32974b3d41c507336c577f559d90b492952ebbdc0b",   // PRJ-121 I04 T07 (#267), no install.ps1 interim route
   "b1f23e9a89e9182a6752486324946e8fe7f8a3df448a069c99fdb7056fd389a0",   // PRJ-121 P1 REVISED: Windows = winget, unsigned installer
+  "adb1ee866216e245b899bc54ba867873bd32e1923cd5b88ac30c07ce396fae6a",   // PRJ-121 IS-E2: the install page is the gov portal's /install
 ]);
 
 export const readmeFingerprint = (text: string): string => crypto.createHash("sha256").update(text.replace(/\r\n/g, "\n"), "utf8").digest("hex");

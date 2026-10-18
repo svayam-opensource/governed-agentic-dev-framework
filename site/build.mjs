@@ -7,50 +7,50 @@
  *   node site/build.mjs prod --verify        → site/dist/prod/
  *   node site/build.mjs dev                  → site/dist/dev/
  *
- * ── TWO SOURCES, ON PURPOSE ──────────────────────────────────────────────────────────────────────
+ * ── SCRIPTS ONLY (PRJ-121 intent 02 addendum, IS-E2, rulings A5 + A14, 2026-10-18) ─────────────────
  *
- * The page and the installer change for different reasons and must not be chained together:
+ * This host no longer serves a page. The install page is the portal's `/install`; `/` here answers 302 to it
+ * (caddyfile.mjs). What a build writes: install.sh, install.ps1, the /v/<ver>/ pairs, `versions.json` (what the
+ * portal's page reads — so the page and the scripts can never disagree), CNAME, PORTAL (the portal origin `/`
+ * redirects to, derived by the DN rule like CNAME) and robots.txt. `--verify` refuses any emitted page.
  *
- *   · the PAGE comes from the working tree — whatever branch is being deployed. A copy fix ships on
- *     merge.
- *   · the INSTALLER comes from the PINNED REF, read with `git show <ref>:install.sh`. Its bytes are
- *     the release's bytes no matter what is checked out.
+ * ── THE INSTALLER COMES FROM THE PINNED REF ──────────────────────────────────────────────────────
  *
- * Reading the installer from the working tree (the first version of this script) coupled them: a CSS
- * typo on the production page would have required cutting a release tag, and the "pin" was only ever
- * as honest as whatever CI happened to check out. Now `--verify` asserts the served script differs
- * from the ref's script by EXACTLY the two pinned lines — which is a claim about the artefact rather
- * than a claim about the build.
+ * Read with `git show <ref>:install.sh`, never from the working tree. Its bytes are the release's bytes no
+ * matter what is checked out, and `--verify` asserts the served script differs from the ref's script by
+ * EXACTLY the pinned lines — a claim about the artefact rather than a claim about the build. The site's own
+ * files (envs.json, this script) come from the working tree, the commit being deployed.
  *
  * ── WHAT THIS EXISTS TO PREVENT ──────────────────────────────────────────────────────────────────
  *
  * The adopter-facing command fetches /install.sh and runs it, so the worst outcome is a host answering
  * with HTML — a redirect notice, a 404, a framework's client-side router — handed to a shell. Silent
- * and baffling. Hence: plain files beside the page, `spa: false` on the catalog unit, and an assertion
- * that the first bytes are a shebang. The page's primary command is fetch-then-run, never
- * `curl … | bash`: piped, a failed download exits 0 (docs/installing.md), and `--verify` asserts it.
+ * and baffling. Hence: plain files, no fallback, a redirect on `/` alone, and an assertion that the first
+ * bytes are a shebang.
  *
  * ── WHAT IS DERIVED, NOT DECLARED ────────────────────────────────────────────────────────────────
  *
- * The hostname. gov derives a unit's DN per environment from `app_domain` (prod bare, else
- * `-<env>`), so this script applies the same rule rather than reading a list of hosts that could
- * drift from it. See svm-prj-work:knowledge/deployment/specs/public-dn-convention.md.
+ * The hostname, and the portal's. gov derives a unit's DN per environment from its slug (prod bare, else
+ * `-<env>`), so this script applies the same rule (lib.mjs `dnFor`) to `app_domain` and to `portal_slug`
+ * rather than reading a list of hosts that could drift from it. See
+ * svm-prj-work:knowledge/deployment/specs/public-dn-convention.md.
  */
-import { readFileSync, writeFileSync, mkdirSync, rmSync, copyFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { dnFor, portalOrigin, versionsDoc, versionsMismatches, pagesIn, ORIGIN } from "./lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..");
-const REPO_URL = "https://github.com/svayam-opensource/governed-agentic-dev-framework";
 
 /**
  * Fail, and leave NO partial output behind.
  *
  * The first version of this wrote the page, then failed pinning the installer, and left a `dist/`
  * containing an index.html and no install.sh — a directory that deploys cleanly and serves a page
- * whose install command 404s. Which is the same defect class this whole file is about: a partial
+ * whose install command 404s. (There is no page now; a versions.json naming scripts that are not there
+ * is the same trap.) Which is the same defect class this whole file is about: a partial
  * result that looks finished. So the output directory is removed on every failure path.
  */
 let OUT_DIR = null;
@@ -139,9 +139,9 @@ function envWithDepPins(base, name) {
 }
 let env = envWithDepPins(cfg.envs[envName], envName);
 
-/** The DN gov would derive: prod is bare, every other env carries `-<env>`. */
-const dnFor = (e) => (e === "prod" ? `${cfg.app_domain}.${cfg.base}` : `${cfg.app_domain}-${e}.${cfg.base}`);
-const host = dnFor(envName);
+/** The DN gov would derive: prod is bare, every other env carries `-<env>`. The portal by the same rule. */
+const host = dnFor(cfg, envName);
+const portal = portalOrigin(cfg, envName);
 const out = join(HERE, "dist", envName);
 
 /**
@@ -250,23 +250,6 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 OUT_DIR = out;   // from here on, any failure takes the directory with it
 
-// ── the page ────────────────────────────────────────────────────────────────────────────────────
-const banner = env.label ? `<div class="envbar">${env.label}</div>` : "";
-const versionedList = (cfg.versioned ?? [])
-  .map((v) => `<li><a href="./v/${releaseVersion(v)}/install.sh">${releaseVersion(v)}</a></li>`)
-  .join("\n        ");
-const html = readFileSync(join(HERE, "template", "index.html"), "utf8")
-  .replaceAll("{{HOST}}", host)
-  .replaceAll("{{REF}}", env.ref)
-  .replaceAll("{{PKG}}", env.pkg)
-  .replaceAll("{{REPO}}", REPO_URL)
-  .replaceAll("{{ROBOTS}}", env.robots)
-  .replaceAll("{{BUILT}}", new Date().toISOString().slice(0, 10))
-  .replaceAll("{{ENV_BANNER}}", banner)
-  .replaceAll("{{VERSIONED}}", versionedList);
-writeFileSync(join(out, "index.html"), html);
-copyFileSync(join(HERE, "template", "style.css"), join(out, "style.css"));
-
 // ── the current pair, at the root ────────────────────────────────────────────────────────────────
 const current = installerFor(env.ref, env.pkg, "/install.sh", host, env.registry);
 writeFileSync(join(out, "install.sh"), current.sh);
@@ -320,14 +303,21 @@ for (const v of cfg.versioned ?? []) {
   versionedBuilt.push({ v, resolved: built.resolved });
 }
 
+// ── what the portal's Install page reads (spec §7.2) — from the SAME values pinned into the scripts ──
+const versions = versionsDoc({
+  env: envName, host, ref: env.ref, pkg: env.pkg, registry: env.registry, label: env.label,
+  versions: (cfg.versioned ?? []).map(releaseVersion), built: new Date().toISOString(),
+});
+writeFileSync(join(out, "versions.json"), JSON.stringify(versions, null, 2) + "\n");
+
 writeFileSync(join(out, "CNAME"), `${host}\n`);
-writeFileSync(join(out, ".nojekyll"), "");
-writeFileSync(join(out, "robots.txt"), env.robots.startsWith("noindex")
-  ? "User-agent: *\nDisallow: /\n"
-  : `User-agent: *\nAllow: /\nSitemap: https://${host}/\n`);
+// Where `/` redirects (caddyfile.mjs reads it, as it reads CNAME) — so the DN rule lives only here.
+writeFileSync(join(out, "PORTAL"), `${portal}\n`);
+// No Sitemap: `/` is a redirect now, not a page.
+writeFileSync(join(out, "robots.txt"), env.robots.startsWith("noindex") ? "User-agent: *\nDisallow: /\n" : "User-agent: *\nAllow: /\n");
 
 console.log(`built ${envName} → site/dist/${envName}`);
-console.log(`  host ${host} (derived) · script from ${current.resolved} · installs ${env.pkg}`);
+console.log(`  host ${host} (derived) · script from ${current.resolved} · installs ${env.pkg} · / → ${portal}/install`);
 for (const b of versionedBuilt) console.log(`  versioned /v/${releaseVersion(b.v)}/install.sh ← ${b.resolved}`);
 
 // ── --verify ────────────────────────────────────────────────────────────────────────────────────
@@ -426,20 +416,24 @@ if (verify) {
     if (!t.includes(`https://${host}/v/${bare}/install.sh`)) fail.push(`/v/${bare}/install.sh does not point its retry hint at itself`);
   }
 
-  const page = readFileSync(join(out, "index.html"), "utf8");
-  for (const needed of [host, env.ref, env.pkg]) {
-    if (!page.includes(needed)) fail.push(`index.html does not state ${needed}`);
+  // SCRIPTS ONLY: the page is the portal's. Any emitted page is a regression to the old site.
+  for (const p of pagesIn(out)) fail.push(`${p} was emitted — this host serves scripts only; the page is the portal's /install`);
+
+  // versions.json IS the scripts' pins, read back out of the SERVED files — never the build's own variables.
+  const served = JSON.parse(readFileSync(join(out, "versions.json"), "utf8"));
+  const versionedSh = Object.fromEntries((cfg.versioned ?? []).map(releaseVersion)
+    .filter((v) => existsSync(join(out, "v", v, "install.sh")))
+    .map((v) => [v, readFileSync(join(out, "v", v, "install.sh"), "utf8")]));
+  for (const m of versionsMismatches(served, { sh: shOut, versioned: versionedSh })) fail.push(m);
+  if (served.env !== envName || served.ref !== env.ref) fail.push(`versions.json names env '${served.env}' ref '${served.ref}', not ${envName} at ${env.ref}`);
+
+  // The redirect target follows the DN rule, slug `portal`, from this one place.
+  const portalOut = readFileSync(join(out, "PORTAL"), "utf8").trim();
+  if (!ORIGIN.test(portalOut) || portalOut !== `https://${dnFor(cfg, envName, cfg.portal_slug)}`) {
+    fail.push(`PORTAL is '${portalOut}', not ${envName}'s portal by the DN rule (${portal})`);
   }
-  if (page.includes("{{")) fail.push("index.html has an unsubstituted {{TOKEN}}");
-  // The copy buttons hand over whatever is in #cmd-mac / #cmd-linux. Piped into bash, a failed download exits 0.
-  for (const id of ["cmd-mac", "cmd-linux"]) {
-    const primary = page.match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
-    if (!primary.includes("-o install.sh")) fail.push(`the #${id} install command does not fetch to a file first`);
-    if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push(`the #${id} install command pipes curl into bash, which hides a failed download`);
-  }
-  if (env.label && !page.includes(env.label)) fail.push("a non-prod build is missing its environment banner");
-  if (!env.label && page.includes("envbar")) fail.push("the prod build carries an environment banner");
-  for (const f of ["index.html", "style.css", "install.sh", "install.ps1", "CNAME", "robots.txt"]) {
+
+  for (const f of ["install.sh", "install.ps1", "versions.json", "CNAME", "PORTAL", "robots.txt"]) {
     if (!existsSync(join(out, f))) fail.push(`missing ${f}`);
   }
 
@@ -449,5 +443,5 @@ if (verify) {
     process.exit(1);
   }
   const pinNames = ["GOV_INSTALL_URL", "GOV_PKG", ...(env.registry ? ["GOV_REGISTRY"] : [])];
-  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in ${pinNames.length} pins (${pinNames.join(", ")})`);
+  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in ${pinNames.length} pins (${pinNames.join(", ")}) · versions.json equals them · no page`);
 }
