@@ -2,8 +2,12 @@
 
 # Installing `gov`
 
-Start at **[gov.svayamtech.com](https://gov.svayamtech.com)**. It has one door per OS, and
-every door ends in the same first-run flow.
+Start with the install page in the **[gov portal](https://portal.svayamtech.com/install)**. Sign in, or
+register your organisation, to see it. [gov.svayamtech.com](https://gov.svayamtech.com) takes you there.
+The page shows the commands for your OS and the versions on offer.
+
+You don't need an account to install. The commands below work without signing in, as do npm and winget.
+There is one door per OS, and every door ends in the same first-run flow.
 
 | OS | Door |
 |---|---|
