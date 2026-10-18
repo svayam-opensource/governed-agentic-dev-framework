@@ -51,9 +51,14 @@
     "--to prod` at cd1715b, the commit npm stamps on 1.2.3 — so the installer and the client it installs",
     "are the SAME release. After each release: prod.ref and prod.pkg to the new tag and version, and",
     "append the tag to `versioned`. 1.2.2 (built from c05aa80, no installer of its own) has no pair.",
-    "uat and dev pin their own dist-tags, never a version — see 'NON-PROD ASKS FOR ITS DIST-TAG' above."
+    "uat and dev pin their own dist-tags, never a version — see 'NON-PROD ASKS FOR ITS DIST-TAG' above.",
+    "",
+    "`portal_slug` (PRJ-121 intent 02 addendum, IS-E2, 2026-10-18): this host serves scripts only, and `/` answers",
+    "302 to the env's portal /install. The portal host is DERIVED by the same DN rule from this slug —",
+    "portal-dev, portal-uat, bare portal on prod — never listed."
   ],
   "app_domain": "gov",
+  "portal_slug": "portal",
   "base": "svayamtech.com",
   "envs": {
     "prod": { "ref": "gov-work-1.2.3", "pkg": "@svayam-opensource/gov@1.2.3", "label": null, "robots": "index, follow" },

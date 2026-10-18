@@ -1,7 +1,8 @@
 # The install site — `gov.svayam.ai` (#231)
 
-One static page per environment, serving `install.sh` and `install.ps1` from an address a person can
-say out loud.
+The scripts host, per environment: `install.sh` and `install.ps1` from an address a person can say out
+loud, the `/v/<ver>/` pairs, and `versions.json`. It serves **no page**. `/` redirects to that
+environment's portal, whose **Install gov** page is the page now.
 
 ```bash
 node site/build.mjs prod --verify     # → site/dist/prod/
@@ -10,6 +11,51 @@ node site/build.mjs dev  --verify
 ```
 
 `site/dist/` is build output and is not committed.
+
+## What it serves, and why the page moved (PRJ-121 intent 02 addendum, IS-E2)
+
+| Path | Answer |
+|---|---|
+| `/install.sh`, `/install.ps1`, `/v/<ver>/install.sh`, `/v/<ver>/install.ps1` | `200`, `text/plain`, never a redirect |
+| `/versions.json` | `200`, `application/json`, readable cross-origin by **that env's portal only** |
+| `*.msi` (once this host carries the files winget fetches) | `200`, `application/x-msi`, never a redirect |
+| `/robots.txt`, `/healthz` | `200` |
+| `/` and `/index.html` (the old page) | `302` to that env's portal `/install` |
+| anything else, or an unknown host | `404`, no fallback |
+
+| Scripts host | `/` redirects to |
+|---|---|
+| `gov-dev.svayamtech.com` | `https://portal-dev.svayamtech.com/install` |
+| `gov-uat.svayamtech.com` | `https://portal-uat.svayamtech.com/install` |
+| `gov.svayamtech.com` | `https://portal.svayamtech.com/install` |
+
+```mermaid
+flowchart LR
+  V["visitor: gov-‹env›/"] -- "302" --> P["portal-‹env› /install"]
+  P -- "reads (CORS: this portal only)" --> J["gov-‹env›/versions.json"]
+  S["shell: curl … install.sh"] -- "200 text/plain, no redirect" --> I["gov-‹env›/install.sh"]
+```
+
+**Why.** The install page now sits behind gov-app signup: the portal shows the commands to a signed-in
+member of an active account, and a signed-out view to everyone else (spec addendum §5, ruling A5). The
+scripts, npm and winget stay public, so a copied command still needs no login. The page reads this host's
+`versions.json`, which `build.mjs` writes from the same values it pins into the scripts, so the page and
+the scripts cannot disagree.
+
+**Why a `302`, and only at `/`.** The page moves again when the gov app gets its own DN (ruling A14), and a
+browser keeps a `301` for good. A redirect on a script path could hand HTML to a shell, which is the failure
+this site exists to prevent. So only `/` and `/index.html` redirect.
+
+**The portal host is derived, not listed.** `envs.json` names the slug (`portal_slug: portal`), and
+`build.mjs` applies the DN rule (prod bare, otherwise `-<env>`) and writes the origin to `PORTAL` beside
+`CNAME`. `caddyfile.mjs` reads both, so the rule lives in one place. A build with no `PORTAL` is refused.
+The `local` build redirects to `http://localhost:4001/install`, portal-web's serve port in the catalog.
+
+**Cutover.** Nothing here deploys on merge. In each environment the portal's `/install` goes live first,
+then this scripts-only build, dev → uat → prod through `gov deploy` / `gov promote` (IS-E7). Until prod's
+cutover, `gov.svayamtech.com` keeps serving the old page. Rollback is promoting the previous `gov-install`
+pin. The page's content (the OS doors, fetch-then-run, the Windows note) moved to the portal
+(`912-SVM-LIB-UI`, `pages/install/doors.ts`) and is tested there.
 
 ## Why it exists
 
@@ -39,8 +85,8 @@ package carries exactly one dist-tag (`latest → 1.2.3`) — no `next`, no `uat
 a channel that does not exist fails with `No matching version found`. They differ only in the
 **script** ref until gov publishes a prerelease channel.
 
-`ref` is what the deploy checks out; the build bakes it into the page so the site states out loud
-which ref it is serving. The client version is rewritten into the copied `install.sh` — `GOV_PKG` was
+`ref` is what the deploy checks out; the build writes it into `versions.json` so the portal's page states
+out loud which ref this host is serving. The client version is rewritten into the copied `install.sh` — `GOV_PKG` was
 already overridable at `install.sh:36`, so no installer change was needed.
 
 **Releases are gov's tags, `gov-work-<semver>`**, cut by `gov promote gov-work --to prod` at the commit
@@ -126,15 +172,15 @@ then handed to a shell. It fails silently and confusingly. So:
 - `install.sh` begins with a shebang and neither script looks like HTML;
 - both pins actually applied, asserted against the **output** rather than trusting the substitution;
 - no `raw.githubusercontent.com` URL for our own artefact survives;
-- the page's primary command fetches to a file and does **not** pipe `curl` into `bash` — piped, a
-  failed download exits 0 and installs nothing (`docs/installing.md`); the one-liner appears only
-  as the CI form;
-- the page carries no unsubstituted `{{TOKEN}}`, and states its host, ref and package;
-- a non-prod build carries its environment banner and prod does not;
+- **no page is emitted** — any `.html`, `.htm` or `.css` in the output fails the build;
+- `versions.json` equals the pins read back out of the **served** scripts (package, registry, host, and
+  each `/v/<ver>/` pair's own version);
+- `PORTAL` is the env's portal by the DN rule;
 - prod pins a ref that cannot move, and every `versioned` entry is a gov release tag.
 
-This is why the scripts are copied as plain files beside the page rather than served through anything
-that could decide to be clever.
+This is why the scripts are copied as plain files rather than served through anything that could decide
+to be clever. The page's own rule — its primary command fetches to a file and does **not** pipe `curl`
+into `bash` — moved with the page to the portal.
 
 ## Still to do
 
