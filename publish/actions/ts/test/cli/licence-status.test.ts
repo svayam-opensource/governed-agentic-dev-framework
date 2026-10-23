@@ -139,11 +139,19 @@ describe("gov licence install", () => {
     expect(seen).to.have.length(1);
     expect(seen[0]!.dir).to.equal("/data/gov/gov-check");
     expect(seen[0]!.spec).to.match(/^@svayam\/gov-check@/);
-    expect(seen[0]!.env).to.deep.equal({ GOV_REGISTRY_TOKEN: "npm_tok_123" });
+    // BASIC auth, user `gov-registry`, password = the token: the only form the registry's gate plugin is handed. An
+    // `_authToken` is sent as a Bearer token, which Verdaccio keeps for its OWN sessions — the install arrived
+    // anonymous and got 401 (measured against Verdaccio 6.3.1 with verdaccio-gov-auth).
+    const basic = Buffer.from("gov-registry:npm_tok_123").toString("base64");
+    expect(seen[0]!.env).to.deep.equal({ GOV_CHECK_REGISTRY_AUTH: basic });
     const npmrc = d.files.get(path.join("/data/gov/gov-check", ".npmrc"))!;   // written with path.join: `\data\…` on Windows
-    expect(npmrc).to.include("${GOV_REGISTRY_TOKEN}").and.include("@svayam:registry=").and.not.include("npm_tok_123");
-    for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123");
-    expect(r.lines.join("\n")).to.not.include("npm_tok_123");
+    expect(npmrc).to.include("@svayam:registry=https://npm.svayamtech.com/");
+    expect(npmrc).to.include("//npm.svayamtech.com/:_auth=${GOV_CHECK_REGISTRY_AUTH}");
+    // A Svayam developer's own ~/.npmrc often holds an SSO `_authToken` for this host, and npm prefers a token over
+    // `_auth` across config layers — so this file blanks it, or npm would read gov-check as that person (403).
+    expect(npmrc.split("\n")).to.include("//npm.svayamtech.com/:_authToken=");
+    for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123").and.not.include(basic);
+    expect(r.lines.join("\n")).to.not.include("npm_tok_123").and.not.include(basic);
   });
 
   it("no key → points at login, asks nothing of the network", async () => {

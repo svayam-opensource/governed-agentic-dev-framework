@@ -55,7 +55,10 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     const t = text();
     expect(t).to.contain("audience=gov-evidence");
     expect(t).to.contain("/leases/oidc");
-    expect(t).to.contain('"@svayam/gov-check@^2"');
+    // The SAME range the laptop installs: gov-check ships 2.0.0-next.N first, and a bare `^2` matches no prerelease —
+    // the CI install would find nothing to install until a stable 2.0.0 existed.
+    expect(t).to.contain('"@svayam/gov-check@^2.0.0-next.0"');
+    expect(t).to.not.contain('"@svayam/gov-check@^2"');
     expect(t).to.contain("::add-mask::");
   });
 
@@ -148,7 +151,11 @@ describe("gov-checks workflow — the embedded lease script, run locally (A11, A
     expect(Object.keys(body).sort()).to.deep.equal(["counts", "oidcToken", "writerPub"]);
     expect(r.stdout).to.contain("::add-mask::reg-secret-token");
     expect(r.outputs).to.contain("installed=true");
-    expect(r.npmrc).to.contain("//npm.svayamtech.com/:_authToken=reg-secret-token");
+    // Basic auth (user gov-registry): the registry's gate plugin never sees a Bearer `_authToken` (Verdaccio 401s it).
+    const basic = Buffer.from("gov-registry:reg-secret-token").toString("base64");
+    expect(r.npmrc).to.contain("//npm.svayamtech.com/:_auth=" + basic);
+    expect(r.npmrc).to.not.contain("_authToken=reg-secret-token");
+    expect(r.stdout).to.contain("::add-mask::" + basic);
     expect(r.stdout).to.not.contain("::notice");
   });
 
