@@ -42,8 +42,8 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     // dev (Policy Owner ruling 2026-10-24: "map the two variables"). An unset variable renders as "" and the script's
     // `|| "https://gov.svayamtech.com/api/v1"` keeps prod; gov-check ignores an empty test keyset.
     const t = text();
-    expect(t).to.match(/    env:\n(?:      \S+: .*\n)*      GOV_LICENCE_API: \$\{\{ vars\.GOV_LICENCE_API \}\}\n/);
-    expect(t).to.match(/    env:\n(?:      \S+: .*\n)*      GOV_LICENCE_TEST_KEYSET: \$\{\{ vars\.GOV_LICENCE_TEST_KEYSET \}\}\n/);
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_API: \$\{\{ vars\.GOV_LICENCE_API \}\}\n/);
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_TEST_KEYSET: \$\{\{ vars\.GOV_LICENCE_TEST_KEYSET \}\}\n/);
     expect(t).to.contain('const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";');
   });
 
