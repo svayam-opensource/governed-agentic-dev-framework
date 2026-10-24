@@ -22,6 +22,15 @@ import { LICENCE_ACCOUNT, LICENCE_KEY_ENV, type OsKeychain } from "../security/k
 export const GOV_CHECK_PACKAGE = "@svayam/gov-check";
 export const GOV_CHECK_RANGE = "^2.0.0-next.0";
 export const GOV_CHECK_REGISTRY = "https://npm.svayamtech.com/";
+/** Where gov-check's own (public) dependencies come from. The gov registry token reaches gov-check only. */
+export const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
+/**
+ * npm's arguments for the install. Both registries are FLAGS, not only .npmrc lines: npm ranks an inherited
+ * `npm_config_registry` above a project .npmrc, and `npx` exports the user's default registry to its children —
+ * measured 2026-10-24, the public deps then went to npm.svayamtech.com with the gov token and got 403.
+ */
+export const npmInstallArgs = (spec: string): string[] =>
+  ["install", "--no-audit", "--no-fund", `--registry=${PUBLIC_REGISTRY}`, `--@svayam:registry=${GOV_CHECK_REGISTRY}`, spec];
 /**
  * The env var npm reads the credential from — named in .npmrc as `${…}`, so the file never holds it. It carries npm
  * BASIC auth (`_auth`): base64 of `gov-registry:<registry token>`. The registry's gate (verdaccio-gov-auth) is an auth
@@ -158,7 +167,7 @@ async function install(flags: Readonly<Record<string, string | boolean>>, deps: 
   // person, whom the package rule does not admit (403). `registry=` sends gov-check's own (public) dependencies to npmjs:
   // the registry token reaches gov-check only, so a developer whose default registry is this host would get 403 on them.
   const auth = registryBasicAuth(tok.token);
-  deps.writeFile(path.join(dir, ".npmrc"), `registry=https://registry.npmjs.org/\n@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_auth=\${${REGISTRY_AUTH_ENV}}\n//${host}/:_authToken=\n`);
+  deps.writeFile(path.join(dir, ".npmrc"), `registry=${PUBLIC_REGISTRY}\n@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_auth=\${${REGISTRY_AUTH_ENV}}\n//${host}/:_authToken=\n`);
   const spec = `${GOV_CHECK_PACKAGE}@${range}`;
   const r = deps.npmInstall(dir, spec, { [REGISTRY_AUTH_ENV]: auth });
   if (r.status !== 0) {

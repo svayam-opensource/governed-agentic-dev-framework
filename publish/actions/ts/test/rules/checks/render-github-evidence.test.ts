@@ -60,6 +60,9 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     expect(t).to.contain('"@svayam/gov-check@^2.0.0-next.0"');
     expect(t).to.not.contain('"@svayam/gov-check@^2"');
     expect(t).to.contain("::add-mask::");
+    // The registry is on the COMMAND LINE: npm ranks an inherited `npm_config_registry` (npx and setup-node export
+    // one) above any .npmrc, and the gov token reaches gov-check only — public deps through it get 403.
+    expect(t).to.match(/npm install -g --registry=https:\/\/registry\.npmjs\.org\/ --@svayam:registry=https:\/\/npm\.svayamtech\.com\/ --userconfig/);
   });
 
   it("a refusal prints ONE ::notice and the job carries on", () => {

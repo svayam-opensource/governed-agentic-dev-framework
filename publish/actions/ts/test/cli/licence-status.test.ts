@@ -6,7 +6,7 @@
 // verification in open gov would be decorative). All network and module access is through fakes.
 import { expect } from "chai";
 import * as path from "node:path";
-import { licenceCommand, type LicenceDeps, type ModuleState } from "../../src/cli/licence-verb.js";
+import { licenceCommand, npmInstallArgs, type LicenceDeps, type ModuleState } from "../../src/cli/licence-verb.js";
 import { createKeychain, LICENCE_ACCOUNT, type OsKeychain } from "../../src/security/keychain.js";
 import type { LicenceStatus } from "../../src/check-seam/public.js";
 
@@ -186,5 +186,17 @@ describe("gov licence install", () => {
 
   it("an unknown subcommand is usage (2)", async () => {
     expect((await licenceCommand(["renew"], {}, deps())).code).to.equal(2);
+  });
+});
+
+describe("gov licence install — npm's command line", () => {
+  it("names both registries as flags, which outrank an inherited npm_config_registry (npx exports the user's default)", () => {
+    // Measured 2026-10-24: under `npx`, npm hands children npm_config_registry=<the user's default>; env outranks the
+    // install folder's .npmrc, so gov-check's public deps went to npm.svayamtech.com with the gov token → 403.
+    const a = npmInstallArgs("@svayam/gov-check@^2.0.0-next.0");
+    expect(a).to.include("--registry=https://registry.npmjs.org/");
+    expect(a).to.include("--@svayam:registry=https://npm.svayamtech.com/");
+    expect(a[0]).to.equal("install");
+    expect(a[a.length - 1]).to.equal("@svayam/gov-check@^2.0.0-next.0");
   });
 });

@@ -11,7 +11,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { parseArgv } from "./args.js";
 import { askFns } from "./ask.js";
-import { licenceCommand, type ModuleState, type RegistryTokenResult } from "./licence-verb.js";
+import { licenceCommand, type ModuleState, type RegistryTokenResult, npmInstallArgs } from "./licence-verb.js";
 import { createKeychain } from "../security/keychain.js";
 import { runResult } from "../run-process.js";
 
@@ -81,7 +81,7 @@ export async function runLicence(argv: readonly string[], loadModule: ModuleLoad
     },
     registryToken: httpRegistryToken(env.GOV_LICENCE_API || LICENCE_API),
     npmInstall: (dir, spec, extra) => {
-      const res = runResult("npm", ["install", "--no-audit", "--no-fund", spec], { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
+      const res = runResult("npm", npmInstallArgs(spec), { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
       return { status: res.status, stderr: res.stderr };
     },
     writeFile: (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); },

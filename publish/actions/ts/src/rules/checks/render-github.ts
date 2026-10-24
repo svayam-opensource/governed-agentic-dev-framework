@@ -188,7 +188,7 @@ function evidenceSteps(opts: GithubRendererOptions): string[] {
     gate.replace("env.GOV_EVIDENCE_ENABLED == 'true'", "env.GOV_EVIDENCE_ENABLED == 'true' && steps.evidence-install.outputs.installed == 'true'"),
     "        continue-on-error: true",
     "        run: |",
-    `          npm install -g --userconfig "$RUNNER_TEMP/gov-check.npmrc" "${GOV_CHECK_PACKAGE}@${GOV_CHECK_RANGE}"`,
+    `          npm install -g --registry=https://registry.npmjs.org/ --@svayam:registry=https://npm.svayamtech.com/ --userconfig "$RUNNER_TEMP/gov-check.npmrc" "${GOV_CHECK_PACKAGE}@${GOV_CHECK_RANGE}"`,
     '          rm -f "$RUNNER_TEMP/gov-check.npmrc"',
     "      - name: Evidence — mint the writer App's token",
     "        id: evidence-token",
