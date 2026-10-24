@@ -22,6 +22,7 @@ import type { CheckBinding } from "../model/catalog.js";
 import type { BindingRenderer } from "../model/contracts.js";
 import { DEFAULT_RUNS_ON, runsOnYaml } from "../../config/ci-runner.js";
 import { GH_ACTION_OUTCOMES_ENV, ghActionKey, ghActionName, isOrgGhAction } from "./gh-org-actions.js";
+import { GOV_CHECK_PACKAGE, GOV_CHECK_RANGE } from "../../cli/licence-verb.js";
 
 export const WORKFLOW_PATH = ".github/workflows/gov-checks.yml";
 
@@ -146,7 +147,7 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
 export const EVIDENCE_APP_SECRET_NAMES = Object.freeze({ clientId: "GOV_EVIDENCE_APP_CLIENT_ID", privateKey: "GOV_EVIDENCE_APP_PRIVATE_KEY" });
 const LEASE_SCRIPT = String.raw`import { generateKeyPairSync } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
-const base = process.env.GOV_LICENCE_URL || "https://gov.svayamtech.com/api/v1";
+const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";
 const say = (l) => process.stdout.write(l + "\\n");
 const note = () => say("::notice title=gov evidence::Signed evidence is off for this run: no subscription (or the licence service is unreachable). Checks ran as usual.");
 try {
@@ -160,7 +161,9 @@ try {
   if (!r.ok) process.exit(0);
   const { registryToken } = await r.json();
   say("::add-mask::" + registryToken);
-  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_authToken=" + registryToken + "\n", { mode: 0o600 });
+  const basic = Buffer.from("gov-registry:" + registryToken).toString("base64");
+  say("::add-mask::" + basic);
+  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_auth=" + basic + "\n", { mode: 0o600 });
   appendFileSync(process.env.GITHUB_OUTPUT, "installed=true\n");
 } catch { /* an outage is not a failure: the checks run without evidence */ }`.split("\n");
 
@@ -185,7 +188,7 @@ function evidenceSteps(opts: GithubRendererOptions): string[] {
     gate.replace("env.GOV_EVIDENCE_ENABLED == 'true'", "env.GOV_EVIDENCE_ENABLED == 'true' && steps.evidence-install.outputs.installed == 'true'"),
     "        continue-on-error: true",
     "        run: |",
-    '          npm install -g --userconfig "$RUNNER_TEMP/gov-check.npmrc" "@svayam/gov-check@^2"',
+    `          npm install -g --userconfig "$RUNNER_TEMP/gov-check.npmrc" "${GOV_CHECK_PACKAGE}@${GOV_CHECK_RANGE}"`,
     '          rm -f "$RUNNER_TEMP/gov-check.npmrc"',
     "      - name: Evidence — mint the writer App's token",
     "        id: evidence-token",
