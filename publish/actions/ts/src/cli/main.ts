@@ -11,6 +11,7 @@ import { LIFECYCLE_POLICY_PATH } from "../intent/lifecycle-policy.js";
 import { AGENT_SESSION_ENV } from "../signal/model.js";
 import { signalCommand } from "./signal-verb.js";
 import { repoNameFromUrl } from "../lifecycle/repo.js";
+import { placeDir } from "./place-dir.js";
 import { projectCommand } from "./project-verb.js";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -1362,7 +1363,7 @@ export async function runFirstRunIfNeeded(
     },
     readIdentity: identityAt,
     exists: (d) => fsSync.existsSync(d),
-    place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
+    place: (from, to) => placeDir(from, to),
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
