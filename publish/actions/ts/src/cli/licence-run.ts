@@ -11,8 +11,11 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { parseArgv } from "./args.js";
 import { askFns } from "./ask.js";
-import { licenceCommand, type ModuleState, type RegistryTokenResult } from "./licence-verb.js";
+import { licenceCommand, type ModuleState, type RegistryTokenResult, npmInstallArgs } from "./licence-verb.js";
 import { createKeychain } from "../security/keychain.js";
+import { loadCheckModule } from "../check-seam/loader.js";
+import { createHost } from "../check-seam/host.js";
+import type { KeychainPort } from "../check-seam/public.js";
 import { runResult } from "../run-process.js";
 
 /** The licence API (spec 02 Q9); GOV_LICENCE_API points a test at a stub issuer. */
@@ -60,6 +63,27 @@ export function httpRegistryToken(base: string, fetchFn: typeof fetch = fetch): 
  */
 export type ModuleLoader = () => Promise<ModuleState>;
 
+/**
+ * `gov licence` finds and starts gov-check exactly as `gov check` does (same discovery, same lock-step and activation;
+ * Policy Owner ruling 2026-10-24). Not cached: `install` loads the module it has just put on disk.
+ */
+export function licenceModuleLoader(o: {
+  readonly govVersion: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly keychain?: KeychainPort;
+  readonly load?: typeof loadCheckModule;
+}): ModuleLoader {
+  return async () => {
+    const env = o.env ?? process.env;
+    const m = await (o.load ?? loadCheckModule)({
+      env,
+      host: createHost({ govVersion: o.govVersion, keychain: o.keychain ?? createKeychain() }),
+      opts: { surface: env.GITHUB_ACTIONS === "true" ? "ci" : "local" },
+    });
+    return m.state === "active" ? { state: "active", via: m.via, licence: m.module.licence } : m;
+  };
+}
+
 export async function runLicence(argv: readonly string[], loadModule: ModuleLoader = () => Promise.resolve({ state: "absent" })): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
@@ -81,7 +105,7 @@ export async function runLicence(argv: readonly string[], loadModule: ModuleLoad
     },
     registryToken: httpRegistryToken(env.GOV_LICENCE_API || LICENCE_API),
     npmInstall: (dir, spec, extra) => {
-      const res = runResult("npm", ["install", "--no-audit", "--no-fund", spec], { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
+      const res = runResult("npm", npmInstallArgs(spec), { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
       return { status: res.status, stderr: res.stderr };
     },
     writeFile: (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); },
