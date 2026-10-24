@@ -6,10 +6,11 @@
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { licenceModuleLoader } from "../../src/cli/licence-run.js";
 import type { LoadDeps, LoadedModule } from "../../src/check-seam/loader.js";
 
-const SRC = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "..", "src");
+const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "src");
 
 describe("gov licence — module loader", () => {
   it("an active module hands its licence API to the licence verb", async () => {
