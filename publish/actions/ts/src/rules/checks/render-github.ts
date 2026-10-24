@@ -287,7 +287,10 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
       `    name: ${checkRunName(j.id, j.event)}`,
       `    if: ${cond}`,
-      ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`] : []),
+      // The licence service is the org's choice (Policy Owner 2026-10-24): org variables GOV_LICENCE_API and
+      // GOV_LICENCE_TEST_KEYSET reach the lease script and gov-check; unset renders "" → prod, as before.
+      ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`,
+        "      GOV_LICENCE_API: ${{ vars.GOV_LICENCE_API }}", "      GOV_LICENCE_TEST_KEYSET: ${{ vars.GOV_LICENCE_TEST_KEYSET }}"] : []),
       ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
       `    runs-on: ${opts.runsOn ?? runsOnYaml(DEFAULT_RUNS_ON)}`,
       "    timeout-minutes: 10",

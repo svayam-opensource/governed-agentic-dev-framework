@@ -37,6 +37,22 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     expect(t.match(/if: env\.GOV_EVIDENCE_ENABLED == 'true'/g)!.length).to.be.greaterThan(1);
   });
 
+  it("the licence service is the org's choice: vars.GOV_LICENCE_API / vars.GOV_LICENCE_TEST_KEYSET reach every step (unset → prod)", () => {
+    // Without these the lease script and gov-check always used prod gov-licence — a sandbox org could not test against
+    // dev (Policy Owner ruling 2026-10-24: "map the two variables"). An unset variable renders as "" and the script's
+    // `|| "https://gov.svayamtech.com/api/v1"` keeps prod; gov-check ignores an empty test keyset.
+    const t = text();
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_API: \$\{\{ vars\.GOV_LICENCE_API \}\}\n/);
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_TEST_KEYSET: \$\{\{ vars\.GOV_LICENCE_TEST_KEYSET \}\}\n/);
+    expect(t).to.contain('const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";');
+  });
+
+  it("an org that never turned evidence on gets no licence variables either", () => {
+    const t = renderWorkflow(BINDINGS, {})[0]!.text;
+    expect(t).to.not.contain("GOV_LICENCE_API");
+    expect(t).to.not.contain("GOV_LICENCE_TEST_KEYSET");
+  });
+
   it("every evidence step is non-fatal (continue-on-error), so a 403 or an outage never changes a verdict", () => {
     const t = text();
     const steps = t.split("\n      - ").filter((s) => /Evidence/.test(s.split("\n")[0]!));
