@@ -130,7 +130,7 @@ describe("gov-checks workflow — the embedded lease script, run locally (A11, A
       execFile(process.execPath, [f], {
         env: { PATH: process.env.PATH, RUNNER_TEMP: dir, GITHUB_OUTPUT: out,
           ACTIONS_ID_TOKEN_REQUEST_URL: `http://127.0.0.1:${port}/oidc?api-version=2`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rt",
-          GOV_LICENCE_URL: `http://127.0.0.1:${port}/api/v1` },
+          GOV_LICENCE_API: `http://127.0.0.1:${port}/api/v1` },
       }, (err, stdout) => resolve({ code: err ? (err as { code?: number }).code ?? 1 : 0, stdout }));
     });
     server.close();

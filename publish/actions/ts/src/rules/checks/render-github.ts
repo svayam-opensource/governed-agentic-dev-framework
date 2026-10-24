@@ -147,7 +147,7 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
 export const EVIDENCE_APP_SECRET_NAMES = Object.freeze({ clientId: "GOV_EVIDENCE_APP_CLIENT_ID", privateKey: "GOV_EVIDENCE_APP_PRIVATE_KEY" });
 const LEASE_SCRIPT = String.raw`import { generateKeyPairSync } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
-const base = process.env.GOV_LICENCE_URL || "https://gov.svayamtech.com/api/v1";
+const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";
 const say = (l) => process.stdout.write(l + "\\n");
 const note = () => say("::notice title=gov evidence::Signed evidence is off for this run: no subscription (or the licence service is unreachable). Checks ran as usual.");
 try {
