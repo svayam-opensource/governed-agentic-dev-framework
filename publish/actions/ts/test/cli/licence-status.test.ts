@@ -150,6 +150,9 @@ describe("gov licence install", () => {
     // A Svayam developer's own ~/.npmrc often holds an SSO `_authToken` for this host, and npm prefers a token over
     // `_auth` across config layers — so this file blanks it, or npm would read gov-check as that person (403).
     expect(npmrc.split("\n")).to.include("//npm.svayamtech.com/:_authToken=");
+    // gov-check's own dependencies (public npm packages) come from npmjs, never through npm.svayamtech.com: a gov
+    // registry token reaches gov-check only, so a developer whose default registry is npm.svayamtech.com got 403.
+    expect(npmrc.split("\n")).to.include("registry=https://registry.npmjs.org/");
     for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123").and.not.include(basic);
     expect(r.lines.join("\n")).to.not.include("npm_tok_123").and.not.include(basic);
   });

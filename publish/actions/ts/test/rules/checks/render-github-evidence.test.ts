@@ -155,6 +155,7 @@ describe("gov-checks workflow — the embedded lease script, run locally (A11, A
     const basic = Buffer.from("gov-registry:reg-secret-token").toString("base64");
     expect(r.npmrc).to.contain("//npm.svayamtech.com/:_auth=" + basic);
     expect(r.npmrc).to.not.contain("_authToken=reg-secret-token");
+    expect(r.npmrc.split("\n")).to.include("registry=https://registry.npmjs.org/");   // public deps never ride the gov token
     expect(r.stdout).to.contain("::add-mask::" + basic);
     expect(r.stdout).to.not.contain("::notice");
   });

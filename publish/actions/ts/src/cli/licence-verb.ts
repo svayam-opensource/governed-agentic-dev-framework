@@ -155,9 +155,10 @@ async function install(flags: Readonly<Record<string, string | boolean>>, deps: 
   // The credential is NAMED here, never written: npm expands ${GOV_CHECK_REGISTRY_AUTH} from the environment it is
   // given. The blank `_authToken` matters: a Svayam developer's own ~/.npmrc often holds an SSO token for this host,
   // and npm prefers a token over `_auth` across config layers — without the blank, npm would read gov-check as that
-  // person, whom the package rule does not admit (403).
+  // person, whom the package rule does not admit (403). `registry=` sends gov-check's own (public) dependencies to npmjs:
+  // the registry token reaches gov-check only, so a developer whose default registry is this host would get 403 on them.
   const auth = registryBasicAuth(tok.token);
-  deps.writeFile(path.join(dir, ".npmrc"), `@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_auth=\${${REGISTRY_AUTH_ENV}}\n//${host}/:_authToken=\n`);
+  deps.writeFile(path.join(dir, ".npmrc"), `registry=https://registry.npmjs.org/\n@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_auth=\${${REGISTRY_AUTH_ENV}}\n//${host}/:_authToken=\n`);
   const spec = `${GOV_CHECK_PACKAGE}@${range}`;
   const r = deps.npmInstall(dir, spec, { [REGISTRY_AUTH_ENV]: auth });
   if (r.status !== 0) {

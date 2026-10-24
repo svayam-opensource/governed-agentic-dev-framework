@@ -163,7 +163,7 @@ try {
   say("::add-mask::" + registryToken);
   const basic = Buffer.from("gov-registry:" + registryToken).toString("base64");
   say("::add-mask::" + basic);
-  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_auth=" + basic + "\n", { mode: 0o600 });
+  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "registry=https://registry.npmjs.org/\n@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_auth=" + basic + "\n", { mode: 0o600 });
   appendFileSync(process.env.GITHUB_OUTPUT, "installed=true\n");
 } catch { /* an outage is not a failure: the checks run without evidence */ }`.split("\n");
 
