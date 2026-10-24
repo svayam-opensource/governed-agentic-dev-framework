@@ -8,7 +8,7 @@
 import { main, runApp, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runPack, runSignal, runProject, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { runEvidence } from "./evidence-run.js";
-import { runLicence } from "./licence-run.js";
+import { licenceModuleLoader, runLicence } from "./licence-run.js";
 import { helpRequest } from "./help-request.js";
 import { helpJson, topicOf } from "./help-render.js";
 
@@ -79,7 +79,7 @@ async function dispatch(): Promise<number> {
   // `evidence verify` is the FREE verifier (Q4): an auditor runs it with no workspace, so no first run above.
   if (argv[0] === "evidence") return runEvidence(argv);
   // `licence login` asks for a hidden key and `install` awaits the licence service — asynchronous, like `check`.
-  if (argv[0] === "licence") return runLicence(argv);
+  if (argv[0] === "licence") return runLicence(argv, licenceModuleLoader({ govVersion: readCliVersion() }));
   if (argv[0] === "pack") return runPack(argv);
   if (argv[0] === "signal") return runSignal(argv);
   if (argv[0] === "project") return runProject(argv);   // the ports are async (plan 03 L06)
