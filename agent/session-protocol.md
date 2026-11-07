@@ -24,7 +24,7 @@ During an active project:
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
 - ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (GOV-FRM-086). Never treat your own unratified edits as authority.
 - ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
-- ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
+- ⚠️ **GitHub Issues are business intent, so you create one only when your work needs it**: as the stated reason for a commit you must make, or to record follow-up work the developer has asked for or ruled on. Never raise new business intent on your own. Every issue you create carries the label **`agent-raised`**; states the **project** (`PRJ-…`), the **task or branch**, and the **trigger** (the ruling, request or finding that caused it); and is added to the project's GitHub board. A human may close it, or adopt it as business intent by removing the label.
 
 ## A.2 Where work happens
 
