@@ -3,7 +3,7 @@
 /**
  * A small, strict JSON-Schema checker for the seam's own schemas — no dependency. It implements exactly the keywords
  * those schemas use (type, properties, required, additionalProperties: false, enum, const, pattern, minimum,
- * minLength, maxLength, items, oneOf, local `$ref`). A keyword it does not know makes it THROW, so a schema can never
+ * minLength, maxLength, items, maxItems, uniqueItems, oneOf, local `$ref`). A keyword it does not know makes it THROW, so a schema can never
  * be quietly under-checked; the schemas stay standard draft 2020-12, so other services validate them with any
  * conforming validator.
  */
@@ -11,7 +11,7 @@ import { SCHEMAS, type SchemaName } from "./schemas.js";
 
 type S = Readonly<Record<string, unknown>>;
 const KNOWN = new Set(["$schema", "$id", "$defs", "$ref", "title", "description", "format", "type", "properties", "required",
-  "additionalProperties", "enum", "const", "pattern", "minimum", "minLength", "maxLength", "items", "oneOf"]);
+  "additionalProperties", "enum", "const", "pattern", "minimum", "minLength", "maxLength", "items", "maxItems", "uniqueItems", "oneOf"]);
 
 /** The problems with `value` against the named schema; empty = valid. */
 export function validate(name: SchemaName, value: unknown): readonly string[] {
@@ -53,7 +53,11 @@ function check(root: S, s: S, v: unknown, at: string, errs: string[]): void {
     if (typeof s.maxLength === "number" && v.length > s.maxLength) errs.push(`${at}: longer than ${s.maxLength}`);
   }
   if (typeof v === "number" && typeof s.minimum === "number" && v < s.minimum) errs.push(`${at}: below ${s.minimum}`);
-  if (Array.isArray(v) && s.items && typeof s.items === "object") v.forEach((x, i) => check(root, s.items as S, x, `${at}[${i}]`, errs));
+  if (Array.isArray(v)) {
+    if (typeof s.maxItems === "number" && v.length > s.maxItems) errs.push(`${at}: more than ${s.maxItems} items`);
+    if (s.uniqueItems === true && new Set(v.map((x) => JSON.stringify(x))).size !== v.length) errs.push(`${at}: items must be unique`);
+    if (s.items && typeof s.items === "object") v.forEach((x, i) => check(root, s.items as S, x, `${at}[${i}]`, errs));
+  }
   if (v && typeof v === "object" && !Array.isArray(v)) {
     const o = v as Record<string, unknown>;
     const props = (s.properties ?? {}) as Record<string, S>;

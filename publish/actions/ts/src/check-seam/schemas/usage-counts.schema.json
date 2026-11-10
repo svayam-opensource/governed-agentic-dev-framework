@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:svayam-opensource:gov:check-seam:usage-counts",
   "title": "usage counts",
-  "description": "Numbers only, computed customer-side from the local ledger (spec 02 §4.3). The only data besides lease traffic.",
+  "description": "Numbers computed customer-side from the local ledger (spec 02 §4.3), plus optional one-way hashes of the active people (MO1 Q1a). The only data besides lease traffic.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -49,6 +49,16 @@
     "activeActors90d": {
       "type": "integer",
       "minimum": 0
+    },
+    "actors": {
+      "type": "array",
+      "maxItems": 3000,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{22}$"
+      },
+      "description": "Optional (MO1 Q1a): the people active in the last 90 days, each as base64url(first 16 bytes of sha256(<actorSalt> + \":\" + <GitHub user id>)). actorSalt is the account's salt from the lease response. Never names or ids. Over 3000 people, send activeActors90d only."
     },
     "repos": {
       "type": "integer",
