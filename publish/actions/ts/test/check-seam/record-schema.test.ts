@@ -86,7 +86,7 @@ describe("check-seam — the gov-evidence/1 record schema (A6)", () => {
   });
 });
 
-describe("check-seam — usage counts are numbers only (§4.3, A13)", () => {
+describe("check-seam — usage counts are numbers, plus optional hashed people (§4.3, A13; MO1 Q1a)", () => {
   const counts = {
     window: { from: "2026-10-01T00:00:00Z", to: "2026-10-12T00:00:00Z" },
     writer: "w-3f2a",
@@ -107,6 +107,16 @@ describe("check-seam — usage counts are numbers only (§4.3, A13)", () => {
     expect(validate("usage-counts", { ...counts, window: { ...counts.window, rule: "GOV-1" } })).to.not.be.empty;
   });
 
+  it("MO1 Q1a: accepts the active people as 22-character one-way hashes, and nothing else in their place", () => {
+    const h = (c: string) => c.repeat(22);
+    expect(validate("usage-counts", { ...counts, actors: [h("a"), h("B"), h("_")] })).to.deep.equal([]);
+    expect(validate("usage-counts", { ...counts, actors: [] })).to.deep.equal([]);
+    expect(validate("usage-counts", { ...counts, actors: ["dev1"] })).to.not.be.empty; // a login is not a hash
+    expect(validate("usage-counts", { ...counts, actors: [12345] })).to.not.be.empty; // nor is a GitHub id
+    expect(validate("usage-counts", { ...counts, actors: [h("a"), h("a")] })).to.not.be.empty; // each person once
+    expect(validate("usage-counts", { ...counts, actors: Array.from({ length: 3001 }, (_, i) => i.toString(36).padStart(22, "x")) })).to.not.be.empty;
+  });
+
   it("a lease request is a personal key OR an OIDC token, a writer key and counts — nothing else", () => {
     const writerPub = { kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" };
     expect(validate("lease-request", { personalKey: "eyJ.a.b", writerPub, counts })).to.deep.equal([]);
@@ -114,6 +124,10 @@ describe("check-seam — usage counts are numbers only (§4.3, A13)", () => {
     expect(validate("lease-request", { personalKey: "k", oidcToken: "t", writerPub, counts })).to.not.be.empty;
     expect(validate("lease-request", { writerPub, counts })).to.not.be.empty;
     expect(validate("lease-request", { personalKey: "k", writerPub, counts, chainHead: "ab".repeat(32) })).to.not.be.empty;
+    // MO1 Q3: a personal key travels with the repository's organisation (numeric GitHub org id).
+    expect(validate("lease-request", { personalKey: "eyJ.a.b", org: 4242, writerPub, counts })).to.deep.equal([]);
+    expect(validate("lease-request", { personalKey: "eyJ.a.b", org: "acme", writerPub, counts })).to.not.be.empty;
+    expect(validate("lease-request", { personalKey: "eyJ.a.b", org: 0, writerPub, counts })).to.not.be.empty;
   });
 });
 
