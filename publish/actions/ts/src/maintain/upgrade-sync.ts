@@ -269,7 +269,7 @@ export function expandEntries(manifest: Manifest, contentFiles: readonly string[
  * `keep`: the org's file, left as it is although the manifest asked otherwise — shown, never applied (GOV-FRM-445).
  * `starter`: a seed-new file this workspace does not have — shown by an upgrade's dry run, never applied (§3.2).
  */
-export type ActionKind = "create" | "same" | "keep" | "starter" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
+export type ActionKind = "create" | "same" | "keep" | "starter" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate" | "relink";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
@@ -288,6 +288,8 @@ export interface PlanAction {
    * org's old exception templates, retired beside the moves of the records next to them.
    */
   readonly commit?: "framework" | "org-moves" | "migrations" | "proposed-prose";
+  /** `relink`: the document's whole new text — only link targets changed (bridge/links.ts, F55). */
+  readonly text?: string;
 }
 export interface UpgradePlan { readonly actions: readonly PlanAction[]; }
 
@@ -484,7 +486,7 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
 }
 
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", starter: "· starter", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", starter: "· starter", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate", relink: "↪ relink " };
   const shown = plan.actions.filter((a) => a.kind !== "same");
   const detailOf = (a: PlanAction): string | undefined => a.detail ?? (a.kind === "starter" ? "starter for new orgs" : undefined);
   const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${detailOf(a) ? `   (${detailOf(a)})` : ""}`);
@@ -546,6 +548,8 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
     if (a.kind === "refuse") { refused.push(a.dst); continue; }
     if (a.kind === "conflict" && !opts.includeConflicts) { skipped.push(a.dst); continue; }
     if (a.kind === "retire") { deps.removeAdopter(a.dst); applied.push(a.dst); continue; }
+    // F55: the org's kept document, its links to files this upgrade moves or retires repointed (nothing else changed).
+    if (a.kind === "relink") { if (a.text !== undefined) { deps.writeAdopter(a.dst, a.text); applied.push(a.dst); } continue; }
     if (a.kind === "move" && a.from) {
       // A file of a directory move never lands on one already there: that is a merge, and the plan refuses those.
       if (a.group && deps.readAdopter(a.dst) !== null) {
