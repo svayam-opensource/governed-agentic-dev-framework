@@ -42,7 +42,7 @@ function deps(over: Partial<LicenceDeps> = {}, status: LicenceStatus = licensed)
     npmInstall: () => ({ status: 0, stderr: "" }),
     writeFile: (p, t) => { files.set(p, t); },
     installDir: "/data/gov/gov-check",
-    portalUrl: "https://portal.example/keys",
+    keysUrl: "https://gov.example/keys",
     logins, files,
     ...over,
   };
@@ -99,7 +99,7 @@ describe("gov licence login", () => {
     expect(r.code, r.lines.join("\n")).to.equal(0);
     expect(await d.keychain.get(LICENCE_ACCOUNT)).to.equal(KEY);
     expect(d.logins).to.deep.equal([KEY]);
-    expect(r.lines.join("\n")).to.include("https://portal.example/keys").and.match(/stored in Secret Service/).and.not.include(KEY);
+    expect(r.lines.join("\n")).to.include("https://gov.example/keys").and.match(/stored in Secret Service/).and.not.include(KEY);
   });
 
   it("refuses what is not a personal key (gov-key+jws), and stores nothing", async () => {

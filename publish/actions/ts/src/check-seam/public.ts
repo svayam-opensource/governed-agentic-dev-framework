@@ -67,7 +67,7 @@ interface RecordCommon {
   readonly org: { readonly vcs: "github"; readonly id: number };
   readonly repo?: { readonly id: number; readonly name: string };
   readonly ref?: { readonly sha: string; readonly changeRequest?: number; readonly branch?: string };
-  readonly actor?: { readonly login?: string; readonly kind: "human" | "agent"; readonly agent?: string; readonly trailer?: "present" | "absent" };
+  readonly actor?: { readonly login?: string; /** Numeric GitHub user id (MO1 Q1b); absent on older records. */ readonly id?: number; readonly kind: "human" | "agent"; readonly agent?: string; readonly trailer?: "present" | "absent" };
   readonly session?: { readonly project: string; readonly issue?: number };
   readonly source: "ci" | "local";
   /** `gh:<run>:<attempt>:<rule>:<event>` in CI, `local:<ulid>:<rule>` locally — a retried attempt never double-writes. */
@@ -255,6 +255,11 @@ export interface ActivationOptions {
   /** The repository the run is about, when known. */
   readonly repoDir?: string;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * The gov repo's numeric GitHub org id, asked only when needed (MO1 Q3: a personal-key lease names the repo's org).
+   * CI has it in the environment; locally gov asks GitHub. Optional: an older gov passes none.
+   */
+  readonly orgId?: () => Promise<number | null>;
 }
 
 /** The module's entry points (`@svayam/gov-check` exports both). */

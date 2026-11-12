@@ -88,7 +88,7 @@ describe("A10 — the personal key never on disk, never in a log", function () {
       npmInstall: () => { throw new Error("npm must not run after a refusal"); },
       writeFile: (p: string, t: string) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
       installDir: path.join(home, ".local", "share", "gov", "gov-check"),
-      portalUrl: "https://portal.example/keys",
+      keysUrl: "https://gov.example/keys",
     };
 
     const login = await licenceCommand(["login"], {}, deps);
