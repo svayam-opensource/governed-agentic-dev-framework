@@ -43,7 +43,7 @@ export interface RunContext {
   readonly govVersion: string;
   readonly repo?: { readonly id: number; readonly name: string };
   readonly ref?: { readonly sha: string; readonly branch?: string; readonly changeRequest?: number };
-  readonly actor?: { readonly login?: string; readonly kind: "human" | "agent"; readonly agent?: string; readonly trailer?: "present" | "absent" };
+  readonly actor?: { readonly login?: string; readonly id?: number; readonly kind: "human" | "agent"; readonly agent?: string; readonly trailer?: "present" | "absent" };
   readonly orgIdFromEnv?: number;
 }
 
@@ -56,6 +56,7 @@ export function runContext(env: Env, govVersion: string): RunContext {
     const repoId = num(env.GITHUB_REPOSITORY_ID);
     const sha = env.GITHUB_SHA && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA) ? env.GITHUB_SHA : undefined;
     const login = env.GITHUB_ACTOR && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(\[bot\])?$/.test(env.GITHUB_ACTOR) ? env.GITHUB_ACTOR : undefined;
+    const actorId = num(env.GITHUB_ACTOR_ID); // MO1 Q1b: the id the seat hash is made from
     const agent = env.GOV_AGENT;
     const ownerId = num(env.GITHUB_REPOSITORY_OWNER_ID);
     return {
@@ -64,7 +65,7 @@ export function runContext(env: Env, govVersion: string): RunContext {
       govVersion,
       ...(repoId && env.GITHUB_REPOSITORY ? { repo: { id: repoId, name: env.GITHUB_REPOSITORY } } : {}),
       ...(sha ? { ref: { sha, ...(env.GITHUB_REF_NAME ? { branch: env.GITHUB_REF_NAME.replace(/\s+/g, "-") } : {}) } } : {}),
-      actor: { ...(login ? { login } : {}), kind: agent ? "agent" : "human", ...(agent ? { agent: safe(agent) } : {}), trailer: agent ? "present" : "absent" },
+      actor: { ...(login ? { login } : {}), ...(actorId ? { id: actorId } : {}), kind: agent ? "agent" : "human", ...(agent ? { agent: safe(agent) } : {}), trailer: agent ? "present" : "absent" },
       ...(ownerId ? { orgIdFromEnv: ownerId } : {}),
     };
   }

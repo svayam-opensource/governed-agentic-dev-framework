@@ -56,7 +56,7 @@ export interface LicenceDeps {
   loadModule(): Promise<ModuleState>;
   /** The pasted key: a hidden prompt, or stdin with --key-from-stdin. null = nothing given. */
   readKey(fromStdin: boolean): Promise<string | null>;
-  /** POST <api>/registry-token {personalKey} → a short-lived npm read token. */
+  /** POST <api>/registry-token {personalKey, org?} → a short-lived npm read token (org: the repo's, MO1 Q3). */
   registryToken(personalKey: string): Promise<RegistryTokenResult>;
   /** `npm install <spec>` in `dir`; `env` is ADDED to the process environment. */
   npmInstall(dir: string, spec: string, env: Readonly<Record<string, string>>): { status: number; stderr: string };
@@ -64,8 +64,8 @@ export interface LicenceDeps {
   writeFile(file: string, text: string): void;
   /** Where the loader finds an installed module: `$XDG_DATA_HOME/gov/gov-check` or `%LOCALAPPDATA%\gov\gov-check`. */
   readonly installDir: string;
-  /** The portal page where a person generates a personal key. */
-  readonly portalUrl: string;
+  /** gov web's "Your gov keys" page, where a person makes a personal key (MO1 3d: keys live in gov web). */
+  readonly keysUrl: string;
 }
 
 export interface LicenceResult { readonly code: number; readonly lines: readonly string[] }
@@ -87,7 +87,7 @@ export async function licenceCommand(positionals: readonly string[], flags: Read
 
 async function login(flags: Readonly<Record<string, string | boolean>>, deps: LicenceDeps): Promise<LicenceResult> {
   const lines = [
-    `Generate a personal key in the Svayam portal: ${deps.portalUrl}`,
+    `Make a personal key in gov web (Your gov keys): ${deps.keysUrl}`,
     "Copy it, then paste it here. It is stored in your OS keychain and never shown.",
   ];
   const raw = await deps.readKey(Object.prototype.hasOwnProperty.call(flags, "key-from-stdin"));
@@ -95,7 +95,7 @@ async function login(flags: Readonly<Record<string, string | boolean>>, deps: Li
   if (!key) return { code: 1, lines: [...lines, "gov licence login: no key was given — nothing was stored."] };
   const jws = decodeJws(key);
   if (!jws || jws.header.typ !== "gov-key+jws") {
-    return { code: 1, lines: [...lines, `gov licence login: that is not a gov personal key (a gov-key+jws token from ${deps.portalUrl}) — nothing was stored.`] };
+    return { code: 1, lines: [...lines, `gov licence login: that is not a gov personal key (a gov-key+jws token from ${deps.keysUrl}) — nothing was stored.`] };
   }
   if (deps.keychain.backend === "env only") {
     return { code: 1, lines: [...lines, `gov licence login: this system has no keychain gov can use — put the key in ${LICENCE_KEY_ENV} in your environment (your shell profile, or your CI secret store). gov never writes it to a file.`] };

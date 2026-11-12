@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 // `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
 // goes through run-process.ts so it is logged. The two launches log themselves at the call site.
 import { spawn } from "node:child_process";
+import { githubOrgIdProvider } from "./org-id.js";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
 import type { SpawnPlan } from "../win-spawn.js";
 import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
@@ -2291,13 +2292,7 @@ function setEvidenceFor(home: string, githubOrg: string): void {
     govHome: home,
     env: process.env,
     govVersion: readCliVersion(),
-    orgId: async () => {
-      const fromEnv = Number(process.env.GITHUB_REPOSITORY_OWNER_ID);
-      if (Number.isSafeInteger(fromEnv) && fromEnv > 0) return fromEnv;
-      const out = githubOrg ? tryRunProcess("gh", ["api", `orgs/${githubOrg}`, "--jq", ".id"], { pgm: "gov-work:cli:main", fn: "evidenceOrgId" }) : null;
-      const n = Number((out ?? "").trim());
-      return Number.isSafeInteger(n) && n > 0 ? n : null;
-    },
+    orgId: githubOrgIdProvider(githubOrg),
   });
 }
 
