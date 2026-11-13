@@ -17,6 +17,27 @@ There is one door per OS, and every door ends in the same first-run flow.
 **winget is coming.** `winget install Svayam.Gov` becomes the Windows door with the first release of the
 Windows installer; until then winget does not find `Svayam.Gov`, and `install.ps1` is the way in.
 
+## Upgrading
+
+One command brings **gov and your organization's governance repository** to the release the site serves:
+
+| OS | Command |
+|---|---|
+| macOS, Linux | `curl -fsSL https://gov.svayamtech.com/upgrade.sh -o upgrade.sh && bash upgrade.sh` |
+| Windows (PowerShell) | `irm https://gov.svayamtech.com/upgrade.ps1 \| iex` |
+
+1. **gov itself:** it runs the site's own installer, which updates gov to the pinned version and asks before it
+   installs anything. No first-run menu.
+2. **Your governance repository:** `gov upgrade` shows what the release changes; if you agree, `gov upgrade --pr`
+   opens a pull request for you to review. Nothing is merged for you.
+
+Run it from anywhere. If gov finds no governance repository from there, gov is still upgraded and it tells you to
+run `gov upgrade --pr` from your governance repository. `GOV_YES=1` answers yes for scripts;
+`GOV_UPGRADE_NO_PR=1` stops before the pull request.
+
+From gov 2 on, `gov self-update` updates gov itself in place, with no script; run `gov upgrade --pr` afterwards
+for the repository.
+
 ## Then: the first-run flow
 
 When the install finishes, `gov` starts the first-run flow (on Windows, from the installer's
