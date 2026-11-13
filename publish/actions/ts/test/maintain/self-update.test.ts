@@ -78,8 +78,9 @@ describe("gov self-update — through the CLI, installing nothing", function () 
   this.timeout(60_000);
   const here = path.dirname(fileURLToPath(import.meta.url));
   const bin = path.resolve(here, "../../src/cli/bin.ts");
-  const tsx = path.resolve(here, "../../node_modules/.bin/tsx");
-  const gov = (...a: string[]) => spawnSync(tsx, [bin, ...a], { encoding: "utf8", input: "", env: { ...process.env, GOV_NO_UPDATE_CHECK: "1" } });
+  // Node itself with tsx as a loader: portable — on Windows node_modules/.bin/tsx is a .cmd shim spawnSync cannot run.
+  const gov = (...a: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", bin, ...a], { encoding: "utf8", input: "", cwd: path.resolve(here, "../.."), env: { ...process.env, GOV_NO_UPDATE_CHECK: "1" } });
 
   it("--dry-run with a version: exit 0, the exact command, nothing installed", () => {
     const r = gov("self-update", "9.9.9", "--dry-run");
