@@ -79,23 +79,34 @@ describe("gov self-update — through the CLI, installing nothing", function () 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const bin = path.resolve(here, "../../src/cli/bin.ts");
   // Node itself with tsx as a loader: portable — on Windows node_modules/.bin/tsx is a .cmd shim spawnSync cannot run.
-  const gov = (...a: string[]) =>
-    spawnSync(process.execPath, ["--import", "tsx", bin, ...a], { encoding: "utf8", input: "", cwd: path.resolve(here, "../.."), env: { ...process.env, GOV_NO_UPDATE_CHECK: "1" } });
+  // The runner's own GOV_REGISTRY (Jenkins sets it for dev builds) must not leak in: it adds registry flags to the
+  // command (correctly), which broke the exact-command check on gov-work dev build #32. Each test sets what it means.
+  const gov = (extra: Record<string, string>, ...a: string[]) => {
+    const env: Record<string, string | undefined> = { ...process.env, GOV_NO_UPDATE_CHECK: "1", ...extra };
+    if (!("GOV_REGISTRY" in extra)) delete env.GOV_REGISTRY;
+    return spawnSync(process.execPath, ["--import", "tsx", bin, ...a], { encoding: "utf8", input: "", cwd: path.resolve(here, "../.."), env });
+  };
 
   it("--dry-run with a version: exit 0, the exact command, nothing installed", () => {
-    const r = gov("self-update", "9.9.9", "--dry-run");
+    const r = gov({}, "self-update", "9.9.9", "--dry-run");
     expect(r.status, r.stderr + r.stdout).to.equal(0);
     expect(r.stdout).to.include("→ 9.9.9").and.include("install -g @svayam-opensource/gov@9.9.9").and.include("nothing was installed");
   });
 
+  it("GOV_REGISTRY in the environment: the same command, with the registry for the scoped package", () => {
+    const r = gov({ GOV_REGISTRY: "https://npm.example" }, "self-update", "9.9.9", "--dry-run");
+    expect(r.status, r.stderr + r.stdout).to.equal(0);
+    expect(r.stdout).to.include("install -g --registry https://npm.example --@svayam-opensource:registry=https://npm.example @svayam-opensource/gov@9.9.9");
+  });
+
   it("no terminal and no --yes: refuses to install, exit 1", () => {
-    const r = gov("self-update", "9.9.9");
+    const r = gov({}, "self-update", "9.9.9");
     expect(r.status, r.stderr + r.stdout).to.equal(1);
     expect(r.stderr).to.include("no terminal to ask in. Add --yes");
   });
 
   it("the old `gov upgrade <version>` shows the self-update plan and installs nothing", () => {
-    const r = gov("upgrade", "9.9.9");
+    const r = gov({}, "upgrade", "9.9.9");
     expect(r.status, r.stderr + r.stdout).to.equal(0);
     expect(r.stdout).to.include("gov self-update 9.9.9").and.include("nothing was installed");
   });
