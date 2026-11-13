@@ -12,12 +12,10 @@ There is one door per OS, and every door ends in the same first-run flow.
 | OS | Door |
 |---|---|
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
-| Windows | `winget install Svayam.Gov` |
+| Windows | In PowerShell: `irm https://gov.svayamtech.com/install.ps1 \| iex` (until winget is live, [below](#windows)) |
 
-**The Windows door goes live with the first release of the installer.** Until then `winget` does not
-find `Svayam.Gov`. The installer is released **unsigned until a production code-signing certificate
-exists**, so use `winget`: a `.msi` downloaded directly from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) shows "Unknown publisher" until a production code-signing certificate exists. `install.ps1` is a machine path for CI and
-Server Core only, not a door for people (see `gov help install`).
+**winget is coming.** `winget install Svayam.Gov` becomes the Windows door with the first release of the
+Windows installer; until then winget does not find `Svayam.Gov`, and `install.ps1` is the way in.
 
 ## Then: the first-run flow
 
@@ -59,6 +57,32 @@ What differs per OS is in [operating-systems.md](operating-systems.md).
 
 ## Windows
 
+**Today (until winget is live): `install.ps1`.** Open **PowerShell** (Start → PowerShell — not as
+administrator) and run:
+
+```powershell
+irm https://gov.svayamtech.com/install.ps1 | iex
+```
+
+From Command Prompt (`cmd.exe`) instead:
+
+```bat
+powershell -NoProfile -Command "irm https://gov.svayamtech.com/install.ps1 | iex"
+```
+
+- `irm` (`Invoke-RestMethod`) and `iex` (`Invoke-Expression`) are built into PowerShell 5.1 and 7 — there is
+  nothing to install first. They do not exist in Command Prompt, hence the second form. `irm … | iex` runs the
+  script in memory, so the execution policy does not block it.
+- It installs for you alone: its own Node under `%LOCALAPPDATA%\gov\node`, gov on your user PATH. Nothing
+  machine-wide, nothing elevated. Then it shows each remaining step (`gov doctor --fix`) and asks before it runs it.
+- When it finishes, open a **new** PowerShell window (the old one does not see the new PATH) and run `gov`. The
+  first run takes you through setup.
+- Older Windows PowerShell 5.1 may say it *could not create SSL/TLS secure channel*. Run
+  `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'` in the same window first, then the command again.
+- A version: `$env:GOV_PKG = '@svayam-opensource/gov@<version>'` before the command.
+
+**When winget is live:**
+
 ```powershell
 winget install Svayam.Gov
 ```
@@ -91,7 +115,7 @@ banner**: a reader who scrolled past the warning would have followed them.
 |---|---|
 | Install the bash CLI from npm | `gov` (`@svayam-opensource/gov`), installed by the door for your OS, which supplies its own Node |
 | The CLI is bash; needs `yq` and `python3` | Node 24 / TypeScript; no system Node required |
-| Windows: run inside Git Bash | Native Windows, no Git Bash: the per-user MSI, through `winget install Svayam.Gov` (above). `install.ps1` is kept only as a machine path (CI, Server Core) and documented in the command reference (`gov help install`) |
+| Windows: run inside Git Bash | Native Windows, no Git Bash: `install.ps1` in PowerShell today, and the per-user MSI through `winget install Svayam.Gov` once it is live (above) |
 | Walk up from `$PWD` for `org-config.yaml` | `~/.gov/<org-slug>/gov_repo` is the bootstrap anchor; `$ADF_WORKSPACE` is gone, replaced by a per-invocation flag so it cannot stale-misdirect |
 | Data includes `registry.yaml` | There is no `registry.yaml` — GitHub is the source of truth, and the board number is the allocator |
 | Nothing changes for vendored use | Vendoring is gone; there is no vendored mode to be compatible with |
