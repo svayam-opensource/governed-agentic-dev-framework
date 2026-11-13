@@ -11,6 +11,10 @@
  * Checks: every distinct door-host URL named in the people-facing docs, plus the door itself and the
  * two installers it serves, each answering HTTP 200. Exit 1 if any does not.
  *
+ * A SCRIPT NEVER REDIRECTS (PRJ-121 IS-E2, spec IS-A17). The door's `/` answers 302 to the portal's /install,
+ * so a page URL is followed to its end. A script URL (.sh, .ps1, .msi) and versions.json must answer 200
+ * THEMSELVES: a redirect there is how a shell gets handed HTML, so a 3xx is a failure, not a hop.
+ *
  *   npm run door:check
  */
 import * as fs from "node:fs";
@@ -29,12 +33,16 @@ for (const f of peopleFacingDocs(ROOT)) {
   }
 }
 
+/** A file a shell or winget fetches, or the page's data — never allowed to redirect. */
+const NEVER_REDIRECTS = /\.(sh|ps1|msi)$|\/versions\.json$/;
+
 let bad = 0;
 for (const u of [...urls].sort()) {
   let status;
   try {
-    const r = await fetch(u, { method: "GET", redirect: "follow", signal: AbortSignal.timeout(20_000) });
-    status = r.status;
+    const redirect = NEVER_REDIRECTS.test(new URL(u).pathname) ? "manual" : "follow";
+    const r = await fetch(u, { method: "GET", redirect, signal: AbortSignal.timeout(20_000) });
+    status = r.status >= 300 && r.status < 400 ? `${r.status} redirect — a script must never redirect` : r.status;
   } catch (e) {
     status = `unreachable (${e?.cause?.code ?? e?.name ?? "error"})`;
   }

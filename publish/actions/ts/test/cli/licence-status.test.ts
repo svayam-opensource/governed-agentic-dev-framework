@@ -6,7 +6,7 @@
 // verification in open gov would be decorative). All network and module access is through fakes.
 import { expect } from "chai";
 import * as path from "node:path";
-import { licenceCommand, type LicenceDeps, type ModuleState } from "../../src/cli/licence-verb.js";
+import { licenceCommand, npmInstallArgs, type LicenceDeps, type ModuleState } from "../../src/cli/licence-verb.js";
 import { createKeychain, LICENCE_ACCOUNT, type OsKeychain } from "../../src/security/keychain.js";
 import type { LicenceStatus } from "../../src/check-seam/public.js";
 
@@ -42,7 +42,7 @@ function deps(over: Partial<LicenceDeps> = {}, status: LicenceStatus = licensed)
     npmInstall: () => ({ status: 0, stderr: "" }),
     writeFile: (p, t) => { files.set(p, t); },
     installDir: "/data/gov/gov-check",
-    portalUrl: "https://portal.example/keys",
+    keysUrl: "https://gov.example/keys",
     logins, files,
     ...over,
   };
@@ -99,7 +99,7 @@ describe("gov licence login", () => {
     expect(r.code, r.lines.join("\n")).to.equal(0);
     expect(await d.keychain.get(LICENCE_ACCOUNT)).to.equal(KEY);
     expect(d.logins).to.deep.equal([KEY]);
-    expect(r.lines.join("\n")).to.include("https://portal.example/keys").and.match(/stored in Secret Service/).and.not.include(KEY);
+    expect(r.lines.join("\n")).to.include("https://gov.example/keys").and.match(/stored in Secret Service/).and.not.include(KEY);
   });
 
   it("refuses what is not a personal key (gov-key+jws), and stores nothing", async () => {
@@ -139,11 +139,22 @@ describe("gov licence install", () => {
     expect(seen).to.have.length(1);
     expect(seen[0]!.dir).to.equal("/data/gov/gov-check");
     expect(seen[0]!.spec).to.match(/^@svayam\/gov-check@/);
-    expect(seen[0]!.env).to.deep.equal({ GOV_REGISTRY_TOKEN: "npm_tok_123" });
+    // BASIC auth, user `gov-registry`, password = the token: the only form the registry's gate plugin is handed. An
+    // `_authToken` is sent as a Bearer token, which Verdaccio keeps for its OWN sessions — the install arrived
+    // anonymous and got 401 (measured against Verdaccio 6.3.1 with verdaccio-gov-auth).
+    const basic = Buffer.from("gov-registry:npm_tok_123").toString("base64");
+    expect(seen[0]!.env).to.deep.equal({ GOV_CHECK_REGISTRY_AUTH: basic });
     const npmrc = d.files.get(path.join("/data/gov/gov-check", ".npmrc"))!;   // written with path.join: `\data\…` on Windows
-    expect(npmrc).to.include("${GOV_REGISTRY_TOKEN}").and.include("@svayam:registry=").and.not.include("npm_tok_123");
-    for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123");
-    expect(r.lines.join("\n")).to.not.include("npm_tok_123");
+    expect(npmrc).to.include("@svayam:registry=https://npm.svayamtech.com/");
+    expect(npmrc).to.include("//npm.svayamtech.com/:_auth=${GOV_CHECK_REGISTRY_AUTH}");
+    // A Svayam developer's own ~/.npmrc often holds an SSO `_authToken` for this host, and npm prefers a token over
+    // `_auth` across config layers — so this file blanks it, or npm would read gov-check as that person (403).
+    expect(npmrc.split("\n")).to.include("//npm.svayamtech.com/:_authToken=");
+    // gov-check's own dependencies (public npm packages) come from npmjs, never through npm.svayamtech.com: a gov
+    // registry token reaches gov-check only, so a developer whose default registry is npm.svayamtech.com got 403.
+    expect(npmrc.split("\n")).to.include("registry=https://registry.npmjs.org/");
+    for (const t of d.files.values()) expect(t).to.not.include(KEY).and.not.include("npm_tok_123").and.not.include(basic);
+    expect(r.lines.join("\n")).to.not.include("npm_tok_123").and.not.include(basic);
   });
 
   it("no key → points at login, asks nothing of the network", async () => {
@@ -175,5 +186,17 @@ describe("gov licence install", () => {
 
   it("an unknown subcommand is usage (2)", async () => {
     expect((await licenceCommand(["renew"], {}, deps())).code).to.equal(2);
+  });
+});
+
+describe("gov licence install — npm's command line", () => {
+  it("names both registries as flags, which outrank an inherited npm_config_registry (npx exports the user's default)", () => {
+    // Measured 2026-10-24: under `npx`, npm hands children npm_config_registry=<the user's default>; env outranks the
+    // install folder's .npmrc, so gov-check's public deps went to npm.svayamtech.com with the gov token → 403.
+    const a = npmInstallArgs("@svayam/gov-check@^2.0.0-next.0");
+    expect(a).to.include("--registry=https://registry.npmjs.org/");
+    expect(a).to.include("--@svayam:registry=https://npm.svayamtech.com/");
+    expect(a[0]).to.equal("install");
+    expect(a[a.length - 1]).to.equal("@svayam/gov-check@^2.0.0-next.0");
   });
 });

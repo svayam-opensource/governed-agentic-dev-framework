@@ -91,6 +91,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(\\[bot\\])?$"
         },
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The person's numeric GitHub user id (MO1 Q1b). Optional and additive: records written before it have the login only."
+        },
         "kind": {
           "enum": [
             "human",

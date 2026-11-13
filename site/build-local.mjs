@@ -23,6 +23,9 @@
  *   · the client                 the tarball packed from <tree-root>/publish/actions/ts, served at /gov.tgz,
  *                                and GOV_PKG pinned to that URL — so the walk installs YOUR client, not @dev
  *   · the registry               none: GOV_PKG is a URL, and a URL is not a scoped package
+ *   · no page                     like every env (IS-E2, 2026-10-18): `/` answers 302 to a portal on THIS machine,
+ *                                http://localhost:4001/install (portal-web's serve port in the catalog), and
+ *                                versions.json is readable from that origin. Walkers use the curl command, as before.
  *
  * ── WHAT MUST NEVER HAPPEN ────────────────────────────────────────────────────────────────────────
  *
@@ -39,6 +42,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PORT } from "./caddyfile.mjs";
+import { versionsDoc, versionsMismatches, pagesIn } from "./lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, "dist", "local");
@@ -46,6 +50,8 @@ const OUT = join(HERE, "dist", "local");
 export const LOCAL_HOSTS = ["localhost", "127.0.0.1", "host.docker.internal"];
 /** What the SERVED files say about themselves — the address a walker container reaches this site at. */
 const SELF = `host.docker.internal:${PORT}`;
+/** Where `/` redirects: a portal-web run on this machine (its catalog serve port). Never a shared portal. */
+const LOCAL_PORTAL = "http://localhost:4001";
 
 let wrote = false;
 function die(msg) {
@@ -97,33 +103,19 @@ writeFileSync(join(OUT, "install.sh"), sh);
 writeFileSync(join(OUT, "install.ps1"), ps1);
 copyFileSync(tgz, join(OUT, "gov.tgz"));
 
-// The page. The template says https://{{HOST}}; local is plain http, so the scheme is rewritten BEFORE the host
-// is filled in — the template and build.mjs stay exactly as the shared envs need them.
-// WHERE THE COMMANDS RUN (PRJ-121, 2026-09-22). Every command on this page names host.docker.internal, because
-// that is how a walker CONTAINER reaches this machine. Asked on the walk: does that load in the browser? Only
-// where the OS resolves it (Docker Desktop adds it). The banner says so, and gives the address that always works.
-const banner = `<div class="envbar">LOCAL — your working tree, built on this machine. Never deployed anywhere.<br>` +
-  `The commands below are for a walker <strong>container</strong> (host.docker.internal is how it reaches this machine). ` +
-  `In this machine's browser, use <a href="http://localhost:${PORT}/">http://localhost:${PORT}</a>. ` +
-  `On native Linux Docker, start the container with <code>--add-host=host.docker.internal:host-gateway</code>.</div>`;
-const html = readFileSync(join(HERE, "template", "index.html"), "utf8")
-  .replaceAll("https://{{HOST}}", "http://{{HOST}}")
-  .replaceAll("{{HOST}}", SELF)
-  .replaceAll("{{REF}}", "your working tree")
-  .replaceAll("{{PKG}}", `your local client (http://${SELF}/gov.tgz)`)
-  .replaceAll("{{REPO}}", "https://github.com/svayam-opensource/governed-agentic-dev-framework")
-  .replaceAll("{{ROBOTS}}", "noindex, nofollow")
-  .replaceAll("{{BUILT}}", new Date().toISOString().slice(0, 10))
-  .replaceAll("{{ENV_BANNER}}", banner)
-  .replaceAll("{{VERSIONED}}", "");
-writeFileSync(join(OUT, "index.html"), html);
-copyFileSync(join(HERE, "template", "style.css"), join(OUT, "style.css"));
+// No page, as on every env: the portal's /install is the page, and it reads this.
+writeFileSync(join(OUT, "versions.json"), JSON.stringify(versionsDoc({
+  env: "local", host: SELF, ref: "your working tree", pkg: `http://${SELF}/gov.tgz`, registry: null,
+  label: "LOCAL — your working tree, built on this machine. Never deployed anywhere.", versions: [],
+  built: new Date().toISOString(),
+}), null, 2) + "\n");
+writeFileSync(join(OUT, "PORTAL"), `${LOCAL_PORTAL}\n`);
 // Several names, space-separated: caddyfile.mjs writes `@local host <this>`, and Caddy's host matcher takes a list.
 writeFileSync(join(OUT, "CNAME"), LOCAL_HOSTS.join(" ") + "\n");
 writeFileSync(join(OUT, "robots.txt"), "User-agent: *\nDisallow: /\n");
 
 console.log(`built local → site/dist/local`);
-console.log(`  hosts ${LOCAL_HOSTS.join(", ")} · install.sh from ${tree} · client ${tgz.split("/").pop()} → /gov.tgz`);
+console.log(`  hosts ${LOCAL_HOSTS.join(", ")} · install.sh from ${tree} · client ${tgz.split("/").pop()} → /gov.tgz · / → ${LOCAL_PORTAL}/install`);
 
 if (verify) {
   const fail = [];
@@ -157,18 +149,12 @@ if (verify) {
     if (name !== "@svayam-opensource/gov") fail.push(`gov.tgz holds '${name || "nothing readable"}', not @svayam-opensource/gov`);
   }
 
-  const page = readFileSync(join(OUT, "index.html"), "utf8");
-  if (page.includes("{{")) fail.push("index.html has an unsubstituted {{TOKEN}}");
-  if (!page.includes("LOCAL — your working tree")) fail.push("the local page is missing its LOCAL banner");
-  if (!page.includes(`http://localhost:${PORT}`)) fail.push("the local page does not say which address works in this machine's browser");
-  if (page.includes("https://" + SELF)) fail.push("the local page still says https — nothing local serves TLS");
-  for (const id of ["cmd-mac", "cmd-linux"]) {
-    const primary = page.match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
-    if (!primary.includes("-o install.sh")) fail.push(`the #${id} install command does not fetch to a file first`);
-    if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push(`the #${id} install command pipes curl into bash, which hides a failed download`);
-  }
+  for (const p of pagesIn(OUT)) fail.push(`${p} was emitted — no build serves a page; the portal's /install is the page`);
+  const doc = JSON.parse(readFileSync(join(OUT, "versions.json"), "utf8"));
+  for (const m of versionsMismatches(doc, { sh: served, versioned: {} })) fail.push(m);
+  if (readFileSync(join(OUT, "PORTAL"), "utf8").trim() !== LOCAL_PORTAL) fail.push(`PORTAL is not ${LOCAL_PORTAL}`);
   if (readFileSync(join(OUT, "CNAME"), "utf8").trim() !== LOCAL_HOSTS.join(" ")) fail.push("CNAME does not name the local hosts");
-  for (const f of ["index.html", "style.css", "install.sh", "install.ps1", "gov.tgz", "CNAME", "robots.txt"]) {
+  for (const f of ["install.sh", "install.ps1", "gov.tgz", "versions.json", "CNAME", "PORTAL", "robots.txt"]) {
     if (!existsSync(join(OUT, f))) fail.push(`missing ${f}`);
   }
   if (fail.length) die(`verify:\n  ✗ ${fail.join("\n  ✗ ")}`);

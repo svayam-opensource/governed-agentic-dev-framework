@@ -11,6 +11,7 @@ import { LIFECYCLE_POLICY_PATH } from "../intent/lifecycle-policy.js";
 import { AGENT_SESSION_ENV } from "../signal/model.js";
 import { signalCommand } from "./signal-verb.js";
 import { repoNameFromUrl } from "../lifecycle/repo.js";
+import { placeDir } from "./place-dir.js";
 import { projectCommand } from "./project-verb.js";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -20,6 +21,8 @@ import { fileURLToPath } from "node:url";
 // `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
 // goes through run-process.ts so it is logged. The two launches log themselves at the call site.
 import { spawn } from "node:child_process";
+import { githubOrgIdProvider } from "./org-id.js";
+import { AFTER_UPDATE, formatSelfUpdatePlan, installKindOf, npmBeside, resolveTarget, selfUpdatePlan } from "../maintain/self-update.js";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
 import type { SpawnPlan } from "../win-spawn.js";
 import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
@@ -1362,7 +1365,7 @@ export async function runFirstRunIfNeeded(
     },
     readIdentity: identityAt,
     exists: (d) => fsSync.existsSync(d),
-    place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
+    place: (from, to) => placeDir(from, to),
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
@@ -2290,13 +2293,7 @@ function setEvidenceFor(home: string, githubOrg: string): void {
     govHome: home,
     env: process.env,
     govVersion: readCliVersion(),
-    orgId: async () => {
-      const fromEnv = Number(process.env.GITHUB_REPOSITORY_OWNER_ID);
-      if (Number.isSafeInteger(fromEnv) && fromEnv > 0) return fromEnv;
-      const out = githubOrg ? tryRunProcess("gh", ["api", `orgs/${githubOrg}`, "--jq", ".id"], { pgm: "gov-work:cli:main", fn: "evidenceOrgId" }) : null;
-      const n = Number((out ?? "").trim());
-      return Number.isSafeInteger(n) && n > 0 ? n : null;
-    },
+    orgId: githubOrgIdProvider(githubOrg),
   });
 }
 
@@ -2733,15 +2730,21 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     } catch {
       /* keep default */
     }
-    const plan = upgradePlan(cliVersion, parsed.positionals[0] ?? null);
-    for (const line of formatUpgradePlan(plan)) process.stdout.write(`${line}\n`);
-    return plan.kind === "error" ? 2 : 0;
+    // F55: the client's own update is `gov self-update`. The old `gov upgrade <version>` shows its plan, installs nothing.
+    void cliVersion; void upgradePlan; void formatUpgradePlan;
+    process.stdout.write(`gov upgrade <version> updates nothing now: the client is updated with  gov self-update ${parsed.positionals[0] ?? ""}`.trimEnd() + "\n");
+    const code = selfUpdateCommand(parsed.positionals, { ...parsed.flags, "dry-run": true });
+    return code === 0 ? 0 : 2;
   }
 
   const env = createNodeEnv();
 
   // `gov doctor` reports on the environment (incl. whether resolution works), so
   // it runs pre-resolve too.
+  // `gov self-update [<version>] [--next|--latest] [--dry-run] [--yes] [--registry <url>]` (F55): a newer gov, installed
+  // where this one was installed (self-update.ts). Needs no workspace: it runs anywhere.
+  if (parsed.command === "self-update") return selfUpdateCommand(parsed.positionals, parsed.flags);
+
   if (parsed.command === "doctor") {
     const resolve = prjResolveGov(env);
     let cliVersion = "unknown";
@@ -3442,4 +3445,52 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return rest().then(print, (e: unknown) => print({ code: 1, lines: [`gov ${parsed.command}: ${(e as Error)?.message ?? String(e)}`] }));
   }
   return print(result);
+}
+
+/** `gov self-update` — plan, show, ask, install with the npm beside this gov's own Node, then say what comes next. */
+function selfUpdateCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>): number {
+  const current = readCliVersion();
+  const registry = flagStr(flags as Record<string, string | boolean>, "registry") ?? process.env.GOV_REGISTRY ?? undefined;
+  const npm = npmBeside(process.execPath, process.platform);
+  const tag = "next" in flags ? "next" : "latest" in flags ? "latest" : null;
+  const version = positionals[0] ?? null;
+  let distTags: Record<string, string> | null = null;
+  if (version === null) {
+    const r = runResult(npm, ["view", PACKAGE_NAME, "dist-tags", "--json", ...(registry ? ["--registry", registry] : [])], { pgm: "gov-work:cli:self-update", fn: "distTags" });
+    try { distTags = r.status === 0 ? (JSON.parse(r.stdout) as Record<string, string>) : null; } catch { distTags = null; }
+  }
+  const packageRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+  const plan = selfUpdatePlan({
+    target: resolveTarget({ current, version, tag, distTags }), current,
+    kind: installKindOf(packageRoot, process.platform, process.env), npm, ...(registry ? { registry } : {}),
+  });
+  const dryRun = "dry-run" in flags;
+  for (const line of formatSelfUpdatePlan(plan, dryRun)) process.stdout.write(`${line}\n`);
+  if (plan.kind === "error") return 1;
+  if (plan.kind !== "install" || dryRun) return 0;
+  if (!("yes" in flags)) {
+    if (!process.stdin.isTTY) { process.stderr.write("gov self-update: nothing installed — no terminal to ask in. Add --yes to install.\n"); return 1; }
+    const answer = readlineSyncQuestion("Install it now? [y/N] ");
+    if (!/^y(es)?$/i.test(answer.trim())) { process.stdout.write("Nothing was installed.\n"); return 0; }
+  }
+  const code = runInteractive(plan.npm, plan.args, { pgm: "gov-work:cli:self-update", fn: "install", spawn: { shell: process.platform === "win32" } });
+  if (code !== 0) { process.stderr.write(`gov self-update: npm could not install ${PACKAGE_NAME}@${plan.to} (exit ${code}) — the output above says why. This gov (${current}) is unchanged.\n`); return 1; }
+  process.stdout.write(`gov ${plan.to} is installed. (A window opened before this still runs ${current} until you open a new one.)\n`);
+  for (const line of AFTER_UPDATE) process.stdout.write(`${line}\n`);
+  return 0;
+}
+
+/** One line from the terminal, synchronously (the command flow here is synchronous). */
+function readlineSyncQuestion(q: string): string {
+  process.stdout.write(q);
+  const buf = Buffer.alloc(256);
+  let out = "";
+  for (;;) {
+    let n: number;
+    try { n = fsSync.readSync(0, buf, 0, buf.length, null); } catch { break; }
+    if (n <= 0) break;
+    out += buf.toString("utf8", 0, n);
+    if (out.includes("\n")) break;
+  }
+  return out.split("\n")[0] ?? "";
 }

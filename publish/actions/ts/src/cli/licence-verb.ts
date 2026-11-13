@@ -22,8 +22,26 @@ import { LICENCE_ACCOUNT, LICENCE_KEY_ENV, type OsKeychain } from "../security/k
 export const GOV_CHECK_PACKAGE = "@svayam/gov-check";
 export const GOV_CHECK_RANGE = "^2.0.0-next.0";
 export const GOV_CHECK_REGISTRY = "https://npm.svayamtech.com/";
-/** The env var npm reads the token from — named in .npmrc as `${…}`, so the file never holds the token. */
-export const REGISTRY_TOKEN_ENV = "GOV_REGISTRY_TOKEN";
+/** Where gov-check's own (public) dependencies come from. The gov registry token reaches gov-check only. */
+export const PUBLIC_REGISTRY = "https://registry.npmjs.org/";
+/**
+ * npm's arguments for the install. Both registries are FLAGS, not only .npmrc lines: npm ranks an inherited
+ * `npm_config_registry` above a project .npmrc, and `npx` exports the user's default registry to its children —
+ * measured 2026-10-24, the public deps then went to npm.svayamtech.com with the gov token and got 403.
+ */
+export const npmInstallArgs = (spec: string): string[] =>
+  ["install", "--no-audit", "--no-fund", `--registry=${PUBLIC_REGISTRY}`, `--@svayam:registry=${GOV_CHECK_REGISTRY}`, spec];
+/**
+ * The env var npm reads the credential from — named in .npmrc as `${…}`, so the file never holds it. It carries npm
+ * BASIC auth (`_auth`): base64 of `gov-registry:<registry token>`. The registry's gate (verdaccio-gov-auth) is an auth
+ * plugin, and Verdaccio hands a plugin only Basic credentials; an `_authToken` goes out as a Bearer token, which
+ * Verdaccio treats as one of its own sessions, so the install arrived anonymous and was refused (401).
+ */
+export const REGISTRY_AUTH_ENV = "GOV_CHECK_REGISTRY_AUTH";
+/** The Basic-auth user name the registry's gate reads a token from. */
+export const REGISTRY_TOKEN_USER = "gov-registry";
+/** npm `_auth` for a registry token: base64 of `gov-registry:<token>`. */
+export const registryBasicAuth = (token: string): string => Buffer.from(`${REGISTRY_TOKEN_USER}:${token}`).toString("base64");
 
 export type ModuleState =
   | { readonly state: "absent" }
@@ -38,7 +56,7 @@ export interface LicenceDeps {
   loadModule(): Promise<ModuleState>;
   /** The pasted key: a hidden prompt, or stdin with --key-from-stdin. null = nothing given. */
   readKey(fromStdin: boolean): Promise<string | null>;
-  /** POST <api>/registry-token {personalKey} → a short-lived npm read token. */
+  /** POST <api>/registry-token {personalKey, org?} → a short-lived npm read token (org: the repo's, MO1 Q3). */
   registryToken(personalKey: string): Promise<RegistryTokenResult>;
   /** `npm install <spec>` in `dir`; `env` is ADDED to the process environment. */
   npmInstall(dir: string, spec: string, env: Readonly<Record<string, string>>): { status: number; stderr: string };
@@ -46,8 +64,8 @@ export interface LicenceDeps {
   writeFile(file: string, text: string): void;
   /** Where the loader finds an installed module: `$XDG_DATA_HOME/gov/gov-check` or `%LOCALAPPDATA%\gov\gov-check`. */
   readonly installDir: string;
-  /** The portal page where a person generates a personal key. */
-  readonly portalUrl: string;
+  /** gov web's "Your gov keys" page, where a person makes a personal key (MO1 3d: keys live in gov web). */
+  readonly keysUrl: string;
 }
 
 export interface LicenceResult { readonly code: number; readonly lines: readonly string[] }
@@ -69,7 +87,7 @@ export async function licenceCommand(positionals: readonly string[], flags: Read
 
 async function login(flags: Readonly<Record<string, string | boolean>>, deps: LicenceDeps): Promise<LicenceResult> {
   const lines = [
-    `Generate a personal key in the Svayam portal: ${deps.portalUrl}`,
+    `Make a personal key in gov web (Your gov keys): ${deps.keysUrl}`,
     "Copy it, then paste it here. It is stored in your OS keychain and never shown.",
   ];
   const raw = await deps.readKey(Object.prototype.hasOwnProperty.call(flags, "key-from-stdin"));
@@ -77,7 +95,7 @@ async function login(flags: Readonly<Record<string, string | boolean>>, deps: Li
   if (!key) return { code: 1, lines: [...lines, "gov licence login: no key was given — nothing was stored."] };
   const jws = decodeJws(key);
   if (!jws || jws.header.typ !== "gov-key+jws") {
-    return { code: 1, lines: [...lines, `gov licence login: that is not a gov personal key (a gov-key+jws token from ${deps.portalUrl}) — nothing was stored.`] };
+    return { code: 1, lines: [...lines, `gov licence login: that is not a gov personal key (a gov-key+jws token from ${deps.keysUrl}) — nothing was stored.`] };
   }
   if (deps.keychain.backend === "env only") {
     return { code: 1, lines: [...lines, `gov licence login: this system has no keychain gov can use — put the key in ${LICENCE_KEY_ENV} in your environment (your shell profile, or your CI secret store). gov never writes it to a file.`] };
@@ -143,17 +161,22 @@ async function install(flags: Readonly<Record<string, string | boolean>>, deps: 
   const dir = deps.installDir;
   const host = new URL(GOV_CHECK_REGISTRY).host;
   deps.writeFile(path.join(dir, "package.json"), `${JSON.stringify({ name: "gov-check-install", private: true, description: "Where `gov licence install` keeps @svayam/gov-check. Managed by gov." }, null, 2)}\n`);
-  // The token is NAMED here, never written: npm expands ${GOV_REGISTRY_TOKEN} from the environment it is given.
-  deps.writeFile(path.join(dir, ".npmrc"), `@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_authToken=\${${REGISTRY_TOKEN_ENV}}\n`);
+  // The credential is NAMED here, never written: npm expands ${GOV_CHECK_REGISTRY_AUTH} from the environment it is
+  // given. The blank `_authToken` matters: a Svayam developer's own ~/.npmrc often holds an SSO token for this host,
+  // and npm prefers a token over `_auth` across config layers — without the blank, npm would read gov-check as that
+  // person, whom the package rule does not admit (403). `registry=` sends gov-check's own (public) dependencies to npmjs:
+  // the registry token reaches gov-check only, so a developer whose default registry is this host would get 403 on them.
+  const auth = registryBasicAuth(tok.token);
+  deps.writeFile(path.join(dir, ".npmrc"), `registry=${PUBLIC_REGISTRY}\n@svayam:registry=${GOV_CHECK_REGISTRY}\n//${host}/:_auth=\${${REGISTRY_AUTH_ENV}}\n//${host}/:_authToken=\n`);
   const spec = `${GOV_CHECK_PACKAGE}@${range}`;
-  const r = deps.npmInstall(dir, spec, { [REGISTRY_TOKEN_ENV]: tok.token });
+  const r = deps.npmInstall(dir, spec, { [REGISTRY_AUTH_ENV]: auth });
   if (r.status !== 0) {
     const last = r.stderr.trim().split("\n").filter(Boolean).slice(-2).join(" · ");
-    return { code: 1, lines: [`gov licence install: npm could not install ${spec} into ${dir}${last ? `: ${scrub(last, [key, tok.token])}` : ""}`] };
+    return { code: 1, lines: [`gov licence install: npm could not install ${spec} into ${dir}${last ? `: ${scrub(last, [key, tok.token, auth])}` : ""}`] };
   }
   const lines = [`installed ${spec} into ${dir} — gov finds it there.`];
   const m = await deps.loadModule();
   if (m.state === "active") lines.push("gov-check is active; `gov licence status` shows your organization, plan and lease.");
-  else if (m.state === "refused") lines.push(...m.lines.map((l) => scrub(l, [key, tok.token])));
+  else if (m.state === "refused") lines.push(...m.lines.map((l) => scrub(l, [key, tok.token, auth])));
   return { code: 0, lines };
 }

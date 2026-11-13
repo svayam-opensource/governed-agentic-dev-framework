@@ -339,7 +339,8 @@ describe("check engine — GitHub Actions renderer", () => {
     // The evidence steps (plan 02 E08) are pinned in render-github-evidence.test.ts; this golden is the rest.
     const withoutEvidence = (t: string): string => t
       .replace(/ {6}- name: Evidence —[\s\S]*?(?= {6}- name: gov check run)/, "")
-      .replace(/ {8}env:\n {10}GOV_EVIDENCE_TOKEN:[^\n]*\n {10}GOV_EVIDENCE_REMOTE:[^\n]*\n/, "");
+      .replace(/ {8}env:\n {10}GOV_EVIDENCE_TOKEN:[^\n]*\n {10}GOV_EVIDENCE_REMOTE:[^\n]*\n/, "")
+      .replace(/ {6}GOV_LICENCE_API:[^\n]*\n {6}GOV_LICENCE_TEST_KEYSET:[^\n]*\n/, "");
     expect(withoutEvidence(undigest(files[0]!.text))).to.equal(`${HEADER}
 on:
   pull_request:

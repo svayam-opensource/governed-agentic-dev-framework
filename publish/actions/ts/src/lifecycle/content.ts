@@ -77,7 +77,8 @@ ${repoLinesInside}
 ## Do Not
 
 - Never hand-manage task state — tasks are GitHub Issues on the board.
-- Create GitHub Issues unilaterally — those are humans-only.
+- Create a GitHub Issue on your own initiative — only as a commit's stated reason, or for work the developer
+  asked for or ruled on; label it \`agent-raised\` with its project, task and trigger (session protocol A.1).
 - Touch \`${p.workspaceRepo}/knowledge/\` — read-only this project.
 - Push the project branch from the home ORG GOVERNANCE checkout — that
   checkout stays on ${p.defaultBranch}.

@@ -1,4 +1,4 @@
-> **Who this is for:** people working *on* the framework. Adopting or joining it? Start at [gov.svayamtech.com](https://gov.svayamtech.com) — the doors are below.
+> **Who this is for:** people working *on* the framework. Adopting or joining it? Start with the install page in the [gov portal](https://portal.svayamtech.com/install). The doors are below.
 
 # Governed Agentic Development Framework
 
@@ -7,7 +7,11 @@ organizations consume. One repo, two published artifacts.
 
 ## Using the framework? Start here
 
-**[gov.svayamtech.com](https://gov.svayamtech.com)** — one door per OS:
+The install page is in the **[gov portal](https://portal.svayamtech.com/install)**. Sign in, or register your
+organisation, to see it. [gov.svayamtech.com](https://gov.svayamtech.com) takes you there.
+
+You don't need an account to install. These commands, npm and winget all work without signing in.
+There is one door per OS:
 
 | OS | Door |
 |---|---|

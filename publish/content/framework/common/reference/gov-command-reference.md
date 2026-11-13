@@ -25,6 +25,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov org](#gov-org) — the governance workspaces on this machine, and which one is active
 - [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions
 - [gov setup](#gov-setup) — set this machine up for an organization — the first `gov` run does this for you
+- [gov self-update](#gov-self-update) — install a newer gov, in the same place this one was installed
 - [gov upgrade](#gov-upgrade) — bring this org's framework content to the content this gov carries (newer content: install a newer gov)
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
@@ -246,6 +247,50 @@ gov setup --join acme/acme-gov
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov org](#gov-org) · [gov doctor](#gov-doctor)
+
+### gov self-update
+
+install a newer gov, in the same place this one was installed
+
+```text
+gov self-update [<version>] [--next | --latest] [--dry-run] [--yes] [--registry <url>]
+```
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `<version>` | the version to install (x.y.z, or x.y.z-next.n). Without it: the newest on this gov's own line — `next` for a pre-release gov, `latest` for a release |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--next` | follow the pre-release line (dist-tag `next`) |
+| `--latest` | follow the release line (dist-tag `latest`) |
+| `--dry-run` | show what would be installed and the exact command; install nothing |
+| `--yes` | install without asking (scripts; upgrade.sh) |
+| `--registry <url>` | the npm registry to install from (default: npm's own; `GOV_REGISTRY` also sets it) |
+
+**Examples**
+
+```bash
+gov self-update
+gov self-update --dry-run
+gov self-update 2.0.0
+gov self-update --next --yes
+```
+
+**Changes.** installs the gov package with the npm beside the Node this gov runs on — where install.sh, install.ps1 or `npm install -g` put it; nothing else on the machine. It asks first unless --yes. The Windows installer (MSI) is not replaced: gov names `winget upgrade Svayam.Gov` instead. Afterwards it names the next step: `gov upgrade --pr` in the organization's governance repository
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | up to date, installed, or a dry run |
+| `1` | nothing installed: no version found, npm failed, or no terminal to ask in without --yes |
+
+**See also.** [gov upgrade](#gov-upgrade) · [gov doctor](#gov-doctor)
 
 ### gov upgrade
 

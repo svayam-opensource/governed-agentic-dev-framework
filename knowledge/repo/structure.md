@@ -49,7 +49,7 @@ never an org's own folder of the same name) and `gov upgrade --apply` / `--pr` r
 | `publish/actions/ts/` | the gov CLI (TypeScript), its tests (`test/`, `e2e/`) | via npm, as `@svayam-opensource/gov` |
 | `publish/content/` | what adopters get: `governance/` (framework doctrine, overwritten on upgrade), `agent/` (the harness), `knowledge/` (the org's, shipped empty), `org-config.example.yaml`, `MANIFEST.yaml` | **by MANIFEST row only** |
 | `publish/actions/deprecated/` | the retired Bash tooling (`setup.sh`, …), kept for reference | no |
-| `site/` | the install site (the `gov-install` unit: `gov.svayamtech.com`) | no |
+| `site/` | the install scripts host (the `gov-install` unit: `gov.svayamtech.com`) — scripts and `versions.json` only; `/` redirects to the portal's `/install` | no |
 | `install.sh`, `install.ps1` | the installers the site serves | no (served, not copied) |
 | `knowledge/` (this folder) | **this repo's** knowledge, for agents working here (layer 3) | no |
 | `AGENTS.md`, `CONTRIBUTING.md`, `README.md` | for contributors to this repo | no |

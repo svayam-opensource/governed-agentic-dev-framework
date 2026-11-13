@@ -26,9 +26,10 @@ function walk(root, rel, out, keep) {
 
 /**
  * Repo-relative paths of every doc a person reads to install or use gov: the root README and
- * CONTRIBUTING, docs/, the npm README, the install site's page, and the content an adopter's repo is
- * seeded with. CHANGELOG.md is history and is left out; so is site/README.md, the maintainers' note
- * on the DNS plan, which has to name the planned host.
+ * CONTRIBUTING, docs/, the npm README, and the content an adopter's repo is seeded with. CHANGELOG.md
+ * is history and is left out; so is site/README.md, the maintainers' note on the DNS plan, which has to
+ * name the planned host. The install PAGE is no longer here: since PRJ-121 IS-E2 the install host serves
+ * scripts only and `/` redirects to the portal's /install, which lives in Svayamtech/912-SVM-LIB-UI.
  */
 export function peopleFacingDocs(root) {
   const out = [];
@@ -36,7 +37,6 @@ export function peopleFacingDocs(root) {
     if (fs.existsSync(path.join(root, f))) out.push(f);
   }
   walk(root, "docs", out, (r) => r.endsWith(".md"));
-  walk(root, "site/template", out, (r) => r.endsWith(".html"));
   walk(root, "publish/content", out, (r) => r.endsWith(".md"));
   return out.sort();
 }

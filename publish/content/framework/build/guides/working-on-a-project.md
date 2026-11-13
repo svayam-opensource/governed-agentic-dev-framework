@@ -252,7 +252,8 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — GOV-FRM-086).
   - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
-  - GitHub Issues unilaterally — those represent business intent humans add to the board.
+
+- **Issues an agent may create.** GitHub Issues are business intent, so an agent creates one only when its work needs it: as the reason for a commit it must make, or to record follow-up work you asked for or ruled on. It labels each one `agent-raised` and writes down the project, the task or branch, and what triggered it, then adds it to the board. You can close any of them, or adopt one as your own by removing the label.
 
 ### Prompting style during the session
 

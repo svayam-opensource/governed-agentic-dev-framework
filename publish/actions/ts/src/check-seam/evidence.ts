@@ -53,7 +53,7 @@ export function ensureCheckModule(ctx: EvidenceContext, extra: { readonly keycha
   cached ??= loadCheckModule({
     env: ctx.env,
     host: createHost({ govVersion: ctx.govVersion, ...(extra.keychain ? { keychain: extra.keychain } : {}) }),
-    opts: { surface: ctx.surface, ...(ctx.govHome ? { govHome: ctx.govHome } : {}), ...(ctx.repoDir ? { repoDir: ctx.repoDir } : {}) },
+    opts: { surface: ctx.surface, ...(ctx.govHome ? { govHome: ctx.govHome } : {}), ...(ctx.repoDir ? { repoDir: ctx.repoDir } : {}), ...orgIdOpt(ctx) },
     ...(extra.govRoot ? { govRoot: extra.govRoot } : {}),
   });
   return cached;
@@ -77,7 +77,14 @@ export interface EvidenceContext {
   readonly repoDir?: string;
   readonly env: Env;
   readonly govVersion: string;
+  /** The org's numeric id, for the module's lease (MO1 Q3). Defaults to the one {@link setEvidenceContext} set. */
+  readonly orgId?: () => Promise<number | null>;
 }
+
+const orgIdOpt = (ctx: EvidenceContext): { orgId?: () => Promise<number | null> } => {
+  const f = ctx.orgId ?? context?.orgId;
+  return f ? { orgId: f } : {};
+};
 
 export interface FlushDeps {
   readonly ctx: EvidenceContext;
@@ -100,7 +107,7 @@ export async function flushEvidence(d: FlushDeps): Promise<{ readonly state: Loa
     ? await d.load({
       env: d.ctx.env,
       host: createHost({ govVersion: d.ctx.govVersion, ...(d.keychain ? { keychain: d.keychain } : {}) }),
-      opts: { surface: d.ctx.surface, ...(d.ctx.govHome ? { govHome: d.ctx.govHome } : {}), ...(d.ctx.repoDir ? { repoDir: d.ctx.repoDir } : {}) },
+      opts: { surface: d.ctx.surface, ...(d.ctx.govHome ? { govHome: d.ctx.govHome } : {}), ...(d.ctx.repoDir ? { repoDir: d.ctx.repoDir } : {}), orgId: d.orgId },
       ...(d.govRoot ? { govRoot: d.govRoot } : {}),
     })
     : await ensureCheckModule(d.ctx, { ...(d.keychain ? { keychain: d.keychain } : {}), ...(d.govRoot ? { govRoot: d.govRoot } : {}) });

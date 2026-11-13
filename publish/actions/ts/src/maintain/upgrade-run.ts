@@ -9,6 +9,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan, MOVE_RECORD_PATH } from "./upgrade-sync.js";
 
+import { upgradeRelinks } from "./upgrade-links.js";
+
 const SKIP = new Set([".git", "node_modules"]);
 
 /** Relative file paths under `root` (skips .git / node_modules). */
@@ -290,7 +292,14 @@ function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, 
 /** The manifest's plan plus what an extension (the bridge) adds — its actions after the manifest's, its left-alone list. */
 function extendPlan(base: UpgradePlan, ext: UpgradeExtension, adopterDir: string, contentDir: string): { plan: UpgradePlan; leftInPlace: readonly LeftInPlace[] } {
   const more = ext.plan?.(adopterDir, contentDir, base);
-  return more ? { plan: { actions: [...base.actions, ...more.actions] }, leftInPlace: more.leftInPlace } : { plan: base, leftInPlace: [] };
+  const actions = more ? [...base.actions, ...more.actions] : base.actions;
+  // F55: for every layout, the org's kept documents' links to what this plan moves, migrates or retires are repointed.
+  const read = (rel: string): string | null => {
+    const p = path.join(adopterDir, rel);
+    return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
+  };
+  const links = upgradeRelinks(walk(adopterDir), read, actions);
+  return { plan: { actions: [...actions, ...links] }, leftInPlace: more?.leftInPlace ?? [] };
 }
 
 /** `govVersion`: the gov applying the upgrade, named in the record of each relocation — else the content's VERSION, which a release keeps equal to its CLI's. */

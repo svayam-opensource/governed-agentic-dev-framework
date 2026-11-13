@@ -49,6 +49,11 @@ on:
         description: "bridge rehearsal: run e2e/bridge-journey.sh LIVE on svayam-e2e/svm-prj-work-rehearsal (resets it to H01's snapshot first). Off: its hermetic dry run"
         type: boolean
         default: false
+      signup:
+        description: "install-signup journey (IS-E6): fixture = hermetic stub (default) · local = stub portal + a gov-install container built from site/ · live = svayam-e2e on uat (SKIPPED until PRJ-119 S-g/S-h/S-i/S-k, P3, P4 — fails the dispatch as incomplete)"
+        type: choice
+        options: [fixture, local, live]
+        default: fixture
 
 # ONE RUN PER COMMIT — see the note in node-ci.yml. `github.ref` differs between the push and
 # pull_request events for the same commit, so a ref-keyed group never deduplicated them.
@@ -486,6 +491,49 @@ jobs:
             rule-model:${{ steps.rulemodel.outcome }}
           STRICT: ${{ steps.guard.outputs.strict }}
           E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
+        run: bash publish/actions/ts/e2e/live-verdict.sh
+
+  # THE INSTALL-SIGNUP JOURNEY (PRJ-121 intent 02 addendum, IS-E6; spec addendum-install-signup §9, §10).
+  #
+  # NOT PART OF THE REQUIRED `live` JOB, deliberately: its live half needs PRJ-119's signals (S-g, S-h, S-i, S-k), the
+  # gov-uat GitHub App (P3) and the sandbox identities (P4), none of which exist yet (plan addendum §4). Until they
+  # land, this job proves the journey's assertions against the stub portal + IAM:
+  #   fixture (every PR, push and default dispatch)  the stub portal and the fixture scripts host — no Docker, no network
+  #   local   (dispatch with signup=local)            the stub portal and a REAL gov-install built from site/ (Docker);
+  #                                                   green once IS-E2 (site/ scripts-only) is on the branch
+  #   live    (dispatch with signup=live)             svayam-e2e on uat — today it stops at its guard and SKIPS, naming
+  #                                                   what it waits on; the verdict below makes that a red dispatch
+  # TODO(IS-E6 live half): when LIVE_WAITS_ON in e2e/signup-journey.sh is empty and the live driver is written, move
+  # the live run into the `live` job (after the signal journey) and count it toward intent 05's green streak (IS-A22).
+  signup:
+    name: install-signup journey (stub portal)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install-signup journey
+        id: signup
+        env:
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.signup || 'fixture' }}
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          E2E_SKIPS_FILE: ${{ runner.temp }}/signup-skips.tsv
+        run: |
+          echo "### Install-signup journey: $MODE" >> "$GITHUB_STEP_SUMMARY"
+          case "$MODE" in
+            fixture) E2E_GOV_INSTALL=fixture bash publish/actions/ts/e2e/signup-journey.sh --stub ;;
+            local)   bash publish/actions/ts/e2e/signup-journey.sh --stub ;;
+            live)    bash publish/actions/ts/e2e/signup-journey.sh --live ;;
+            *)       echo "::error::unknown signup mode '$MODE'"; exit 2 ;;
+          esac
+      - name: Install-signup journey — verdict
+        if: always()
+        env:
+          JOURNEYS: signup:${{ steps.signup.outcome }}
+          STRICT: "true"
+          E2E_SKIPS_FILE: ${{ runner.temp }}/signup-skips.tsv
         run: bash publish/actions/ts/e2e/live-verdict.sh
 
   # THE BRIDGE REHEARSAL (PRJ-121 intent 01, B09; spec 01 §4.3 step 2). bridge: deleted in D01 with the bridge.

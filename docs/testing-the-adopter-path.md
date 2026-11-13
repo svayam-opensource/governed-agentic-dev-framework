@@ -467,6 +467,43 @@ and its verdict without a token.
 The rehearsal is done when two runs in a row are clean (H02), on dev builds, and once more on the cut bridge
 (H03).
 
+### The install-signup tier — the front door behind gov-app signup
+
+The public install page moves behind portal signup (PRJ-121 intent 02 addendum). A person registers their
+organisation or is invited, and only then sees **Install gov**. The scripts host keeps serving the scripts to anyone
+and redirects `/` to the portal. `publish/actions/ts/e2e/signup-journey.sh` walks that journey (addendum spec §9)
+and names each check by its acceptance id (IS-A1 to IS-A20).
+
+```mermaid
+flowchart LR
+  S["scripts host<br/>200 · text/plain · no 3xx<br/>/ → 302 portal"] --> O["/install signed out"]
+  O --> R["register svayam-e2e<br/>(again: refused)"]
+  R --> I["Install gov =<br/>versions.json"]
+  I --> M["invite by email,<br/>by GitHub login"]
+  M --> J["request to join<br/>declined, approved"]
+  J --> X["remove; last admin kept"]
+  X --> U["suspend, reinstate"]
+  U --> E["absent in dev, prod"]
+```
+
+| Mode | Portal and IAM | Scripts host | Where it runs |
+|---|---|---|---|
+| `--dry-run` | printed, not called | printed, not called | `test/e2e/signup-journey-dry.test.ts` |
+| `--stub` with `E2E_GOV_INSTALL=fixture` | `e2e/stub/signup-portal.mjs` | `e2e/stub/gov-install-fixture.mjs` | the same test; the `signup` job by default |
+| `--stub` | `e2e/stub/signup-portal.mjs` | a real gov-install built from `site/` (`e2e/local-gov-install.sh`, Docker), or `E2E_GOV_INSTALL_URL` | dispatch with `signup=local` |
+| `--live` | portal-uat and uat's IAM | gov-uat | dispatch with `signup=live`. Today it stops at its guard and is **skipped** |
+
+- **The stub portal is the spec's behaviour, held in memory.** Its calls are proposals. When PRJ-119 publishes
+  its API, the live driver maps the same calls onto that API, and the assertions stay the same.
+- **The unit test also feeds the journey defects on purpose.** Examples: a script path that redirects, a refusal
+  that names the account, a piped install command. The journey must fail on each one and name the IS-A id.
+- **`signup=local` passes only once IS-E2 is on the branch.** IS-E2 makes `site/` scripts-only, with the `/`
+  redirect and `versions.json`. Before that, the IS-A16 check fails, which is the right answer.
+- **The live run waits on:** PRJ-119 signals S-g, S-h, S-i and S-k (with S-b, S-c and S-f), the gov-uat App
+  (plan P3), the sandbox identities (P4), portal-web on portal-uat (910#282), and a way to reset uat between runs.
+  The script lists these in `LIVE_WAITS_ON`. Until that list is empty, `--live` records a skip, and
+  `live-verdict.sh` turns the dispatch red (`incomplete`). The job is outside the required `live` job until then.
+
 **Board poll and token probe.** After adding its issue to the board, the adopter journey prints
 `probe:` lines (`e2e/token-probe.sh`): the token's kind, and whether it can read the new repo, the
 issue and the board item. Its poll then tells two failures apart: items whose content is null — the

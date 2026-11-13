@@ -22,6 +22,7 @@ import type { CheckBinding } from "../model/catalog.js";
 import type { BindingRenderer } from "../model/contracts.js";
 import { DEFAULT_RUNS_ON, runsOnYaml } from "../../config/ci-runner.js";
 import { GH_ACTION_OUTCOMES_ENV, ghActionKey, ghActionName, isOrgGhAction } from "./gh-org-actions.js";
+import { GOV_CHECK_PACKAGE, GOV_CHECK_RANGE } from "../../cli/licence-verb.js";
 
 export const WORKFLOW_PATH = ".github/workflows/gov-checks.yml";
 
@@ -146,7 +147,7 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
 export const EVIDENCE_APP_SECRET_NAMES = Object.freeze({ clientId: "GOV_EVIDENCE_APP_CLIENT_ID", privateKey: "GOV_EVIDENCE_APP_PRIVATE_KEY" });
 const LEASE_SCRIPT = String.raw`import { generateKeyPairSync } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
-const base = process.env.GOV_LICENCE_URL || "https://gov.svayamtech.com/api/v1";
+const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";
 const say = (l) => process.stdout.write(l + "\\n");
 const note = () => say("::notice title=gov evidence::Signed evidence is off for this run: no subscription (or the licence service is unreachable). Checks ran as usual.");
 try {
@@ -160,7 +161,9 @@ try {
   if (!r.ok) process.exit(0);
   const { registryToken } = await r.json();
   say("::add-mask::" + registryToken);
-  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_authToken=" + registryToken + "\n", { mode: 0o600 });
+  const basic = Buffer.from("gov-registry:" + registryToken).toString("base64");
+  say("::add-mask::" + basic);
+  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "registry=https://registry.npmjs.org/\n@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_auth=" + basic + "\n", { mode: 0o600 });
   appendFileSync(process.env.GITHUB_OUTPUT, "installed=true\n");
 } catch { /* an outage is not a failure: the checks run without evidence */ }`.split("\n");
 
@@ -185,7 +188,7 @@ function evidenceSteps(opts: GithubRendererOptions): string[] {
     gate.replace("env.GOV_EVIDENCE_ENABLED == 'true'", "env.GOV_EVIDENCE_ENABLED == 'true' && steps.evidence-install.outputs.installed == 'true'"),
     "        continue-on-error: true",
     "        run: |",
-    '          npm install -g --userconfig "$RUNNER_TEMP/gov-check.npmrc" "@svayam/gov-check@^2"',
+    `          npm install -g --registry=https://registry.npmjs.org/ --@svayam:registry=https://npm.svayamtech.com/ --userconfig "$RUNNER_TEMP/gov-check.npmrc" "${GOV_CHECK_PACKAGE}@${GOV_CHECK_RANGE}"`,
     '          rm -f "$RUNNER_TEMP/gov-check.npmrc"',
     "      - name: Evidence — mint the writer App's token",
     "        id: evidence-token",
@@ -284,7 +287,10 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
       `    name: ${checkRunName(j.id, j.event)}`,
       `    if: ${cond}`,
-      ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`] : []),
+      // The licence service is the org's choice (Policy Owner 2026-10-24): org variables GOV_LICENCE_API and
+      // GOV_LICENCE_TEST_KEYSET reach the lease script and gov-check; unset renders "" → prod, as before.
+      ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`,
+        "      GOV_LICENCE_API: ${{ vars.GOV_LICENCE_API }}", "      GOV_LICENCE_TEST_KEYSET: ${{ vars.GOV_LICENCE_TEST_KEYSET }}"] : []),
       ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
       `    runs-on: ${opts.runsOn ?? runsOnYaml(DEFAULT_RUNS_ON)}`,
       "    timeout-minutes: 10",

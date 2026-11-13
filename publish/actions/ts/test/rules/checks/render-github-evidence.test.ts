@@ -37,6 +37,22 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     expect(t.match(/if: env\.GOV_EVIDENCE_ENABLED == 'true'/g)!.length).to.be.greaterThan(1);
   });
 
+  it("the licence service is the org's choice: vars.GOV_LICENCE_API / vars.GOV_LICENCE_TEST_KEYSET reach every step (unset → prod)", () => {
+    // Without these the lease script and gov-check always used prod gov-licence — a sandbox org could not test against
+    // dev (Policy Owner ruling 2026-10-24: "map the two variables"). An unset variable renders as "" and the script's
+    // `|| "https://gov.svayamtech.com/api/v1"` keeps prod; gov-check ignores an empty test keyset.
+    const t = text();
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_API: \$\{\{ vars\.GOV_LICENCE_API \}\}\n/);
+    expect(t).to.match(/ {4}env:\n(?: {6}\S+: .*\n)* {6}GOV_LICENCE_TEST_KEYSET: \$\{\{ vars\.GOV_LICENCE_TEST_KEYSET \}\}\n/);
+    expect(t).to.contain('const base = process.env.GOV_LICENCE_API || "https://gov.svayamtech.com/api/v1";');
+  });
+
+  it("an org that never turned evidence on gets no licence variables either", () => {
+    const t = renderWorkflow(BINDINGS, {})[0]!.text;
+    expect(t).to.not.contain("GOV_LICENCE_API");
+    expect(t).to.not.contain("GOV_LICENCE_TEST_KEYSET");
+  });
+
   it("every evidence step is non-fatal (continue-on-error), so a 403 or an outage never changes a verdict", () => {
     const t = text();
     const steps = t.split("\n      - ").filter((s) => /Evidence/.test(s.split("\n")[0]!));
@@ -55,8 +71,14 @@ describe("gov-checks workflow — evidence steps (X13, A11, A19)", () => {
     const t = text();
     expect(t).to.contain("audience=gov-evidence");
     expect(t).to.contain("/leases/oidc");
-    expect(t).to.contain('"@svayam/gov-check@^2"');
+    // The SAME range the laptop installs: gov-check ships 2.0.0-next.N first, and a bare `^2` matches no prerelease —
+    // the CI install would find nothing to install until a stable 2.0.0 existed.
+    expect(t).to.contain('"@svayam/gov-check@^2.0.0-next.0"');
+    expect(t).to.not.contain('"@svayam/gov-check@^2"');
     expect(t).to.contain("::add-mask::");
+    // The registry is on the COMMAND LINE: npm ranks an inherited `npm_config_registry` (npx and setup-node export
+    // one) above any .npmrc, and the gov token reaches gov-check only — public deps through it get 403.
+    expect(t).to.match(/npm install -g --registry=https:\/\/registry\.npmjs\.org\/ --@svayam:registry=https:\/\/npm\.svayamtech\.com\/ --userconfig/);
   });
 
   it("a refusal prints ONE ::notice and the job carries on", () => {
@@ -127,7 +149,7 @@ describe("gov-checks workflow — the embedded lease script, run locally (A11, A
       execFile(process.execPath, [f], {
         env: { PATH: process.env.PATH, RUNNER_TEMP: dir, GITHUB_OUTPUT: out,
           ACTIONS_ID_TOKEN_REQUEST_URL: `http://127.0.0.1:${port}/oidc?api-version=2`, ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rt",
-          GOV_LICENCE_URL: `http://127.0.0.1:${port}/api/v1` },
+          GOV_LICENCE_API: `http://127.0.0.1:${port}/api/v1` },
       }, (err, stdout) => resolve({ code: err ? (err as { code?: number }).code ?? 1 : 0, stdout }));
     });
     server.close();
@@ -148,7 +170,12 @@ describe("gov-checks workflow — the embedded lease script, run locally (A11, A
     expect(Object.keys(body).sort()).to.deep.equal(["counts", "oidcToken", "writerPub"]);
     expect(r.stdout).to.contain("::add-mask::reg-secret-token");
     expect(r.outputs).to.contain("installed=true");
-    expect(r.npmrc).to.contain("//npm.svayamtech.com/:_authToken=reg-secret-token");
+    // Basic auth (user gov-registry): the registry's gate plugin never sees a Bearer `_authToken` (Verdaccio 401s it).
+    const basic = Buffer.from("gov-registry:reg-secret-token").toString("base64");
+    expect(r.npmrc).to.contain("//npm.svayamtech.com/:_auth=" + basic);
+    expect(r.npmrc).to.not.contain("_authToken=reg-secret-token");
+    expect(r.npmrc.split("\n")).to.include("registry=https://registry.npmjs.org/");   // public deps never ride the gov token
+    expect(r.stdout).to.contain("::add-mask::" + basic);
     expect(r.stdout).to.not.contain("::notice");
   });
 

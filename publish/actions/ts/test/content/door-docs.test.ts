@@ -3,8 +3,9 @@
 /**
  * THE DOOR, AS THE DOCS DESCRIBE IT (#181, plan 04 T07, ruling Q2 A).
  *
- * An adopter meets the framework through a handful of pages: the repo README, the npm README, the install
- * site's start page, `docs/installing.md` and `docs/operating-systems.md`. Each used to send people somewhere
+ * An adopter meets the framework through a handful of pages: the repo README, the npm README,
+ * `docs/installing.md` and `docs/operating-systems.md` (the install site's start page moved to the portal's
+ * /install with PRJ-121 IS-E2, and is tested there). Each used to send people somewhere
  * that no longer exists — `gov.svayam.ai` (does not resolve), `@svayam-opensource/prj` (the frozen bash CLI),
  * "run it from Git Bash" (Windows is native now). This test holds the people-facing docs to the current door:
  *
@@ -50,10 +51,12 @@ describe("door docs (#181)", () => {
   const docs: string[] = peopleFacingDocs(ROOT);
 
   it("the people-facing doc set is found, and covers the pages an adopter meets first", () => {
-    for (const must of [...REWRITTEN, "site/template/index.html", "publish/content/README.md"]) {
+    for (const must of [...REWRITTEN, "publish/content/README.md"]) {
       expect(docs, must).to.include(must);
     }
     expect(docs).to.not.include("CHANGELOG.md");
+    // PRJ-121 IS-E2: the install host serves scripts only; the page is the portal's /install (912-SVM-LIB-UI).
+    expect(docs.filter((f) => f.startsWith("site/")), "site/ carries no page any more").to.deep.equal([]);
   });
 
   it("no people-facing doc names the frozen bash CLI's package", () => {
@@ -66,7 +69,7 @@ describe("door docs (#181)", () => {
     expect(hits, `point at ${DOOR_URL} until P2 B makes gov.svayam.ai live`).to.deep.equal([]);
   });
 
-  it("the READMEs and the install page name the live door", () => {
+  it("the READMEs name the live door", () => {
     expect(DOOR_URL).to.equal("https://gov.svayamtech.com");
     for (const f of ["README.md", "publish/actions/ts/README.md", "publish/content/README.md", "docs/installing.md"]) {
       expect(read(f), f).to.include(DOOR_URL);
@@ -99,7 +102,7 @@ describe("door docs (#181)", () => {
   });
 
   it("P1 REVISED: Windows = winget; no page promises a signed MSI; a downloaded .msi shows 'Unknown publisher'", () => {
-    for (const f of ["README.md", "publish/actions/ts/README.md", "docs/installing.md", "docs/operating-systems.md", "site/template/index.html"]) {
+    for (const f of ["README.md", "publish/actions/ts/README.md", "docs/installing.md", "docs/operating-systems.md"]) {
       const t = read(f);
       expect(t, `${f}: Windows door`).to.include("winget install Svayam.Gov");
       expect(t, `${f}: promises a signed installer`).to.not.match(/signed (`|<code>)?\.msi|signed MSI|first signed release/i);

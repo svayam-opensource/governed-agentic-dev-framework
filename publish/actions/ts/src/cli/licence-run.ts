@@ -11,14 +11,22 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { parseArgv } from "./args.js";
 import { askFns } from "./ask.js";
-import { licenceCommand, type ModuleState, type RegistryTokenResult } from "./licence-verb.js";
+import { licenceCommand, type ModuleState, type RegistryTokenResult, npmInstallArgs } from "./licence-verb.js";
 import { createKeychain } from "../security/keychain.js";
+import { loadCheckModule } from "../check-seam/loader.js";
+import { createHost } from "../check-seam/host.js";
+import type { KeychainPort } from "../check-seam/public.js";
 import { runResult } from "../run-process.js";
+import { githubOrgIdProvider } from "./org-id.js";
+import { prjResolveGov } from "../resolve/resolve-gov.js";
+import { createNodeEnv } from "../resolve/node-env.js";
+import { parseOrgConfig } from "../config/org-config.js";
+import { createNodeFs } from "../lifecycle/fs-io.js";
 
 /** The licence API (spec 02 Q9); GOV_LICENCE_API points a test at a stub issuer. */
 export const LICENCE_API = "https://gov.svayamtech.com/api/v1";
-/** The portal page for personal keys (spec 02 §6.1 "Keys"); GOV_PORTAL_URL overrides. */
-export const PORTAL_KEYS_URL = "https://portal.svayamtech.com/account/keys";
+/** gov web's page for personal keys (MO1 3d, ruled 2026-11-12: app settings live in the app); GOV_KEYS_URL overrides. */
+export const GOV_KEYS_URL = "https://gov.svayamtech.com/keys";
 
 /**
  * Where `gov licence install` puts the module: a private npm prefix the seam loader also searches.
@@ -30,15 +38,21 @@ export function licenceInstallDir(env: Readonly<Record<string, string | undefine
   return path.join(env.XDG_DATA_HOME || path.join(home, ".local", "share"), "gov", "gov-check");
 }
 
-/** POST <base>/registry-token {personalKey} → {token, expiresAt}. The key is in the BODY, never the URL or a log. */
-export function httpRegistryToken(base: string, fetchFn: typeof fetch = fetch): (personalKey: string) => Promise<RegistryTokenResult> {
+/**
+ * POST <base>/registry-token {personalKey, org?} → {token, expiresAt}. The key is in the BODY, never the URL or a log.
+ * `org` (MO1 Q3) is the repo's numeric GitHub org id when gov knows it — needed once the account has several orgs.
+ */
+export function httpRegistryToken(
+  base: string, fetchFn: typeof fetch = fetch, orgId: () => Promise<number | null> = () => Promise.resolve(null),
+): (personalKey: string) => Promise<RegistryTokenResult> {
   return async (personalKey) => {
     let res: Response;
+    const org = await orgId().catch(() => null);
     try {
       res = await fetchFn(`${base.replace(/\/$/, "")}/registry-token`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ personalKey }),
+        body: JSON.stringify(org ? { personalKey, org } : { personalKey }),
         signal: AbortSignal.timeout(15_000),
       });
     } catch (e) {
@@ -60,6 +74,41 @@ export function httpRegistryToken(base: string, fetchFn: typeof fetch = fetch): 
  */
 export type ModuleLoader = () => Promise<ModuleState>;
 
+/**
+ * `gov licence` finds and starts gov-check exactly as `gov check` does (same discovery, same lock-step and activation;
+ * Policy Owner ruling 2026-10-24). Not cached: `install` loads the module it has just put on disk.
+ */
+export function licenceModuleLoader(o: {
+  readonly govVersion: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly keychain?: KeychainPort;
+  readonly load?: typeof loadCheckModule;
+}): ModuleLoader {
+  return async () => {
+    const env = o.env ?? process.env;
+    const m = await (o.load ?? loadCheckModule)({
+      env,
+      host: createHost({ govVersion: o.govVersion, keychain: o.keychain ?? createKeychain() }),
+      opts: { surface: env.GITHUB_ACTIONS === "true" ? "ci" : "local" },
+    });
+    return m.state === "active" ? { state: "active", via: m.via, licence: m.module.licence } : m;
+  };
+}
+
+/**
+ * The repo's org for `gov licence install`: CI's environment, else the gov repo found from here (org-config.yaml
+ * `github_org`), else none — gov-licence then serves an account with one organisation as before.
+ */
+function licenceOrgId(env: Readonly<Record<string, string | undefined>>): () => Promise<number | null> {
+  let githubOrg = "";
+  try {
+    const at = prjResolveGov(createNodeEnv());
+    const text = at.ok ? createNodeFs().readFile(path.join(at.home, "org-config.yaml")) : null;
+    if (text !== null) githubOrg = parseOrgConfig(text).githubOrg;
+  } catch { /* not in a gov repo: no org */ }
+  return githubOrgIdProvider(githubOrg, env);
+}
+
 export async function runLicence(argv: readonly string[], loadModule: ModuleLoader = () => Promise.resolve({ state: "absent" })): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
@@ -79,14 +128,14 @@ export async function runLicence(argv: readonly string[], loadModule: ModuleLoad
         return (await ask.secret("Personal key (hidden): ")).trim() || null;
       } finally { rl.close(); }
     },
-    registryToken: httpRegistryToken(env.GOV_LICENCE_API || LICENCE_API),
+    registryToken: httpRegistryToken(env.GOV_LICENCE_API || LICENCE_API, fetch, licenceOrgId(env)),
     npmInstall: (dir, spec, extra) => {
-      const res = runResult("npm", ["install", "--no-audit", "--no-fund", spec], { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
+      const res = runResult("npm", npmInstallArgs(spec), { cwd: dir, env: { ...env, ...extra }, pgm: "gov-work:cli:licence", fn: "npmInstall" });
       return { status: res.status, stderr: res.stderr };
     },
     writeFile: (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); },
     installDir: licenceInstallDir(env),
-    portalUrl: env.GOV_PORTAL_URL || PORTAL_KEYS_URL,
+    keysUrl: env.GOV_KEYS_URL || GOV_KEYS_URL,
   });
   for (const line of r.lines) (r.code === 2 ? process.stderr : process.stdout).write(`${line}\n`);
   return r.code;

@@ -152,6 +152,7 @@ export function upgradePrBody(r: UpgradePrReport): string {
       ...of("migrate").map((a) => `- ${code(a.from ?? "")} → ${code(a.dst)}${a.how ? ` (\`${a.how}\`)` : ""}`),
       ...(r.migrated ?? []).map((m) => `- ${m}`),
     ], "Nothing migrated."),
+    ...section("Links repointed — so the tree still validates (commit 3)", of("relink").map((a) => `- ${code(a.dst)}`), "No links needed repointing."),
     ...section("Substitutions — proposed (commit 4)", (r.substitutions ?? []).map((s) => `- ${code(s.file)}: ${code(s.from)} → ${code(s.to)}${s.count > 1 ? ` (${s.count}×)` : ""}`), "No substitutions."),
     ...((r.proposed ?? []).length ? section("Proposed (commit 4)", (r.proposed ?? []).map((p) => `- ${p}`), "") : []),
     ...section("Left in place — not touched", left, "Nothing unrecognised: every file is accounted for."),

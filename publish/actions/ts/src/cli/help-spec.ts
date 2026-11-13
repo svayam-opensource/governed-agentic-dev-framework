@@ -118,6 +118,23 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["org", "doctor"],
   },
   {
+    name: "self-update", audience: "you",
+    summary: "install a newer gov, in the same place this one was installed",
+    usage: "[<version>] [--next | --latest] [--dry-run] [--yes] [--registry <url>]",
+    args: [{ name: "<version>", what: "the version to install (x.y.z, or x.y.z-next.n). Without it: the newest on this gov's own line — `next` for a pre-release gov, `latest` for a release" }],
+    flags: [
+      { name: "--next", what: "follow the pre-release line (dist-tag `next`)" },
+      { name: "--latest", what: "follow the release line (dist-tag `latest`)" },
+      { name: "--dry-run", what: "show what would be installed and the exact command; install nothing" },
+      { name: "--yes", what: "install without asking (scripts; upgrade.sh)" },
+      { name: "--registry <url>", what: "the npm registry to install from (default: npm's own; `GOV_REGISTRY` also sets it)" },
+    ],
+    examples: ["gov self-update", "gov self-update --dry-run", "gov self-update 2.0.0", "gov self-update --next --yes"],
+    changes: "installs the gov package with the npm beside the Node this gov runs on — where install.sh, install.ps1 or `npm install -g` put it; nothing else on the machine. It asks first unless --yes. The Windows installer (MSI) is not replaced: gov names `winget upgrade Svayam.Gov` instead. Afterwards it names the next step: `gov upgrade --pr` in the organization's governance repository",
+    exit: [{ code: 0, means: "up to date, installed, or a dry run" }, { code: 1, means: "nothing installed: no version found, npm failed, or no terminal to ask in without --yes" }],
+    seeAlso: ["upgrade", "doctor"],
+  },
+  {
     name: "upgrade", audience: "you",
     summary: "bring this org's framework content to the content this gov carries (newer content: install a newer gov)",
     usage: "[--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>] [--gov-package <spec>]",
