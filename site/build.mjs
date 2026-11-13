@@ -284,6 +284,33 @@ if (ps1.legacy) {
 }
 writeFileSync(join(out, "install.ps1"), ps1.text);
 
+// ── THE UPGRADE SCRIPTS (PRJ-121 F55, Policy Owner ruling A, 2026-11-12) ────────────────────────────────────────
+//
+// upgrade.sh / upgrade.ps1 bring a machine's gov AND the org's governance repository to this site's release: they run
+// this site's OWN install.sh / install.ps1 (already pinned above to this env's package) and then `gov upgrade --pr`.
+// So they need only one pin: this site's address. A ref that predates them (older release tags) simply serves none —
+// announced, never a failure: the image builds every env, and one env's older ref must not sink it.
+const RE_UP_SH = /^GOV_SITE_URL="\$\{GOV_SITE_URL:-[^"]*\}"$/m;
+const RE_UP_PS1 = /^\$SiteUrl = if \(\$env:GOV_SITE_URL\) \{ \$env:GOV_SITE_URL\.TrimEnd\('\/'\) \} else \{ '[^']*' \}$/m;
+function readAtRefIfPresent(ref, relPath) {
+  for (const candidate of [ref, `origin/${ref}`]) {
+    const r = spawnSync("git", ["-C", REPO_ROOT, "show", `${candidate}:${relPath}`], { encoding: "utf8" });
+    if (r.status === 0) return r.stdout;
+  }
+  return null;
+}
+const upSh = readAtRefIfPresent(env.ref, "upgrade.sh");
+const upPs1 = readAtRefIfPresent(env.ref, "upgrade.ps1");
+if (upSh !== null) writeFileSync(join(out, "upgrade.sh"), pin(upSh, RE_UP_SH, `GOV_SITE_URL="\${GOV_SITE_URL:-https://${host}}"`, "upgrade.sh GOV_SITE_URL"));
+if (upPs1 !== null) {
+  let t = pin(upPs1, RE_UP_PS1, `$SiteUrl = if ($env:GOV_SITE_URL) { $env:GOV_SITE_URL.TrimEnd('/') } else { 'https://${host}' }`, "upgrade.ps1 $SiteUrl");
+  t = pin(t, /^#\s+irm https:\/\/\S+upgrade\.ps1 \| iex$/m, `#   irm https://${host}/upgrade.ps1 | iex`, "the upgrade.ps1 self-reference");
+  writeFileSync(join(out, "upgrade.ps1"), t);
+}
+if (upSh === null || upPs1 === null) {
+  console.warn(`\n  NOTE ${envName}: '${env.ref}' carries no ${upSh === null ? "upgrade.sh" : ""}${upSh === null && upPs1 === null ? " / " : ""}${upPs1 === null ? "upgrade.ps1" : ""} — this site serves none until it does.\n`);
+}
+
 // ── VERSIONED PAIRS (#231, Q6) ──────────────────────────────────────────────────────────────────
 //
 // "Install a previous version of the framework" means the script and client that were TESTED

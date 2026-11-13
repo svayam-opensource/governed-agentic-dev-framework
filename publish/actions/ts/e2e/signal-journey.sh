@@ -173,7 +173,16 @@ for kind in ask depends notice; do
   OUT="$(inA person gov signal "$kind" --to "$B_PID" --title "$title" 2>&1)" || { printf '%s\n' "$OUT" | tail -12; die "gov signal $kind failed (as bot A)"; }
   URL="$(sent_url "$n" "$OUT")"; [ -n "$URL" ] || { printf '%s\n' "$OUT" | tail -12; die "gov signal $kind did not print the signal's url"; }
   ok "bot A sent the $kind: $URL"
-  M="$(manifest_B "$kind" "$title" "$URL")"
+  # GitHub's search indexes a new issue after a few seconds, and B finds its incoming signals through search. Asking
+  # once, at once, failed whenever indexing was slower (runs 43347832592, 43353285038): wait until B sees it — up to
+  # 90 s, as board_lists waits for a board — and only then assert and answer.
+  t0=$SECONDS
+  while :; do
+    M="$(manifest_B "$kind" "$title" "$URL")"
+    case "$M" in *"$kind from $A_PID — $title ($URL)"*) break ;; esac
+    [ $((SECONDS - t0)) -ge 90 ] && break
+    sleep 5
+  done
   has "$M" "- **Incoming signals:** " "bot B's session manifest has its Incoming signals line"
   has "$M" "$kind from $A_PID — $title ($URL)" "…and it names this $kind from $A_PID"
   if [ "$kind" = notice ]; then ACK="$(inB person gov signal ack "$URL" 2>&1)" || { printf '%s\n' "$ACK" | tail -8; die "bot B could not ack the notice"; }

@@ -17,9 +17,10 @@ Nothing else — no Python, and no `bash` on Windows.
 
 ## Windows
 
-The Windows door goes live with the **first release** of the installer: until then `winget`
-does not find `Svayam.Gov`, so there is no Windows door yet. (`install.ps1` is a machine path
-for CI and Server Core, not a door for people.)
+Until winget is live, the Windows door is `install.ps1`, in PowerShell:
+`irm https://gov.svayamtech.com/install.ps1 | iex` (the Command Prompt form and the details are in
+[installing.md](installing.md#windows)). `winget install Svayam.Gov` takes over with the **first release** of the
+Windows installer; until then winget does not find `Svayam.Gov`.
 
 The installer is **unsigned until a production code-signing certificate exists**. winget
 checks the installer's SHA256 against its listing, so `winget install Svayam.Gov` is the way
