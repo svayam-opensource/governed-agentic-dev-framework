@@ -7,6 +7,7 @@
  * external tools; no bash/python. This is the integration seam; the pure router
  * (dispatch.ts) is exhaustively unit-tested.
  */
+import { contentTooNew } from "../maintain/upgrade-guard.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
@@ -1844,6 +1845,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           cleanup = fetched.cleanup;
         } catch (e) {
           process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
+          return 1;
+        }
+      }
+      // gov 1.2.4 (F55): never apply content of a newer major version — 1.x would write 2.x files without 2.x's migration.
+      {
+        const refusal = contentTooNew(readCliVersion(), fs.readFile(path.join(contentDir, "VERSION")));
+        if (refusal) {
+          for (const line of refusal) process.stderr.write(`${line}\n`);
+          cleanup();
           return 1;
         }
       }
