@@ -21,6 +21,9 @@ const SITES = [
   { env: "prod", host: "gov.svayamtech.com", portal: "https://portal.svayamtech.com" },
 ];
 
+/** The same exact-release pattern build.mjs enforces (semver, optional pre-release; never a dist-tag). */
+const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?`;
+
 test("each env is served ONLY on its own host, from its own build", () => {
   const cf = renderCaddyfile(SITES);
   assert.match(cf, /@dev host gov-dev\.svayamtech\.com\n\thandle @dev \{\n[\s\S]*?\t\troot \* \/srv\/dev\n/);
@@ -79,11 +82,18 @@ test("the image builds EVERY env in envs.json — one image, promoted unchanged"
   assert.match(df, /rm -rf \/src\/site && cp -r "\$site" \/src\/site/, "the deployed commit's site/ must replace the clone's");
 });
 
+test("an exact release may be a pre-release; a dist-tag never is (ruling A1)", () => {
+  const exact = new RegExp(`^${SEMVER}$`);
+  for (const ok of ["1.2.3", "2.0.0-next.4", "2.0.0-rc.1"]) assert.match(ok, exact);
+  for (const bad of ["next", "latest", "uat", "2.0", "v2.0.0", "2.0.0-"]) assert.doesNotMatch(bad, exact);
+});
+
 test("envs.json: prod pins refs that cannot move", () => {
   const { envs, versioned } = JSON.parse(read("envs.json"));
-  assert.match(envs.prod.ref, /^(gov-work-\d+\.\d+\.\d+|[0-9a-f]{40})$/);
-  assert.match(envs.prod.pkg, /^@svayam-opensource\/gov@\d+\.\d+\.\d+$/);
-  for (const t of versioned ?? []) assert.match(t, /^gov-work-\d+\.\d+\.\d+$/);
+  // An exact release may be a pre-release (`2.0.0-next.4`, ruling A1) — it is still one immutable artifact.
+  assert.match(envs.prod.ref, new RegExp(`^(gov-work-${SEMVER}|[0-9a-f]{40})$`));
+  assert.match(envs.prod.pkg, new RegExp(`^@svayam-opensource/gov@${SEMVER}$`));
+  for (const t of versioned ?? []) assert.match(t, new RegExp(`^gov-work-${SEMVER}$`));
 });
 
 test("every base image is fully qualified — the deploy agent's podman cannot resolve short names", () => {
@@ -139,7 +149,7 @@ test("envs.json: non-prod asks for its own dist-tag, prod for an exact release",
   const { envs } = JSON.parse(read("envs.json"));
   for (const [name, e] of Object.entries(envs)) {
     const spec = e.pkg.slice(e.pkg.lastIndexOf("@") + 1);
-    if (name === "prod") assert.match(spec, /^\d+\.\d+\.\d+$/, "prod must name an exact release, never a moving tag");
+    if (name === "prod") assert.match(spec, new RegExp(`^${SEMVER}$`), "prod must name an exact release, never a moving tag");
     else assert.equal(spec, name, `${name} must ask for '@${name}' — gov-cicd tags each non-prod env by its own name`);
   }
 });
