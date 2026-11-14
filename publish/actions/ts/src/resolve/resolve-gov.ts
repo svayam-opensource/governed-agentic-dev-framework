@@ -8,6 +8,7 @@
  * never writes, so resolution cannot pollute the registry.
  */
 import type { HomeCheckFailure, ResolveEnv, ResolveResult } from "./types.js";
+import { isProjectDirName } from "../lifecycle/local-projects.js";
 
 /**
  * Which of the two things `gov_repo` used to mean does this command need?
@@ -35,7 +36,11 @@ export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "REPORT
   if (!activeOrg) return { ok: false, code: 2, reason: "no-active-org" };
 
   // cwd-walk: the org whose workspace we're standing in (nearest ancestor), if any.
-  const cwdHit = walkForOrg(env);
+  // PROJECT also looks DOWN from a project root (gadf#168): the workspace clone is a child of
+  // `<AGENT_WORK_ROOT>/PRJ-<n>-<slug>`, not an ancestor, so from the root or a sibling code repo the
+  // walk up never sees it. GOVERNANCE/REPORT never look down — V07: the sibling clone must not
+  // capture a governance read made from the project root.
+  const cwdHit = walkForOrg(env) ?? (opClass === "PROJECT" ? projectRootClone(env) : null);
 
   // [R5] An org mismatch is an error for BOTH classes — never silently prefer one.
   if (cwdHit && cwdHit.org !== activeOrg) {
@@ -74,6 +79,33 @@ function walkForOrg(env: ResolveEnv): { org: string; home: string } | null {
     if (cfg !== null) return { org: cfg.org, home: dir };
   }
   return null;
+}
+
+/**
+ * The workspace clone of the project whose root is cwd or an ancestor of it — the nearest ancestor named
+ * `PRJ-<n>-…` (the project-folder rule `gov` already uses for `local-projects`), looked into ONE level.
+ *
+ * Deliberately narrow (the rule gadf#168 recommends): only a project root is searched, only its immediate
+ * children, and only an UNAMBIGUOUS answer counts. Two gov repos side by side under one project root is not a
+ * guess this resolver makes — it returns null and PROJECT then reports `not-in-a-project`, exactly as before.
+ */
+function projectRootClone(env: ResolveEnv): { org: string; home: string } | null {
+  if (!env.childrenOf) return null;
+  for (let dir: string | null = env.cwd; dir !== null; dir = env.parentOf(dir)) {
+    if (!isProjectDirName(baseName(dir))) continue;
+    const hits = env.childrenOf(dir).flatMap((child) => {
+      const cfg = env.govConfigAt(child);
+      return cfg === null ? [] : [{ org: cfg.org, home: child }];
+    });
+    return hits.length === 1 ? hits[0] : null;
+  }
+  return null;
+}
+
+/** The last path segment, splitting on BOTH separators (POSIX-shaped paths are normal on Windows here). */
+function baseName(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
 }
 
 /**
