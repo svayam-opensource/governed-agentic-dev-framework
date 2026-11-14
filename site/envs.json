@@ -61,9 +61,9 @@
   "portal_slug": "portal",
   "base": "svayamtech.com",
   "envs": {
-    "prod": { "ref": "gov-work-1.2.3", "pkg": "@svayam-opensource/gov@1.2.3", "label": null, "robots": "index, follow" },
+    "prod": { "ref": "gov-work-2.0.0-next.4", "pkg": "@svayam-opensource/gov@2.0.0-next.4", "label": null, "robots": "index, follow" },
     "uat":  { "ref": "uat",    "pkg": "@svayam-opensource/gov@uat", "registry": "https://npm.svayamtech.com", "label": "UAT — release candidate. Not the version to adopt.", "robots": "noindex, nofollow" },
     "dev":  { "ref": "dev",    "pkg": "@svayam-opensource/gov@dev", "registry": "https://npm.svayamtech.com", "label": "DEV — the tip of the dev branch. Expect it to be broken.", "robots": "noindex, nofollow" }
   },
-  "versioned": ["gov-work-1.2.3"]
+  "versioned": ["gov-work-1.2.3", "gov-work-2.0.0-next.4"]
 }

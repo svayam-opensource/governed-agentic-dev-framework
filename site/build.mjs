@@ -184,7 +184,11 @@ function pin(text, pattern, replacement, what, hint) {
  * published artifact was built from (Svayamtech/910-GOV-CICD#274). There is no other release mechanism
  * (framework decision 2026-09-17: one path, gov), so a `v*` tag names nothing and is refused.
  */
-const RELEASE_TAG = /^gov-work-(\d+\.\d+\.\d+)$/;
+// A PRE-RELEASE IS AN EXACT RELEASE TOO (PRJ-121, Policy Owner ruling A1, 2026-11-14): `2.0.0-next.4` names one
+// immutable artifact, exactly like `1.2.3`. What must never be pinned is a dist-tag (`next`, `latest`) — a name
+// that moves. A semver always begins with digits, so a bare tag still fails this.
+const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?`;
+const RELEASE_TAG = new RegExp(`^gov-work-(${SEMVER})$`);
 function releaseVersion(tag) {
   const m = RELEASE_TAG.exec(tag);
   if (!m) die(`'${tag}' in versioned is not a gov release tag (gov-work-<semver>). Releases are cut by gov promote, never by hand.`);
@@ -391,7 +395,7 @@ if (verify) {
   }
   if (envName === "prod" || legacyRouting) {
     // prod, and an env whose installer predates routing, name the exact released version.
-    if (!/^\d+\.\d+\.\d+$/.test(spec)) fail.push(`${envName} installs '${env.pkg}' — it must name an exact release, never a tag that moves`);
+    if (!new RegExp(`^${SEMVER}$`).test(spec)) fail.push(`${envName} installs '${env.pkg}' — it must name an exact release, never a tag that moves`);
     if (legacyRouting && env.pkg !== cfg.envs.prod.pkg) fail.push(`${envName} predates routing but does not serve prod's released pair (${cfg.envs.prod.pkg})`);
   } else if (spec !== envName) {
     fail.push(`${envName} installs '${env.pkg}' — a non-prod site must ask for its own dist-tag ('@${envName}'), or it serves the released client`);
