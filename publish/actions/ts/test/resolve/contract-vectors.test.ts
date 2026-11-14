@@ -32,6 +32,8 @@ const env = (cwd: string, active: string | null = "Acme", homes: Record<string, 
   readActiveOrg: () => active,
   homeForOrg: (o) => homes[o] ?? null,
   sameHome: (a, b) => a === b,
+  // Every fixture path one level below `p` — the directories that exist are the ones the fixture names.
+  childrenOf: (p) => [...new Set([...Object.keys(ORG_AT), CODE7].filter((k) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes("/")))],
 });
 
 const resolve = (cwd: string, cls: OperationClass, active: string | null = "Acme") => prjResolveGov(env(cwd, active), cls);
@@ -55,22 +57,41 @@ describe("workspace-resolution contract — conformance vectors (svm-prj-work#31
     expect(resolve(WS7, "PROJECT")).to.include({ ok: true, home: WS7, via: "cwd" });
   });
 
-  // NOT YET CONFORMING — deliberately skipped rather than deleted, so the gap is visible.
-  // `walkForOrg` only walks UP, and a project's workspace clone is a CHILD of the project root
-  // (`PRJ-7/acme-gov`), not an ancestor. So from the project root or a sibling code repo it is invisible.
-  // This is exactly the reported bug: `gov add-repo` failed at `…/PRJ-115-gov-work` and succeeded one
-  // directory down in `…/svm-prj-work`. Closing it needs ResolveEnv to gain a "look in immediate
-  // children" capability — an interface change across every consumer.
-  it.skip("V05 · PROJECT from a code repo walks up to the project's workspace clone", () => {
+  // Conforming since gadf#168: `walkForOrg` walks UP, and a project's workspace clone is a CHILD of the
+  // project root (`PRJ-7/acme-gov`). PROJECT now also looks one level down from the nearest `PRJ-<n>-…`
+  // ancestor — the reported bug was `gov add-repo` failing at `…/PRJ-115-gov-work` and succeeding in
+  // `…/svm-prj-work`.
+  it("V05 · PROJECT from a code repo walks up to the project's workspace clone", () => {
     expect(resolve(CODE7, "PROJECT")).to.include({ ok: true, home: WS7, via: "cwd" });
   });
 
-  it.skip("V06 · PROJECT from the project root — where `gov add-repo` used to fail", () => {
+  it("V06 · PROJECT from the project root — where `gov add-repo` used to fail", () => {
     expect(resolve(P7, "PROJECT")).to.include({ ok: true, home: WS7, via: "cwd" });
   });
 
   it("V07 · GOVERNANCE from that same root resolves the mirror, not the sibling clone", () => {
     expect(resolve(P7, "GOVERNANCE")).to.include({ ok: true, home: MIRROR, via: "active-org" });
+  });
+
+  it("gadf#168 · two gov repos under one project root is ambiguous — PROJECT refuses rather than guesses", () => {
+    const two = { ...env(P7), childrenOf: () => [WS7, `${P7}/acme-gov-2`],
+      govConfigAt: (p: string) => (p === WS7 || p === `${P7}/acme-gov-2` ? { org: "Acme", govWorkspace: null } : null) };
+    expect(prjResolveGov(two, "PROJECT")).to.include({ ok: false, reason: "not-in-a-project" });
+  });
+
+  it("gadf#168 · only a PRJ-<n>-… folder is searched downward — not an arbitrary parent of a gov repo", () => {
+    expect(resolve("/home/u/.gov/acme/projects", "PROJECT")).to.include({ ok: false, reason: "not-in-a-project" });
+  });
+
+  it("gadf#168 · a clone of ANOTHER org under the project root is still an org conflict for PROJECT", () => {
+    const foreign = { ...env(CODE7), childrenOf: () => [`${P7}/other-gov`],
+      govConfigAt: (p: string) => (p === `${P7}/other-gov` ? { org: "Other", govWorkspace: null } : null) };
+    expect(prjResolveGov(foreign, "PROJECT")).to.include({ ok: false, reason: "org-conflict", cwdOrg: "Other" });
+  });
+
+  it("gadf#168 · an env without childrenOf keeps the walk-up-only answer", () => {
+    const { childrenOf: _drop, ...bare } = env(P7);
+    expect(prjResolveGov(bare, "PROJECT")).to.include({ ok: false, reason: "not-in-a-project" });
   });
 
   it("V09 · another org's tree is a conflict for GOVERNANCE, naming both", () => {

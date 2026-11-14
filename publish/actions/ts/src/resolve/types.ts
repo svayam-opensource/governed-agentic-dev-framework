@@ -61,6 +61,12 @@ export interface ResolveEnv {
    * (adoption walk #12). Optional: an env without it reports the plain `not-a-gov-repo`.
    */
   diagnoseConfigAt?(path: string): HomeCheckFailure;
+  /**
+   * The immediate child DIRECTORIES of `path` (absolute paths; dot-directories excluded), or [] when it
+   * cannot be listed. Optional: used only to find a project's workspace clone from the project root or a
+   * sibling code repo (gadf#168, contract V05/V06). An env without it keeps the walk-up-only behaviour.
+   */
+  childrenOf?(path: string): readonly string[];
 }
 
 /** How a successful resolution was reached. */

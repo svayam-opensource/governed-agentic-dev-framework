@@ -128,4 +128,23 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
       expect(r.detail.why).to.equal("not-canonical");
     } else expect.fail("expected pointer-mismatch/not-canonical");
   });
+  it("gadf#168 · on disk: PROJECT from a project root and from a sibling code repo finds the workspace clone", () => {
+    const root = path.join(tmp, "projects", "PRJ-7-thing");
+    const ws = path.join(root, "acme-gov");
+    const code = path.join(root, "acme-api", "src");
+    fs.mkdirSync(ws, { recursive: true });
+    fs.mkdirSync(code, { recursive: true });
+    fs.mkdirSync(path.join(root, ".hidden"));
+    fs.writeFileSync(path.join(ws, "org-config.yaml"), `github_org: "Svayamtech"\ngov_workspace: "${govDir}"\n`);
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "active"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "workspaces"), `Svayamtech\t${govDir}\n`);
+
+    expect(createNodeEnv({ cwd: root, configDir }).childrenOf!(root).sort()).to.deep.equal([path.join(root, "acme-api"), ws]);
+    for (const cwd of [root, code]) {
+      expect(prjResolveGov(createNodeEnv({ cwd, configDir }), "PROJECT")).to.include({ ok: true, home: ws, via: "cwd" });
+      // V07 on disk: governance from the same place still reads the mirror.
+      expect(prjResolveGov(createNodeEnv({ cwd, configDir }), "GOVERNANCE")).to.include({ ok: true, home: govDir, via: "active-org" });
+    }
+  });
 });

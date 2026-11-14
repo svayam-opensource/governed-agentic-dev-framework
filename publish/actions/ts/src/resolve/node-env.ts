@@ -218,6 +218,16 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
       return diagnoseOrgConfig(p);
     },
 
+    childrenOf(p: string): readonly string[] {
+      try {
+        return fs.readdirSync(p, { withFileTypes: true })
+          .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+          .map((d) => path.join(p, d.name));
+      } catch { /* unlistable is the ordinary "no children" answer here */
+        return [];
+      }
+    },
+
     readActiveOrg(): string | null {
       const raw = readText(activeOrgFile);
       if (raw === null) return null;
