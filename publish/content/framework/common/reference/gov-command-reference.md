@@ -551,7 +551,7 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --
 | `--repo <path>` | install: the working tree to write into (default: the governance repo); any other path is a linked code repo |
 | `--all` | install: every repo of the project — the governance repo and the board's linked code repos |
 | `--project <id>` | install --all, status: the project (PRJ-&lt;n&gt;-&lt;slug&gt;, or its board number) instead of the one the governance repo's branch names |
-| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else the published gov) — a packed tarball's URL or path, to test a commit before it is released |
+| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else this gov, pinned to its version) — a packed tarball's URL or path, to test a commit before it is released |
 | `--prune` | install --all: remove a workflow gov wrote earlier in a repo no rule binds any more (a file gov did not write is never touched) |
 
 **Examples**

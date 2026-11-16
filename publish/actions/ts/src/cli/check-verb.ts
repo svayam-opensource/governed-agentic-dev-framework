@@ -132,7 +132,8 @@ export interface CheckVerbConfig {
   /** `<agent_work_root>` — where `--project <id>` finds `<id>/<repo>/` clones. Absent → `--project` cannot be resolved. */
   readonly agentWorkRoot?: string;
   /**
-   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the published gov. A pre-release
+   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the installed copy's pin, else this gov
+   * (`govVersion`), pinned. A pre-release
    * test (the sandbox journey, the live CI tier) points it at a packed tarball, so the runners run the commit under
    * test rather than whatever npm last published.
    */
@@ -451,10 +452,17 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
  * `gov check install` would swap the pin for whatever npm calls `latest`, and `status` would call the copy stale.
  */
 export function withInstalledPin(cfg: CheckVerbConfig, installed: string | null): CheckVerbConfig {
-  if (cfg.govPackage || installed === null) return cfg;
-  const pin = pinnedGovPackage(installed);
-  return pin ? { ...cfg, govPackage: pin } : cfg;
+  if (cfg.govPackage) return cfg;
+  const pin = installed === null ? null : pinnedGovPackage(installed);
+  if (pin) return { ...cfg, govPackage: pin };
+  // No pin to keep (first install, or a hand-unpinned copy): pin the gov that is writing it, as `gov upgrade` does.
+  // Unpinned, the runner gets whatever npm calls `latest` — which can be an older major than this repo's content (gadf#388).
+  return isPublishedVersion(cfg.govVersion) ? { ...cfg, govPackage: `${GOV_PACKAGE}@${cfg.govVersion}` } : cfg;
 }
+
+const GOV_PACKAGE = "@svayam-opensource/gov";
+/** A version npm could have published — not the `?` / `0.0.0` stand-ins a source checkout reports. */
+const isPublishedVersion = (v: string | undefined): v is string => !!v && v !== "0.0.0" && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(v);
 
 export const govRepoOf = (cfg: CheckVerbConfig): string => (cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "");
 
