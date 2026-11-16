@@ -84,6 +84,15 @@ describe("gov check install / status keep the pin an installed copy carries (Q9)
     expect(withInstalledPin(cfg, null).govPackage).to.equal(undefined);
     expect(withInstalledPin({ ...cfg, govPackage: "./gov.tgz" }, render("@svayam-opensource/gov@2.0.0")).govPackage).to.equal("./gov.tgz");
   });
+  it("no pin to keep → pinned to the gov writing it (gadf#388); a source checkout's stand-in version → unpinned", () => {
+    const v = { ...cfg, govVersion: "2.0.0-next.4" };
+    expect(withInstalledPin(v, null).govPackage).to.equal("@svayam-opensource/gov@2.0.0-next.4");
+    expect(withInstalledPin(v, render()).govPackage).to.equal("@svayam-opensource/gov@2.0.0-next.4");
+    expect(withInstalledPin(v, render("@svayam-opensource/gov@2.0.0")).govPackage).to.equal("@svayam-opensource/gov@2.0.0");
+    expect(withInstalledPin({ ...v, govPackage: "./gov.tgz" }, null).govPackage).to.equal("./gov.tgz");
+    expect(withInstalledPin({ ...cfg, govVersion: "0.0.0" }, null).govPackage).to.equal(undefined);
+    expect(withInstalledPin({ ...cfg, govVersion: "?" }, null).govPackage).to.equal(undefined);
+  });
 });
 
 describe("the upgrade re-renders the installed workflows (Q9)", () => {

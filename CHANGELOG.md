@@ -13,6 +13,8 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+- `gov check install` pins the gov it installs. With no `--gov-package` and no pin to keep, the workflow it writes now installs `@svayam-opensource/gov@<this gov>`, as `gov upgrade` does. Before, it was unpinned, so runners got npm `latest` (1.2.3) (#388).
+
 ## 2.0.0-next.2 — pre-release (dist-tag `next`; `latest` stays 1.2.3)
 
 2.0.0-next.1 reached the internal uat registry only and was never published to npmjs; next.2 is the

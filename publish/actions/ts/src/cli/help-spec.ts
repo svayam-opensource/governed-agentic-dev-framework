@@ -368,7 +368,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--repo <path>", what: "install: the working tree to write into (default: the governance repo); any other path is a linked code repo" },
       { name: "--all", what: "install: every repo of the project — the governance repo and the board's linked code repos" },
       { name: "--project <id>", what: "install --all, status: the project (PRJ-<n>-<slug>, or its board number) instead of the one the governance repo's branch names" },
-      { name: "--gov-package <spec>", what: "install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else the published gov) — a packed tarball's URL or path, to test a commit before it is released" },
+      { name: "--gov-package <spec>", what: "install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else this gov, pinned to its version) — a packed tarball's URL or path, to test a commit before it is released" },
       { name: "--prune", what: "install --all: remove a workflow gov wrote earlier in a repo no rule binds any more (a file gov did not write is never touched)" },
     ],
     examples: ["gov check run GOV-FRM-086 --resource vcs.gov-repo --event pull_request", "gov check install", "gov check install --repo ~/.gov/acme/projects/PRJ-7/billing", "gov check install --all", "gov check status --project PRJ-7"],
