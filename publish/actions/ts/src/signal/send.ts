@@ -75,7 +75,7 @@ export async function sendSignal(env: SignalEnv, req: SignalRequest): Promise<Se
   ].join("\n").trimStart();
 
   const created = await env.tracker.create(env.govRepo, { title: req.title.trim(), body, assignee: env.login, labels: [signalLabel(req.kind)] });
-  if (!created.ok) return refuse(`the signal was not sent — the issue could not be created in ${env.govRepo.owner}/${env.govRepo.name}: ${created.reason}`);
+  if (!created.ok) return { ok: false, url: null, lines: [`the signal was not sent — the issue could not be created in ${env.govRepo.owner}/${env.govRepo.name}: ${created.reason}`, `  nothing was saved; run the same \`gov signal ${req.kind}\` command again`] };
   const ref = created.value;
   const lines = [`Sent ${req.kind} → ${req.to}`, `  ${ref.url}`, `  labelled ${signalLabel(req.kind)}, assigned to ${env.login}`];
   let ok = true;

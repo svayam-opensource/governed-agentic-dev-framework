@@ -20,6 +20,7 @@ import { parseDraft } from "../signal/draft.js";
 import { handover } from "../signal/handover.js";
 import { mergeProjects, type MergeDeps } from "../signal/merge.js";
 import { sendGuard, SIGNAL_KINDS, type SignalKind } from "../signal/model.js";
+import { retryingTracker, type RetryOptions } from "../signal/retry.js";
 
 export interface SignalVerbDeps {
   readonly tracker: WorkTrackerPort;
@@ -34,6 +35,8 @@ export interface SignalVerbDeps {
   readonly readFile: (p: string) => string | null;
   /** merge: who owns a board, and which repositories it links. */
   readonly merge?: MergeDeps;
+  /** F68: how writes are retried on a brief GitHub error (tests pass an instant sleep). */
+  readonly retry?: RetryOptions;
 }
 
 type Flags = Readonly<Record<string, string | boolean>>;
@@ -49,7 +52,7 @@ export async function signalCommand(positionals: readonly string[], flags: Flags
   if (!sub) return { code: 2, lines: USAGE };
   if (!d.project) return { code: 1, lines: ["gov signal works inside a project — run it from the project's workspace (a BRNCH-<n>-… branch)."] };
   if (!d.login) return { code: 1, lines: ["gov cannot tell who you are on GitHub — `gov doctor` says why."] };
-  const env: SignalEnv = { tracker: d.tracker, govRepo: d.govRepo, owner: d.owner, login: d.login, project: d.project };
+  const env: SignalEnv = { tracker: retryingTracker(d.tracker, d.retry), govRepo: d.govRepo, owner: d.owner, login: d.login, project: d.project };
 
   // A person acts (Q6): refused in an agent session or without a terminal; confirmed before anything is written.
   const personActs = async (what: string): Promise<string | null> => {

@@ -327,6 +327,18 @@ export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkT
         .filter((x) => !q.state || x.state === q.state));
     },
 
+    async comments(i) {
+      const j = ghJson<{ comments?: { body?: string }[] }>(gh, ["issue", "view", i.url, "--json", "comments"], `reading the comments on ${i.url}`);
+      return j.ok ? ok((j.value.comments ?? []).map((c) => c.body ?? "")) : j;
+    },
+
+    async recent(where, labels) {
+      const args = ["issue", "list", "--repo", slug(where), "--state", "all", "--limit", "50", "--json", "url,title,body,state,labels,assignees"];
+      for (const l of labels) args.push("--label", l);
+      const j = ghJson<GhIssue[]>(gh, args, `listing recent items in ${slug(where)}`);
+      return j.ok ? ok((Array.isArray(j.value) ? j.value : []).map((x) => toItem(x))) : j;
+    },
+
     async createProject(owner, title) {
       if (!title.trim()) return fail("a project needs a title");
       const j = ghJson<{ number?: number }>(gh, ["project", "create", "--owner", owner, "--title", title, "--format", "json"], `creating a project for ${owner}`);

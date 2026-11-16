@@ -13,6 +13,8 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+- `gov signal` survives a brief GitHub error (F68). Creating a signal issue, commenting and closing are retried up to 3 times (after ~2, 4 and 8 s) on 5xx, 429 or rate-limit and network errors. Before each retry, gov checks whether the earlier attempt went through, so nothing is made twice. A 4xx refusal is returned at once. If it still fails, gov says what was saved and prints the command to finish by hand.
+
 - `gov check install` pins the gov it installs. With no `--gov-package` and no pin to keep, the workflow it writes now installs `@svayam-opensource/gov@<this gov>`, as `gov upgrade` does. Before, it was unpinned, so runners got npm `latest` (1.2.3) (#388).
 
 ## 2.0.0-next.2 — pre-release (dist-tag `next`; `latest` stays 1.2.3)
