@@ -20,13 +20,13 @@ export async function ackSignal(env: SignalEnv, url: string, answer?: string): P
   const lines: string[] = [];
   const text = answer?.trim() ? answer.trim() : `Acknowledged by ${env.login} for ${env.project}.`;
   const c = await env.tracker.comment({ url }, text);
-  if (!c.ok) return { ok: false, lines: [`not closed — the answer could not be written: ${c.reason}`] };
+  if (!c.ok) return { ok: false, lines: [`not closed — the answer could not be written: ${c.reason}`, `  nothing was saved; run the same \`gov signal ack ${url}${needsAnswer ? ' --answer "…"' : ""}\` again`] };
   const board = boardOf(env.owner, env.project);
   if (board) {
     const st = await env.tracker.setState(board, { url }, "done");
     if (!st.ok) lines.push(`  board: Status not set — ${st.reason}`);
   }
   const cl = await env.tracker.close({ url });
-  if (!cl.ok) return { ok: false, lines: [`the answer is written but ${url} could not be closed: ${cl.reason}`, ...lines] };
+  if (!cl.ok) return { ok: false, lines: [`the answer is written but ${url} could not be closed: ${cl.reason}`, `  finish by hand: gh issue close ${url}`, ...lines] };
   return { ok: true, lines: [`${m.kind} from ${m.from} closed${needsAnswer ? " with your answer" : ""}`, `  ${url}`, ...lines] };
 }

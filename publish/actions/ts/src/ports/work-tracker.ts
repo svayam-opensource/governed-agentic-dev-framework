@@ -121,6 +121,16 @@ export interface WorkTrackerPort {
   /** Close the item itself (a signal answered, a notice acknowledged — plan 03 L07). Closing a closed item is ok. */
   close(i: ItemRef): Promise<Result<void>>;
   search(q: SearchQuery): Promise<Result<Item[]>>;
+  /**
+   * The comments on an item (bodies, oldest first). Optional: used to confirm a comment landed before retrying it
+   * (F68); a tracker without it is never retried for a comment.
+   */
+  comments?(i: ItemRef): Promise<Result<string[]>>;
+  /**
+   * The newest items in a repository carrying every one of these labels, read directly — not through a search index,
+   * so an item created a moment ago is there. Optional: used to confirm a create landed before retrying it (F68).
+   */
+  recent?(where: RepoRef, labels: readonly string[]): Promise<Result<Item[]>>;
   createProject(owner: string, title: string): Promise<Result<ProjectRef>>;
   /** Close it; with `pointer` (where the work went), the project's description says so first. */
   closeProject(p: ProjectRef, pointer?: string): Promise<Result<void>>;

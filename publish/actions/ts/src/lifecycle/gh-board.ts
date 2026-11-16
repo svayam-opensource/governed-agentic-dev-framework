@@ -125,7 +125,9 @@ export function mergeBoardPages(acc: BoardProject, next: BoardProject): BoardPro
  * A transient transport failure earns one retry; anything else (auth, a bad argument, 404) fails at once,
  * because repeating it only doubles the wait for the same answer.
  */
-const TRANSIENT = /\bEOF\b|\b50[234]\b|timed? ?out|timeout|connection reset|ECONNRESET|TLS handshake|stream error/i;
+// 5xx, 429 and GitHub's (secondary) rate limit, and the network failing under us. A plain 4xx — not found, refused,
+// no permission, invalid — is an answer, not a hiccup, and is never retried (F68).
+const TRANSIENT = /\bEOF\b|\b50[0234]\b|\b429\b|rate limit|timed? ?out|timeout|connection reset|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|TLS handshake|stream error/i;
 
 export function isTransientGhError(e: unknown): boolean {
   const x = e as { message?: string; stderr?: string | Buffer };
