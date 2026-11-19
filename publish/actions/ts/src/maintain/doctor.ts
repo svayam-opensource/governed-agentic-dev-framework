@@ -138,6 +138,11 @@ export interface DoctorFacts {
   readonly lifecycleText?: string | null;
   /** Every tracked file under `projects/` (repo-relative), for the retired-letters advisory. undefined = not listed. */
   readonly projectFiles?: readonly string[];
+  /**
+   * The set-up breadcrumb, `~/.gov/setup-state.json` (#391): each step done or pending, and whether a set-up signal
+   * for gov web is waiting. Built by `setupTrailDiagnostic`, which never includes the code. Absent = no trail.
+   */
+  readonly setupTrail?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string } | null;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -293,6 +298,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     ...(facts.githubApp && secretsDiagnostic(facts.githubApp) ? [secretsDiagnostic(facts.githubApp)!] : []),
     ...(facts.checksInstall ? [facts.checksInstall] : []),
     ...(facts.evidence ? [facts.evidence] : []),
+    ...(facts.setupTrail ? [facts.setupTrail] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }

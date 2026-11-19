@@ -158,6 +158,15 @@ Install-Gov
 
 Say ""
 Say "gov is installed."
+
+# THE SET-UP CODE FROM gov web (#391). See install.sh: the Install page sets
+# $env:GOV_SETUP_CODE and $env:GOV_SETUP_ISSUER before this script runs, and the installer
+# only hands them over. Process environment variables are inherited by every gov started
+# below, and the first of them keeps the code in ~/.gov/setup-state.json until gov has sent
+# it -- so `gov doctor` here is enough, and the next `gov` finishes. NEVER ECHOED.
+if ($env:GOV_SETUP_CODE) {
+  Info "set-up code from gov web received $Dash gov sends it once this machine is set up"
+}
 Say ""
 
 # THE LAST WORD, printed where the reader actually is. See install.sh: said before

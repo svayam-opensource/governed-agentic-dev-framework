@@ -88,7 +88,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: "doctor", audience: "you",
-    summary: "check this machine: git, gh, the workspace, the active org, versions",
+    summary: "check this machine: git, gh, the workspace, the active org, versions, and the set-up trail",
     usage: "[--fix] [--gov-home <path>]",
     where: "anywhere — it is the command for a machine that is not set up yet",
     flags: [
@@ -96,7 +96,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--gov-home <path>", what: "check a workspace other than the active one" },
     ],
     examples: ["gov doctor", "gov doctor --fix"],
-    changes: "nothing, unless `--fix` is given and you agree to a step; then it installs tools or writes git config",
+    changes: "nothing in any repository. The `set-up` row shows each set-up step done or pending, and whether a set-up signal for gov web is waiting, from ~/.gov/setup-state.json (kept up to date by every gov run; a set-up code is never shown). With `--fix`, and your agreement to a step, it installs tools or writes git config",
     exit: [{ code: 0, means: "ready, or ready once you follow the notes" }, { code: 1, means: "something is missing that gov cannot work without" }],
     seeAlso: ["setup", "org", "upgrade"],
   },

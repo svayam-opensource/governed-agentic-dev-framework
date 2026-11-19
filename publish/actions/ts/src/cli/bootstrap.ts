@@ -416,6 +416,13 @@ export interface FirstRunIo {
   policyOwner?: (home: string) => PolicyOwnerFacts;
   /** Open the upgrade pull request for the repository at `home` — `gov upgrade --pr` there. Offered to its Policy Owner only. */
   openUpgradePr?: (home: string) => Promise<number> | number;
+  /**
+   * THE GOVERNANCE REPOSITORY IS IN PLACE (#391): created on adopt, cloned and registered on join. The caller brings
+   * the set-up breadcrumb up to date here — finishing the workspace folders and, with every required step done,
+   * sending gov web's one-time set-up code — BEFORE the closing offer, which may hand the terminal to an agent for
+   * as long as a session lasts. Never fails the run: whatever it has to say, it says itself.
+   */
+  setupMilestone?: () => Promise<void>;
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -572,6 +579,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
+  await io.setupMilestone?.();
   // "…with gov and your agent" is a promise, and for an org that chose `none` it is a promise gov
   // cannot keep. The answer is known right here, so it travels rather than being re-derived.
   return await offerTheReview(io, "adopter", undefined, result.agents?.length === 0);
@@ -784,6 +792,7 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     const r = io.register(identity.org, home);
     if (!r.ok) { io.print(r.message ?? `could not register ${identity.org}.`); return 1; }
     io.print(`Registered ${identity.org} → ${home}`);
+    await io.setupMilestone?.();
     // A joiner needs the opposite of an adopter's instructions: not "settle this",
     // but "this is already settled, and here is where to read it". Which of the two
     // gets printed follows what actually happened above, not what was answered at

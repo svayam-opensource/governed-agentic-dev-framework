@@ -121,6 +121,8 @@ import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { advanceSetup, loadSetupState } from "./setup-progress.js";
+import { setupTrailDiagnostic } from "../setup/setup-state.js";
 import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
@@ -1368,6 +1370,7 @@ export async function runFirstRunIfNeeded(
     place: (from, to) => placeDir(from, to),
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
+    setupMilestone: async () => { await advanceSetup({ print: (l) => process.stderr.write(`${l}\n`), clientVersion: readCliVersion(), create: true }); },
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
@@ -2868,6 +2871,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
       // Evidence (spec 02): file look-ups only — doctor never starts the paid module.
       evidence: evidenceDoctorRow({ found: discoverModule({ env: process.env }) }),
+      // The set-up breadcrumb (#391) — the trail, never the code.
+      setupTrail: setupTrailDiagnostic(loadSetupState()),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
