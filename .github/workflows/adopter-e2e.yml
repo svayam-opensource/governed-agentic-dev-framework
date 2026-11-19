@@ -114,7 +114,13 @@ jobs:
     name: interactive journey (${{ matrix.distro }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    container: ${{ matrix.image }}
+    # PATH explicit (#393): rockylinux:9 since 2026-11-13 sets no PATH in its image config, and the runner builds each
+    # step's PATH as GITHUB_PATH entries + the container's configured PATH — after setup-node that left only Node's
+    # bin dir, and `sh` was not found. Naming the standard PATH here makes the job independent of what an image sets.
+    container:
+      image: ${{ matrix.image }}
+      env:
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     strategy:
       fail-fast: false
       matrix:
