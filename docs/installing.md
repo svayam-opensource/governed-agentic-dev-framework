@@ -51,6 +51,45 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
 4. It installs an approved AI agent, if you agree, and helps you sign it in.
 5. It opens a first project and launches the agent, which posts its context manifest.
 
+### The set-up code and the set-up trail
+
+When you're signed in, the Install page shows the command with a **one-time set-up code** in front of it:
+
+```bash
+GOV_SETUP_CODE=<code> GOV_SETUP_ISSUER=<address> bash install.sh
+```
+
+On Windows the page gives `$env:GOV_SETUP_CODE='<code>'; $env:GOV_SETUP_ISSUER='<address>'; irm …/install.ps1 | iex`.
+
+The code lets gov tell gov web, once, that your set-up is done. That completes the second step of
+**My Gov Journey**. The installer passes the code to gov and never prints it.
+
+gov records your set-up in `~/.gov/setup-state.json`. Only you can read the file. It lists each step as done
+or pending, with the time:
+
+| Step | Done when |
+|---|---|
+| `client-installed` | gov is installed |
+| `prerequisites` | `git` and `gh` are installed |
+| `governance-repo` | your governance repository is in place: created when you adopt, cloned when you join |
+| `machine-env` | the workspace folders (`~/.gov/<slug>/projects`) exist and the tools are ready |
+| `setup-signal` | gov web has been told your set-up is done |
+
+- **Re-running `gov` resumes** at the first step still pending. gov checks every step against the machine each
+  time, so the file never claims something that is no longer true.
+- **The code is sent once** `client-installed`, `governance-repo` and `machine-env` are all done. gov then
+  removes the code from the file and prints *Your gov web set-up step is complete.*
+- **gov only sends the code to `https://*.svayamtech.com`.** If the command names any other address, gov
+  doesn't send the code.
+- **If gov web refuses the code, or can't be reached,** gov says so in one line and carries on. Set-up is not
+  affected.
+  - A refused code has expired, was already used, or was replaced by a newer one. Get a new code from the
+    Install page and run `gov` again.
+  - After too many attempts from your network, wait a few minutes and run `gov` again.
+  - Sending a code twice does no harm.
+- **`gov doctor` shows the trail** in its `set-up` row: each step done or pending, and whether a set-up signal
+  is still waiting. It never shows the code.
+
 ## What `install.sh` does
 
 It fetches its own Node under your home directory and installs `@svayam-opensource/gov` from

@@ -23,7 +23,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 
 - [gov work](#gov-work) — start or continue a project, and open your agent in it
 - [gov org](#gov-org) — the governance workspaces on this machine, and which one is active
-- [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions
+- [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions, and the set-up trail
 - [gov setup](#gov-setup) — set this machine up for an organization — the first `gov` run does this for you
 - [gov self-update](#gov-self-update) — install a newer gov, in the same place this one was installed
 - [gov upgrade](#gov-upgrade) — bring this org's framework content to the content this gov carries (newer content: install a newer gov)
@@ -171,7 +171,7 @@ gov org add acme --home ~/.gov/acme/gov_repo
 
 ### gov doctor
 
-check this machine: git, gh, the workspace, the active org, versions
+check this machine: git, gh, the workspace, the active org, versions, and the set-up trail
 
 ```text
 gov doctor [--fix] [--gov-home <path>]
@@ -193,7 +193,7 @@ gov doctor
 gov doctor --fix
 ```
 
-**Changes.** nothing, unless `--fix` is given and you agree to a step; then it installs tools or writes git config
+**Changes.** nothing in any repository. The `set-up` row shows each set-up step done or pending, and whether a set-up signal for gov web is waiting, from ~/.gov/setup-state.json (kept up to date by every gov run; a set-up code is never shown). With `--fix`, and your agreement to a step, it installs tools or writes git config
 
 **Exit codes**
 

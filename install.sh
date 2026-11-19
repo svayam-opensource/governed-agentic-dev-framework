@@ -600,6 +600,22 @@ say ""
 say "${GRN}${B}gov is installed.${RST}"
 say ""
 
+# THE SET-UP CODE FROM gov web (#391). The Install page puts a one-time code in front of
+# this command — `GOV_SETUP_CODE=… GOV_SETUP_ISSUER=… bash install.sh` — so that gov can
+# tell gov web, once, that this machine is set up. The installer's whole part is to HAND IT
+# OVER: exported, so every gov this script runs below (doctor in each branch, then the
+# first-run flow) inherits it, and the first of them keeps it in ~/.gov/setup-state.json
+# (owner-only) until gov has sent it. A terminal-less run, or a "not now", therefore loses
+# nothing: the next `gov` picks up from the file.
+#
+# NEVER ECHOED. The code is a credential for one step of someone's account; this script
+# says that a code arrived, never what it is.
+if [ -n "${GOV_SETUP_CODE:-}" ]; then
+  GOV_SETUP_ISSUER="${GOV_SETUP_ISSUER:-}"
+  export GOV_SETUP_CODE GOV_SETUP_ISSUER
+  info "set-up code from gov web received — gov sends it once this machine is set up"
+fi
+
 # THE LAST WORD, printed where the reader actually is.
 #
 # This used to be said just after the install and before `gov doctor --fix`. On a

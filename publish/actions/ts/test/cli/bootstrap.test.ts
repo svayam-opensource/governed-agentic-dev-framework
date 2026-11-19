@@ -600,3 +600,23 @@ describe("gov-work — gov setup --join (no terminal)", () => {
     expect(acts.some((a) => a.startsWith("place"))).to.equal(false);
   });
 });
+
+describe("gov-work — first run: the set-up milestone (#391)", () => {
+  it("JOINING: the breadcrumb is advanced once, after the repository is registered and before the closing offer", async () => {
+    const order: string[] = [];
+    const { w } = io({
+      register: () => { order.push("register"); return { ok: true }; },
+      setupMilestone: async () => { order.push("milestone"); },
+      reviewNow: async () => { order.push("review"); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(order).to.deep.equal(["register", "milestone", "review"]);
+  });
+
+  it("a failed clone never reaches the milestone — nothing is in place to report", async () => {
+    let called = 0;
+    const { w } = io({ clone: () => { throw new Error("no such repo"); }, setupMilestone: async () => { called++; } });
+    expect(await runFirstRun(w)).to.equal(1);
+    expect(called).to.equal(0);
+  });
+});

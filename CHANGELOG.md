@@ -13,6 +13,8 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+- Set-up code and set-up trail (#391). `install.sh` and `install.ps1` pass `GOV_SETUP_CODE` and `GOV_SETUP_ISSUER` from gov web's Install page on to gov, and never print them. gov records each set-up step as done or pending in `~/.gov/setup-state.json` (owner-only), and re-running `gov` resumes at the first pending step. Once the client is installed, the governance repository is in place and the workspace folders are ready, gov sends the code to `<issuer>/ident/gov-setup/redeem`, once. It only sends to `https://*.svayamtech.com`. A refused code, a rate limit or a network error is reported in one line and never fails set-up. `gov doctor` shows the trail in a `set-up` row, never the code.
+
 - `gov signal` survives a brief GitHub error (F68). Creating a signal issue, commenting and closing are retried up to 3 times (after ~2, 4 and 8 s) on 5xx, 429 or rate-limit and network errors. Before each retry, gov checks whether the earlier attempt went through, so nothing is made twice. A 4xx refusal is returned at once. If it still fails, gov says what was saved and prints the command to finish by hand.
 
 - `gov check install` pins the gov it installs. With no `--gov-package` and no pin to keep, the workflow it writes now installs `@svayam-opensource/gov@<this gov>`, as `gov upgrade` does. Before, it was unpinned, so runners got npm `latest` (1.2.3) (#388).
