@@ -59,7 +59,7 @@ When you're signed in, the Install page shows the command with a **one-time set-
 GOV_SETUP_CODE=<code> GOV_SETUP_ISSUER=<address> bash install.sh
 ```
 
-On Windows the page sets `$env:GOV_SETUP_CODE` and `$env:GOV_SETUP_ISSUER` before `install.ps1` runs.
+On Windows the page gives `$env:GOV_SETUP_CODE='<code>'; $env:GOV_SETUP_ISSUER='<address>'; irm …/install.ps1 | iex`.
 
 The code lets gov tell gov web, once, that your set-up is done. That completes the second step of
 **My Gov Journey**. The installer passes the code to gov and never prints it.
@@ -82,7 +82,11 @@ or pending, with the time:
 - **gov only sends the code to `https://*.svayamtech.com`.** If the command names any other address, gov
   doesn't send the code.
 - **If gov web refuses the code, or can't be reached,** gov says so in one line and carries on. Set-up is not
-  affected. Get a new code from the Install page and run `gov` again. Sending a code twice does no harm.
+  affected.
+  - A refused code has expired, was already used, or was replaced by a newer one. Get a new code from the
+    Install page and run `gov` again.
+  - After too many attempts from your network, wait a few minutes and run `gov` again.
+  - Sending a code twice does no harm.
 - **`gov doctor` shows the trail** in its `set-up` row: each step done or pending, and whether a set-up signal
   is still waiting. It never shows the code.
 

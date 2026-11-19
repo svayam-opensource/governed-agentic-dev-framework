@@ -45,7 +45,7 @@ describe("gov-work — set-up breadcrumb on disk (#391)", () => {
     const { fetch, calls } = okFetch();
     const lines: string[] = [];
     const s = await advanceSetup({ print: (l) => lines.push(l), clientVersion: "t", fetch, home: w.home, has });
-    expect(calls).to.deep.equal(["https://iam-dev.svayamtech.com/gov-setup/redeem"]);
+    expect(calls).to.deep.equal(["https://iam-dev.svayamtech.com/ident/gov-setup/redeem"]);
     expect(lines).to.deep.equal(["Your gov web set-up step is complete."]);
     expect(stepStatus(s!, "setup-signal")).to.equal("done");
     expect(fs.readFileSync(file, "utf8"), "the code is gone once redeemed").to.not.include(CODE);

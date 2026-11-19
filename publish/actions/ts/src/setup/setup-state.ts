@@ -7,7 +7,7 @@
  * ever told gov web that gov was set up. The ruling: gov web's Install page hands the person a ONE-TIME SET-UP CODE
  * (`GOV_SETUP_CODE`, with `GOV_SETUP_ISSUER` naming the IAM that minted it); the installer passes both to gov; gov
  * keeps a breadcrumb of the set-up steps and, once the client is installed, the governance repository is in place
- * and the machine environment is ready, sends the code to `POST <issuer>/gov-setup/redeem` — once.
+ * and the machine environment is ready, sends the code to `POST <issuer>/ident/gov-setup/redeem` — once.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -173,16 +173,25 @@ export function issuerAllowed(issuer: string, allowed: readonly string[] = SETUP
   return allowed.some((d) => host.endsWith(`.${d.toLowerCase()}`));
 }
 
-/** The redeem endpoint for an issuer: `<issuer>/gov-setup/redeem`, the issuer's own path kept. */
+/**
+ * The redeem endpoint for an issuer, as IAM built it (911#424): `<issuer>/ident/gov-setup/redeem`. The issuer is the
+ * IAM base URL with no trailing slash (`https://security-dev.svayamtech.com`); one is tolerated, and its path is kept.
+ */
 export function redeemUrl(issuer: string): string {
-  return `${issuer.replace(/\/+$/, "")}/gov-setup/redeem`;
+  return `${issuer.replace(/\/+$/, "")}/ident/gov-setup/redeem`;
+}
+
+/** IAM accepts `client_version` as printable ASCII, at most 64 characters: anything else is dropped, never sent. */
+export function clientVersionField(v: string): string | undefined {
+  const t = v.trim();
+  return t && t.length <= 64 && /^[\x20-\x7e]+$/.test(t) ? t : undefined;
 }
 
 /** The fetch this module needs — the global one fits; a test passes a stub. */
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) =>
   Promise<{ readonly ok: boolean; readonly status: number; json(): Promise<unknown> }>;
 
-export type RedeemOutcome = "not-ready" | "no-code" | "not-allowed" | "redeemed" | "refused" | "unreachable";
+export type RedeemOutcome = "not-ready" | "no-code" | "not-allowed" | "redeemed" | "refused" | "rate-limited" | "unreachable";
 
 export interface RedeemResult {
   readonly state: SetupState;
@@ -194,6 +203,7 @@ export interface RedeemResult {
 export const REDEEM_LINES = {
   redeemed: "Your gov web set-up step is complete.",
   refused: "gov web did not accept your set-up code (it may have expired or been used) — get a new code on the Install page and re-run `gov`.",
+  tooMany: "gov web has had too many set-up attempts from this network — wait a few minutes and re-run `gov`.",
   unreachable: "Could not reach gov web to finish your set-up step — re-run `gov` later; if the code has expired, get a new one on the Install page.",
   notAllowed: "Your set-up code names an issuer that is not a Svayam address (https://*.svayamtech.com), so gov did not send it — get a new code on the Install page and re-run the install command.",
 } as const;
@@ -220,7 +230,9 @@ export async function redeemSetupCode(
     const res = await deps.fetch(redeemUrl(sc.issuer), {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ code: sc.code, steps, client_version: deps.clientVersion }),
+      // IAM's contract (911#424): only `code` is required; `steps` is kept when ≤ 8 KB (five entries are well under);
+      // `client_version` must be printable ASCII ≤ 64 chars, so a version that is not is left out rather than refused.
+      body: JSON.stringify({ code: sc.code, steps, ...(clientVersionField(deps.clientVersion) ? { client_version: clientVersionField(deps.clientVersion) } : {}) }),
       signal: AbortSignal.timeout(deps.timeoutMs ?? 10_000),
     });
     let body: unknown = null;
@@ -233,8 +245,11 @@ export async function redeemSetupCode(
         line: REDEEM_LINES.redeemed,
       };
     }
-    // A 5xx or 429 is the service, not the code: say "try later", not "get a new code".
-    if (res.status >= 500 || res.status === 429) return { state: s, outcome: "unreachable", line: REDEEM_LINES.unreachable };
+    // 429 {error:{kind:"too_many_attempts"}}: the code may be fine — wait and re-run. A 5xx is the service, not the
+    // code: try later. Every other answer (IAM sends 400 {error:{kind:"invalid_code"}} for a bad, used, superseded or
+    // expired code) means this code will never work: get a new one.
+    if (res.status === 429) return { state: s, outcome: "rate-limited", line: REDEEM_LINES.tooMany };
+    if (res.status >= 500) return { state: s, outcome: "unreachable", line: REDEEM_LINES.unreachable };
     return { state: s, outcome: "refused", line: REDEEM_LINES.refused };
   } catch {
     // Offline, DNS, TLS or the timeout: the code is kept and the one line says what to do. Never fails the run.

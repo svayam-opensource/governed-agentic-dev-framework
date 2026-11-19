@@ -4,7 +4,7 @@
 import { expect } from "chai";
 import { createHash } from "node:crypto";
 import {
-  captureSetupCode, emptySetupState, firstPending, issuerAllowed, markStep, parseSetupState, reconcile, redeemSetupCode,
+  captureSetupCode, clientVersionField, emptySetupState, firstPending, issuerAllowed, markStep, parseSetupState, reconcile, redeemSetupCode,
   redeemUrl, REDEEM_LINES, resumeLine, serializeSetupState, settled, setupTrailDiagnostic, SETUP_ISSUER_ALLOWED_DOMAINS,
   stepStatus, type FetchLike, type SetupState,
 } from "../../src/setup/setup-state.js";
@@ -13,7 +13,7 @@ const T0 = "2026-11-19T10:00:00.000Z";
 const T1 = "2026-11-19T10:05:00.000Z";
 const sha = (t: string): string => createHash("sha256").update(t).digest("hex");
 const CODE = "GS-test-code-1234";
-const ISSUER = "https://iam-dev.svayamtech.com";
+const ISSUER = "https://security-dev.svayamtech.com";
 const env = { GOV_SETUP_CODE: CODE, GOV_SETUP_ISSUER: ISSUER };
 
 /** Every required step done, a code waiting. */
@@ -123,8 +123,9 @@ describe("gov-work — set-up breadcrumb: the issuer allow-list (#391)", () => {
   });
 
   it("the endpoint keeps the issuer's path and drops a trailing slash", () => {
-    expect(redeemUrl("https://iam.svayamtech.com/")).to.equal("https://iam.svayamtech.com/gov-setup/redeem");
-    expect(redeemUrl("https://iam.svayamtech.com/base")).to.equal("https://iam.svayamtech.com/base/gov-setup/redeem");
+    expect(redeemUrl("https://security-dev.svayamtech.com")).to.equal("https://security-dev.svayamtech.com/ident/gov-setup/redeem");
+    expect(redeemUrl("https://iam.svayamtech.com/")).to.equal("https://iam.svayamtech.com/ident/gov-setup/redeem");
+    expect(redeemUrl("https://iam.svayamtech.com/base")).to.equal("https://iam.svayamtech.com/base/ident/gov-setup/redeem");
   });
 });
 
@@ -135,7 +136,7 @@ describe("gov-work — set-up breadcrumb: redeem (#391)", () => {
     expect(r.outcome).to.equal("redeemed");
     expect(r.line).to.equal("Your gov web set-up step is complete.");
     expect(calls).to.have.length(1);
-    expect(calls[0]!.url).to.equal(`${ISSUER}/gov-setup/redeem`);
+    expect(calls[0]!.url).to.equal("https://security-dev.svayamtech.com/ident/gov-setup/redeem");
     expect(calls[0]!.init.method).to.equal("POST");
     expect(Object.keys(calls[0]!.init.headers).map((h) => h.toLowerCase())).to.not.include("authorization");
     const body = JSON.parse(calls[0]!.init.body) as { code: string; steps: { id: string; status: string; at: string }[]; client_version: string };
@@ -150,7 +151,7 @@ describe("gov-work — set-up breadcrumb: redeem (#391)", () => {
   });
 
   it("REFUSAL: keeps the code, says what to do in one line, never throws", async () => {
-    const { fetch } = stubFetch({ status: 400, body: { ok: false, error: "invalid_code" } });
+    const { fetch } = stubFetch({ status: 400, body: { error: { kind: "invalid_code" } } });
     const r = await redeemSetupCode(ready(), deps(fetch));
     expect(r.outcome).to.equal("refused");
     expect(r.state.setupCode?.code).to.equal(CODE);
@@ -162,6 +163,25 @@ describe("gov-work — set-up breadcrumb: redeem (#391)", () => {
   it("a 200 without {ok:true} is a refusal, not a success", async () => {
     const { fetch } = stubFetch({ status: 200, body: { ok: false } });
     expect((await redeemSetupCode(ready(), deps(fetch))).outcome).to.equal("refused");
+  });
+
+  it("RATE LIMITED (429 too_many_attempts): keeps the code and says to wait and re-run `gov` — not to get a new code", async () => {
+    const { fetch } = stubFetch({ status: 429, body: { error: { kind: "too_many_attempts" } } });
+    const r = await redeemSetupCode(ready(), deps(fetch));
+    expect(r.outcome).to.equal("rate-limited");
+    expect(r.state.setupCode?.code).to.equal(CODE);
+    expect(r.line).to.equal(REDEEM_LINES.tooMany).and.include("wait").and.include("re-run `gov`").and.not.include("Install page");
+  });
+
+  it("client_version is sent only as printable ASCII of at most 64 characters", async () => {
+    expect(clientVersionField("2.0.0-next.4")).to.equal("2.0.0-next.4");
+    expect(clientVersionField("x".repeat(65))).to.equal(undefined);
+    expect(clientVersionField("2.0\u00e9")).to.equal(undefined);
+    const { fetch, calls } = stubFetch({ status: 200, body: { ok: true, account_name: "Acme" } });
+    const r = await redeemSetupCode(ready(), { ...deps(fetch), clientVersion: "v".repeat(70) });
+    expect(r.outcome, "account_name alongside ok:true is still success").to.equal("redeemed");
+    expect(JSON.parse(calls[0]!.init.body)).to.not.have.property("client_version");
+    expect(Buffer.byteLength(JSON.stringify((JSON.parse(calls[0]!.init.body) as { steps: unknown }).steps))).to.be.below(8 * 1024);
   });
 
   it("NETWORK ERROR or a 5xx: keeps the code and says to re-run later", async () => {
