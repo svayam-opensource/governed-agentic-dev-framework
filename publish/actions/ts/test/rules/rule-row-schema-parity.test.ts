@@ -85,6 +85,15 @@ const AGREE: Case[] = [
   { name: "an on-demand cue with no check — a warning, not a refusal", store: "framework", text: store({ ...BASE, cue: { tier: "on-demand", text: "x" } }) },
   { name: "checks and qa", store: "framework", text: store({ ...BASE, checks: [{ on: { resource: "vcs.gov-repo", event: "push" }, action: "gh-action/landed-by-pr", with: { branches: ["$default"] }, on_miss: "fail" }], qa: [{ q: "why?", a: "because" }] }) },
   { name: "a revision chain that meets", store: "framework", text: store({ ...BASE, end: { version: "1.3.0", date: "2026-10-07" } }, { ...BASE, start: { version: "1.3.0", date: "2026-10-07" } }) },
+  // F127 (2026-11-20): the policy document's plain-English statement and chapter, both optional
+  { name: "a statement and a chapter", store: "framework", text: store({ ...BASE, statement: "Every agent must do one thing.", chapter: 3 }) },
+  { name: "an org row with a statement and chapter 8", store: "org", text: store({ ...ORG_BASE, statement: "Staff must ask first.", chapter: 8 }) },
+  { name: "a blank statement", store: "framework", text: store({ ...BASE, statement: "  " }), tsKind: "bad-statement" },
+  { name: "a statement that is a number", store: "framework", text: store({ ...BASE, statement: 5 }), tsKind: "bad-statement" },
+  { name: "chapter 0", store: "framework", text: store({ ...BASE, chapter: 0 }), tsKind: "bad-chapter" },
+  { name: "chapter 9", store: "framework", text: store({ ...BASE, chapter: 9 }), tsKind: "bad-chapter" },
+  { name: "a fractional chapter", store: "framework", text: store({ ...BASE, chapter: 2.5 }), tsKind: "bad-chapter" },
+  { name: "a chapter written as text", store: "framework", text: store({ ...BASE, chapter: "3" }), tsKind: "bad-chapter" },
   // refused — one per required field
   ...["id", "source", "expectation", "actor", "level", "start"].map((k): Case => ({
     name: `no ${k}`, store: "framework", text: store(without(BASE, k)),
@@ -186,7 +195,7 @@ describe("rule-row.schema.yaml — held to validateRuleStore (Item 9, Q10)", () 
   it("the corpus exercises every per-row diagnostic the validator has", () => {
     const covered = new Set([...AGREE, ...TS_ONLY].map((c) => c.tsKind).filter(Boolean));
     const all: RowDiagnosticKind[] = ["bad-id", "wrong-scope", "bad-source", "bad-expectation", "bad-actor", "bad-level", "bad-stamp",
-      "bad-cue", "bad-check", "bad-qa",
+      "bad-cue", "bad-check", "bad-qa", "bad-statement", "bad-chapter",
       "gov-client-in-org", "c02-in-framework", "resident-cue-not-c01", "resident-cue-no-agent", "two-in-force", "broken-chain",
       "end-before-start", "on-demand-cue-unbound"];
     for (const k of all) if (!ROW_WARNINGS.has(k)) expect(covered.has(k), `no corpus row for ${k}`).to.equal(true);

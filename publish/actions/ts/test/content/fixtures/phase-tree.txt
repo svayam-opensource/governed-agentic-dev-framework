@@ -58,6 +58,7 @@ framework/common/reference/org-config.schema.yaml
 framework/common/reference/org_gov_repo_operations.md
 framework/common/templates/exception-template.md
 framework/framework-specification.md
+framework/policy-document.yaml
 framework/rules/checks-catalog.yaml
 framework/rules/pol-aliases.yaml
 framework/rules/rule-row.schema.yaml
@@ -74,6 +75,7 @@ policies/common/policy-domains.md
 policies/governance.yaml
 policies/org-policy.md
 policies/ownership.yaml
+policies/policy-document.yaml
 policies/rules/checks-catalog.yaml
 policies/rules/rules.yaml
 projects/README.md

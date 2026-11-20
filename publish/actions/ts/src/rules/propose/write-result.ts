@@ -16,7 +16,7 @@
  * Pure over the injected trees.
  */
 import yaml from "js-yaml";
-import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
+import { openRows, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import type { SectionOwnership } from "../model/contracts.js";
 import { OWNERSHIP_PATH, parseOwnership } from "../checks/ownership.js";
 import { compareSections, sectionShas } from "../checks/sections.js";
@@ -124,7 +124,7 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   const changes = "unreadable" in after ? plan.changes : after.changes;
   const text = tracking.read(POLICY_PR_PATHS.rules);
   const rows: RuleRow[] = text === null ? [] : parseRuleStore(text);
-  const open = new Map(inForce(rows).map((r) => [r.id, r]));
+  const open = new Map(openRows(rows).map((r) => [r.id, r]));
   const latest = (id: string): RuleRow | undefined => open.get(id) ?? [...rows].reverse().find((r) => r.id === id);
   const rules: ChangelogEntry["rules"][number][] = [];
   for (const [ids, change] of [[changes.added, "added"], [changes.revised, "revised"], [changes.retired, "retired"]] as const) {
@@ -167,7 +167,7 @@ function sectionsReviewed(
 
   const change = (id: string): ReviewedChange =>
     changes.added.includes(id) ? "added" : changes.revised.includes(id) ? "revised" : "kept";
-  const open = inForce(rows);
+  const open = openRows(rows);
   for (const c of changedPolicySections(base, head) ?? []) {
     if (out.has(reviewKey(c))) continue;
     const cite = [...new Set(open.filter((r) => r.source.doc === c.doc && r.source.section === c.section && r.source.sha === c.sha).map((r) => r.id))];
@@ -176,7 +176,7 @@ function sectionsReviewed(
 
   const baseText = base.read(POLICY_PR_PATHS.rules);
   let baseOpen: RuleRow[] = [];
-  try { baseOpen = baseText === null ? [] : inForce(parseRuleStore(baseText)); } catch { /* the gate reports an unparseable base store */ }
+  try { baseOpen = baseText === null ? [] : openRows(parseRuleStore(baseText)); } catch { /* the gate reports an unparseable base store */ }
   for (const doc of policyDocPaths(base) ?? []) {
     const was = base.read(doc);
     if (was === null) continue;

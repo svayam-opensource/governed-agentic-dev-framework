@@ -87,6 +87,20 @@ $defs:
           Owner. The verb is not the level.
         type: string
         pattern: "\\S"
+      statement:
+        description: >-
+          The rule in plain English, as a board reader sees it in the policy document: short "must" sentences, no
+          file paths or command names, the same meaning as the expectation. Optional; checks never read it.
+        type: string
+        pattern: "\\S"
+      chapter:
+        description: >-
+          The chapter of the policy document the clause sits in. 1 Purpose, scope and authority · 2 Roles and
+          responsibilities · 3 Development · 4 Deployment and release · 5 Operations and maintenance · 6 Security and
+          access · 7 Evidence and audit · 8 Exceptions and waivers. Optional.
+        type: integer
+        minimum: 1
+        maximum: 8
       actor:
         description: >-
           Who the rule binds. `everyone` means agent and human together, so it is named alone or with gov-client,
@@ -115,10 +129,12 @@ $defs:
         type: array
         items: { $ref: "#/$defs/check" }
       start:
-        description: When this revision took effect.
+        description: >-
+          When this revision takes effect. A row whose date is later than today is approved but not yet in force.
         $ref: "#/$defs/stamp"
       end:
-        description: When this revision stopped taking effect. null (or absent) means it is in force.
+        description: >-
+          When this revision stopped taking effect. null (or absent) means it is open: in force from its start date.
         anyOf:
           - type: "null"
           - $ref: "#/$defs/stamp"

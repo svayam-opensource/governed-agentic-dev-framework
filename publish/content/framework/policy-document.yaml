@@ -1,0 +1,18 @@
+# THE FRAMEWORK'S PART OF THE POLICY DOCUMENT — its chapter titles, introductions and glossary.
+#
+# Written only by `gov upgrade`: replaced on every upgrade, never edited by an organization. The organization's own
+# title page, chapter introductions and glossary are in policies/policy-document.yaml, which gov never rewrites.
+#
+# The eight chapters are the seeded ones (F127 I3). A rule row's `chapter` (1 to 8) places its clause in one.
+chapters:
+  - { number: 1, title: "Purpose, scope and authority", intro: "" }
+  - { number: 2, title: "Roles and responsibilities", intro: "" }
+  - { number: 3, title: "Development", intro: "" }
+  - { number: 4, title: "Deployment and release", intro: "" }
+  - { number: 5, title: "Operations and maintenance", intro: "" }
+  - { number: 6, title: "Security and access", intro: "" }
+  - { number: 7, title: "Evidence and audit", intro: "" }
+  - { number: 8, title: "Exceptions and waivers", intro: "" }
+
+# Terms the framework's clauses use, each with a definition a non-technical reader can follow.
+glossary: []

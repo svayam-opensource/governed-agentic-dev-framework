@@ -28,7 +28,7 @@ import { readTopLevelScalar } from "../../resolve/node-env.js";
 import type { GitRead } from "../../cli/policy-gate-io.js";
 import { log } from "../../log.js";
 import { FRAMEWORK_SCOPE, isScope, issueId } from "./gov-id.js";
-import { parseRuleStore, validateRuleStore, inForce, ROW_WARNINGS, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
+import { parseRuleStore, validateRuleStore, openRows, ROW_WARNINGS, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
 import { parseCatalog, mergeCatalogs, validateBindings, type Catalog, type BindingDiagnosticKind } from "./catalog.js";
 import type { RuleSet, RuleStoreReader, IdIssuer } from "./contracts.js";
 import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
@@ -151,7 +151,7 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
     for (const d of validateRuleStore(rows, { scope })) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
     // Bindings of the rows IN FORCE only: a retired revision may name an action the catalog has since dropped,
     // and that is history, not a fault.
-    for (const row of inForce(rows)) for (const d of validateBindings(row, catalog)) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
+    for (const row of openRows(rows)) for (const d of validateBindings(row, catalog)) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
   }
 
   log("debug", "rule stores loaded", "gov-work:rules:store-io", "loadRuleStores", {

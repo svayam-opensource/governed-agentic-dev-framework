@@ -31,6 +31,24 @@ export type Actor = "gov-client" | "agent" | "human" | "everyone";
 const LEVELS: readonly string[] = ["C01", "C02", "C03"];
 const ACTORS: readonly string[] = ["gov-client", "agent", "human", "everyone"];
 
+/**
+ * THE POLICY DOCUMENT'S CHAPTERS (F127 I3, Policy Owner 2026-11-20). A row's `chapter` places its clause in the
+ * document view; the titles here are the seeded ones (framework/policy-document.yaml carries them with their
+ * introductions, and the organization's policies/policy-document.yaml may rename them).
+ */
+export const CHAPTERS = {
+  1: "Purpose, scope and authority",
+  2: "Roles and responsibilities",
+  3: "Development",
+  4: "Deployment and release",
+  5: "Operations and maintenance",
+  6: "Security and access",
+  7: "Evidence and audit",
+  8: "Exceptions and waivers",
+} as const;
+export type Chapter = keyof typeof CHAPTERS;
+export const isChapter = (v: unknown): v is Chapter => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 8;
+
 /** When a revision took (or ceased to take) effect. Framework rows cite a framework release; org rows `policies/VERSION`. */
 export interface Stamp {
   readonly version: string;
@@ -45,6 +63,13 @@ export interface RuleRow {
   readonly source: { readonly doc: string; readonly section: string; readonly sha: string };
   /** `<Actor> <verb> <one observable action>`, LLM-normalised and owner-approved (Q9). The verb is NOT the level (Q10). */
   readonly expectation: string;
+  /**
+   * The rule in plain English, as a board reader sees it in the policy document (F127 I6): short "must" sentences,
+   * no file paths or command names, the same meaning as `expectation`. Optional; checks never read it.
+   */
+  readonly statement?: string;
+  /** Which chapter of the policy document the clause sits in, 1–8 ({@link CHAPTERS}). Optional. */
+  readonly chapter?: Chapter;
   readonly actor: readonly Actor[];
   readonly level: Level;
   readonly cue?: { readonly tier: "resident" | "on-demand"; readonly text: string };
@@ -57,7 +82,7 @@ export interface RuleRow {
 
 export type RowDiagnosticKind =
   | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
-  | "bad-cue" | "bad-check" | "bad-qa"
+  | "bad-cue" | "bad-check" | "bad-qa" | "bad-statement" | "bad-chapter"
   | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
   | "two-in-force" | "broken-chain" | "end-before-start"
   | "on-demand-cue-unbound";
@@ -132,8 +157,21 @@ function checkShapeProblem(c: unknown): string | null {
   return null;
 }
 
-/** The rows in force: the open row of each id. */
-export const inForce = (rows: readonly RuleRow[]): RuleRow[] => rows.filter((r) => r.end === null);
+/**
+ * The OPEN rows: each id's row with no `end`, whenever it starts. What the store's own bookkeeping reads (the policy
+ * PR gate, propose, binding checks): a row approved to start on a later date is still the id's current revision.
+ */
+export const openRows = (rows: readonly RuleRow[]): RuleRow[] => rows.filter((r) => r.end === null);
+
+/** Today as YYYY-MM-DD (UTC), the default date {@link inForce} judges at. */
+export const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * The rows IN FORCE on `asOf` (YYYY-MM-DD, default today): open, and started on or before that date. A row whose
+ * `start.date` is later is approved but not yet in force (F127: "Active from <date>"); it is in {@link openRows}.
+ */
+export const inForce = (rows: readonly RuleRow[], asOf: string = todayIso()): RuleRow[] =>
+  openRows(rows).filter((r) => !(typeof r.start?.date === "string" && r.start.date > asOf));
 
 /**
  * Every way a store can be wrong. `scope` is the store's own: `FRM` for the framework's, the org slug for the org's.
@@ -158,6 +196,10 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
       d("bad-source", `${r.id}: source needs doc, section and sha, each as text (quote a number-like section or sha)`);
     }
     if (typeof r.expectation !== "string" || r.expectation.trim() === "") d("bad-expectation", `${r.id}: the expectation is empty`);
+    const statement: unknown = r.statement;
+    if (statement !== undefined && !(isStr(statement) && statement.trim() !== "")) d("bad-statement", `${r.id}: a statement is plain-English text, not empty`);
+    const chapter: unknown = r.chapter;
+    if (chapter !== undefined && !isChapter(chapter)) d("bad-chapter", `${r.id}: chapter "${String(chapter)}" is not a whole number from 1 to 8`);
     if (!LEVELS.includes(r.level)) d("bad-level", `${r.id}: level "${r.level}" is not C01, C02 or C03`);
 
     const actors = Array.isArray(r.actor) ? r.actor : [];
