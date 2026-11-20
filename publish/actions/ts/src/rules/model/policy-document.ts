@@ -11,8 +11,12 @@
  *   policies/policy-document.yaml    the organization's title page, its own introductions and glossary — seeded
  *                                    once, then the organization's (gov never rewrites it)
  *
+ * THE SHAPE is the one gov-licence reads (911 gov-licence docs/api.md, "policy document"): a map with an optional
+ * `title_page` (`title`, `subtitle`, `body`, and any other text fields), `chapters: [{id, title, intro}]` with `id`
+ * a chapter number as text ("3"), and `glossary: [{term, definition}]`. Chapters merge by id in numeric order.
+ *
  * The framework's file names all eight seeded chapters ({@link CHAPTERS}), each once, under its seeded title. The
- * organization's may introduce any of them, rename one (`title`), or add its own from 9 up (a title then required).
+ * organization's may introduce any of them, rename one (`title`), or add its own (a title then required).
  *
  * Pure: text in, the document and its problems out.
  */
@@ -27,7 +31,8 @@ export const POLICY_DOCUMENT_PATHS = {
 export type PolicyDocumentOwner = keyof typeof POLICY_DOCUMENT_PATHS;
 
 export interface ChapterText {
-  readonly number: number;
+  /** The chapter number as text: "1" … "8" seeded, others the organization's own. */
+  readonly id: string;
   readonly title?: string;
   readonly intro?: string;
 }
@@ -35,7 +40,7 @@ export interface GlossaryEntry {
   readonly term: string;
   readonly definition: string;
 }
-/** The title page: free text values, empty = left out. Only the organization's file has one. */
+/** The title page: `title`, `subtitle`, `body`, and any other text field (shown as a labelled line). */
 export type TitlePage = Readonly<Record<string, string>>;
 
 export interface PolicyDocument {
@@ -50,8 +55,12 @@ export interface ParsedPolicyDocument {
   readonly problems: readonly string[];
 }
 
+const SEEDED = Object.keys(CHAPTERS);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+/** A chapter id as gov-licence reads it: text, or a number written bare. */
+const idOf = (v: unknown): string | null => (isText(v) ? v.trim() : typeof v === "number" ? String(v) : null);
+const byNumber = (a: string, b: string): number => (Number(a) - Number(b)) || a.localeCompare(b);
 
 /** Parse and check one policy-document file. `owner` says which file it is, and so what it may hold. */
 export function parsePolicyDocument(text: string, owner: PolicyDocumentOwner): ParsedPolicyDocument {
@@ -65,7 +74,7 @@ export function parsePolicyDocument(text: string, owner: PolicyDocumentOwner): P
   for (const k of Object.keys(raw)) if (!known.includes(k)) problems.push(`unknown key "${k}" (expected ${known.join(", ")})`);
 
   let title_page: TitlePage | undefined;
-  if (owner === "org" && raw.title_page !== undefined) {
+  if (owner === "org" && raw.title_page !== undefined && raw.title_page !== null) {
     if (!isObj(raw.title_page)) problems.push("title_page is a mapping of text values");
     else {
       const bad = Object.entries(raw.title_page).filter(([, v]) => typeof v !== "string").map(([k]) => k);
@@ -76,20 +85,21 @@ export function parsePolicyDocument(text: string, owner: PolicyDocumentOwner): P
 
   const chapters: ChapterText[] = [];
   const rawChapters = raw.chapters ?? [];
-  if (!Array.isArray(rawChapters)) problems.push("chapters is a list of { number, title, intro }");
+  if (!Array.isArray(rawChapters)) problems.push("chapters is a list of { id, title, intro }");
   else rawChapters.forEach((c, i) => {
-    if (!isObj(c) || !Number.isInteger(c.number) || (c.number as number) < 1) { problems.push(`chapters[${i}]: number is a whole number from 1`); return; }
-    const n = c.number as number;
-    if (c.title !== undefined && !isText(c.title)) problems.push(`chapter ${n}: a title is text, not empty`);
-    if (c.intro !== undefined && typeof c.intro !== "string") problems.push(`chapter ${n}: an intro is text`);
-    if (owner === "framework" && n > 8) problems.push(`chapter ${n}: the framework's chapters are 1 to 8`);
-    if (owner === "framework" && c.title !== CHAPTERS[n as keyof typeof CHAPTERS]) problems.push(`chapter ${n}: the framework's title is "${CHAPTERS[n as keyof typeof CHAPTERS]}"`);
-    if (owner === "org" && n > 8 && !isText(c.title)) problems.push(`chapter ${n}: a chapter the organization adds needs a title`);
-    if (chapters.some((x) => x.number === n)) problems.push(`chapter ${n} is listed twice`);
-    chapters.push({ number: n, ...(isText(c.title) ? { title: c.title } : {}), ...(typeof c.intro === "string" ? { intro: c.intro } : {}) });
+    const id = isObj(c) ? idOf(c.id) : null;
+    if (!isObj(c) || id === null) { problems.push(`chapters[${i}]: needs an id (the chapter number, e.g. "3")`); return; }
+    const seeded = CHAPTERS[id as unknown as keyof typeof CHAPTERS] as string | undefined;
+    if (c.title !== undefined && !isText(c.title)) problems.push(`chapter ${id}: a title is text, not empty`);
+    if (c.intro !== undefined && typeof c.intro !== "string") problems.push(`chapter ${id}: an intro is text`);
+    if (owner === "framework" && seeded === undefined) problems.push(`chapter ${id}: the framework's chapters are 1 to 8`);
+    else if (owner === "framework" && c.title !== seeded) problems.push(`chapter ${id}: the framework's title is "${seeded}"`);
+    if (owner === "org" && seeded === undefined && !isText(c.title)) problems.push(`chapter ${id}: a chapter the organization adds needs a title`);
+    if (chapters.some((x) => x.id === id)) problems.push(`chapter ${id} is listed twice`);
+    chapters.push({ id, ...(isText(c.title) ? { title: c.title } : {}), ...(typeof c.intro === "string" ? { intro: c.intro } : {}) });
   });
   if (owner === "framework") {
-    for (const n of Object.keys(CHAPTERS).map(Number)) if (!chapters.some((c) => c.number === n)) problems.push(`chapter ${n} (${CHAPTERS[n as keyof typeof CHAPTERS]}) is missing`);
+    for (const id of SEEDED) if (!chapters.some((c) => c.id === id)) problems.push(`chapter ${id} (${CHAPTERS[id as unknown as keyof typeof CHAPTERS]}) is missing`);
   }
 
   const glossary: GlossaryEntry[] = [];
@@ -105,19 +115,20 @@ export function parsePolicyDocument(text: string, owner: PolicyDocumentOwner): P
 }
 
 /**
- * The document's chapters and glossary as a reader sees them: the eight seeded chapters (renamed where the
- * organization renamed one) plus any it added, each with the framework's introduction and then the organization's;
- * the glossary merged and sorted, the organization's definition shown where a term is in both.
+ * The document's chapters and glossary as a reader sees them: chapters by id in numeric order, as gov-licence merges
+ * them (the organization's title wins; both introductions kept, the framework's first); the glossary sorted by term,
+ * the organization's definition shown where a term is in both.
  */
 export function mergePolicyDocuments(framework: PolicyDocument, org: PolicyDocument): {
   readonly title_page: TitlePage;
-  readonly chapters: readonly { readonly number: number; readonly title: string; readonly frameworkIntro: string; readonly orgIntro: string }[];
+  readonly chapters: readonly { readonly id: string; readonly title: string; readonly frameworkIntro: string; readonly orgIntro: string }[];
   readonly glossary: readonly (GlossaryEntry & { readonly from: PolicyDocumentOwner })[];
 } {
-  const numbers = [...new Set([...Object.keys(CHAPTERS).map(Number), ...framework.chapters.map((c) => c.number), ...org.chapters.map((c) => c.number)])].sort((a, b) => a - b);
-  const chapters = numbers.map((n) => {
-    const f = framework.chapters.find((c) => c.number === n), o = org.chapters.find((c) => c.number === n);
-    return { number: n, title: o?.title ?? f?.title ?? CHAPTERS[n as keyof typeof CHAPTERS] ?? `Chapter ${n}`, frameworkIntro: f?.intro ?? "", orgIntro: o?.intro ?? "" };
+  const ids = [...new Set([...SEEDED, ...framework.chapters.map((c) => c.id), ...org.chapters.map((c) => c.id)])].sort(byNumber);
+  const chapters = ids.map((id) => {
+    const f = framework.chapters.find((c) => c.id === id), o = org.chapters.find((c) => c.id === id);
+    const seeded = CHAPTERS[id as unknown as keyof typeof CHAPTERS] as string | undefined;
+    return { id, title: o?.title ?? f?.title ?? seeded ?? id, frameworkIntro: f?.intro ?? "", orgIntro: o?.intro ?? "" };
   });
   const byTerm = new Map<string, GlossaryEntry & { from: PolicyDocumentOwner }>();
   for (const g of framework.glossary) byTerm.set(g.term.toLowerCase(), { ...g, from: "framework" });

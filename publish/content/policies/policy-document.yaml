@@ -9,10 +9,12 @@
 # `gov upgrade` never rewrites it. It is POLICY: a change to it goes through a policy pull request, like any file
 # under policies/.
 
-# THE TITLE PAGE. Leave a value empty and the document leaves it out; `organization` empty means org_name.
+# THE TITLE PAGE. `title`, `subtitle` and `body` are shown as such; any other field is shown as a labelled line.
+# Leave a value empty and the document leaves it out.
 title_page:
   title: "Development and Operations Policy"
-  organization: ""
+  subtitle: ""
+  body: ""
   # Who approved this edition, and when it took effect (YYYY-MM-DD).
   approved_by: ""
   approved_on: ""
@@ -20,13 +22,13 @@ title_page:
   review_cycle: "Annually"
   classification: "Internal"
 
-# YOUR CHAPTER INTRODUCTIONS — shown after the framework's in each chapter. `number` is 1 to 8:
+# YOUR CHAPTER INTRODUCTIONS — shown after the framework's in each chapter. `id` is the chapter number as text:
 #   1 Purpose, scope and authority · 2 Roles and responsibilities · 3 Development · 4 Deployment and release ·
 #   5 Operations and maintenance · 6 Security and access · 7 Evidence and audit · 8 Exceptions and waivers.
-# `title` renames a chapter in your document. A chapter numbered 9 or above is one you add; it needs a title.
-#   - { number: 3, intro: "Our engineers build only with the technologies on our approved list." }
+# `title` renames a chapter in your document. Any other id ("9", …) is a chapter you add; it needs a title.
+#   - { id: "3", intro: "Our engineers build only with the technologies on our approved list." }
 chapters: []
 
-# YOUR GLOSSARY — terms your own policies use. Shown with the framework's; where a term is in both, yours is shown.
+# YOUR GLOSSARY — terms your own policies use. Shown beside the framework's.
 #   - { term: "Release Manager", definition: "The person who decides when a release goes to production." }
 glossary: []

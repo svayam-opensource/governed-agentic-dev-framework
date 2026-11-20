@@ -25,7 +25,7 @@ files:
   - { src: ${FW}, dst: ${FW}, mode: scaffold-auto }
   - { src: ${ORG}, dst: ${ORG}, mode: seed-once }
 `;
-const SHIPPED_FW = "chapters:\n  - { number: 1, title: \"Purpose, scope and authority\", intro: \"The new framework intro.\" }\nglossary: []\n";
+const SHIPPED_FW = "chapters:\n  - { id: \"1\", title: \"Purpose, scope and authority\", intro: \"The new framework intro.\" }\nglossary: []\n";
 const SHIPPED_ORG = "title_page:\n  title: \"Development and Operations Policy\"\nchapters: []\nglossary: []\n";
 
 function tree(files: Record<string, string>, prefix: string): string {
@@ -51,7 +51,7 @@ describe("policy-document.yaml — the framework's replaced, the organization's 
   });
 
   it("an upgrade replaces the framework's file and keeps what the organization wrote in its own", () => {
-    const ours = "title_page:\n  title: \"Acme Engineering Policy\"\nchapters:\n  - { number: 3, intro: \"Ours.\" }\nglossary:\n  - { term: Widget, definition: Our product. }\n";
+    const ours = "title_page:\n  title: \"Acme Engineering Policy\"\nchapters:\n  - { id: \"3\", intro: \"Ours.\" }\nglossary:\n  - { term: Widget, definition: Our product. }\n";
     const c = content(), a = tree({ VERSION: "2.0.0\n", [FW]: "chapters: []\nglossary: []\n", [ORG]: ours }, "poldoc-old-");
     expect(runUpgradeSync(c, a, { apply: true }).code).to.equal(0);
     expect(read(a, FW)).to.equal(SHIPPED_FW);
