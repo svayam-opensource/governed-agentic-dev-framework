@@ -270,7 +270,9 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
         }
         const refreshed = free.findIndex((f) => isInPlaceEdit(baseRows[f.i]!, r) || moved(baseRows[f.i]!, r));
         if (refreshed >= 0) { free.splice(refreshed, 1); return r; }
-        return { ...r, start: stamp };
+        // A row approved to take effect on a later date keeps that date (F127); the version and PR are this change's.
+        const later = typeof r.start?.date === "string" && r.start.date > date;
+        return { ...r, start: later ? { ...stamp, date: r.start.date } : stamp };
       });
       if (same(out, rows)) return { wrote: false, detail: "every row this change opened or closed is already stamped" };
       head.write(POLICY_PR_PATHS.rules, dumpStore(text, out));
