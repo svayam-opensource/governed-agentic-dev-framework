@@ -6,7 +6,7 @@
 // so what they accept and refuse is pinned here before any of them starts.
 import { expect } from "chai";
 import { parseGovId, issueId, FRAMEWORK_SCOPE } from "../../../src/rules/model/gov-id.js";
-import { parseRuleStore, validateRuleStore, inForce, type RuleRow } from "../../../src/rules/model/rule-row.js";
+import { parseRuleStore, validateRuleStore, inForce, openRows, type RuleRow } from "../../../src/rules/model/rule-row.js";
 import { parseCatalog, validateBindings, classifyRow, type Catalog } from "../../../src/rules/model/catalog.js";
 
 const row = (over: Partial<RuleRow> = {}): RuleRow => ({
@@ -84,6 +84,20 @@ describe("rule model — the store and its revision history", () => {
     const retired = row({ end: { version: "1.5.0", date: "2026-10-09", pr: 90 } });
     expect(validateRuleStore([retired], org)).to.deep.equal([]);
     expect(inForce([retired])).to.deep.equal([]);
+  });
+
+  it("a row starting on a later date is open but not yet in force (F127: Active from <date>)", () => {
+    const later = row({ start: { version: "1.4.0", date: "2026-12-01", pr: 87 } });
+    expect(validateRuleStore([later], org)).to.deep.equal([]);
+    expect(openRows([later])).to.deep.equal([later]);
+    expect(inForce([later], "2026-11-30")).to.deep.equal([]);
+    expect(inForce([later], "2026-12-01")).to.deep.equal([later]);    // in force from its start date, inclusive
+    expect(inForce([later], "2027-01-01")).to.deep.equal([later]);
+  });
+
+  it("inForce defaults to today: a row starting far in the future is not in force now, one started in the past is", () => {
+    const past = row(), future = row({ id: "GOV-SVM-013", start: { version: "1.4.0", date: "2999-01-01", pr: 88 } });
+    expect(inForce([past, future])).to.deep.equal([past]);
   });
 
   it("only the framework makes promises about gov: actor gov-client is refused in an org store", () => {

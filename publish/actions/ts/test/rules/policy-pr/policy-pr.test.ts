@@ -267,6 +267,69 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
   });
 
+  describe("(d) a statement or chapter filled in place (F127, 2026-11-20) — presentation, not the rule", () => {
+    /** Base + GOV-SVM-002 given its plain-English statement and chapter, in place; then the writers. */
+    function fillPr(edit: (r: RuleRow) => RuleRow = (r) => ({ ...r, statement: "Nobody may commit a secret.", chapter: 6 })): { base: TreeReader; head: ReturnType<typeof memTree>; files: Record<string, string> } {
+      const base = memTree(baseFiles());
+      const files = baseFiles();
+      const head = memTree(files);
+      files["policies/rules/rules.yaml"] = dump(BASE_ROWS.map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
+      const w = policyPrWriter({ base, head });
+      const plan = planPolicyPr(base, head);
+      if ("unreadable" in plan) throw new Error(plan.unreadable);
+      const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
+      w.writeSnapshot(plan.baseVersion);
+      w.stampRows(version, TODAY, PR);
+      w.writeChangelogEntry(ENTRY(version, []));
+      return { base, head, files };
+    }
+
+    it("passes, and is a PATCH: no rule was added, revised or retired", () => {
+      const { base, head } = fillPr();
+      const j = judge(base, head);
+      expect(j.findings).to.deep.equal([]);
+      expect(j).to.deep.include({ verdict: "pass", required: "patch", headVersion: "1.4.1" });
+      expect(j.changes).to.deep.include({ added: [], revised: [], retired: [], rowsChanged: false, annotated: ["GOV-SVM-002"] });
+    });
+
+    it("the writers leave the filled row's start alone — it is the same row", () => {
+      const { files } = fillPr();
+      const r = parseRuleStore(files["policies/rules/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
+      expect(r.start).to.deep.equal(BASE_ROWS[1]!.start);
+      expect(r).to.deep.include({ statement: "Nobody may commit a secret.", chapter: 6 });
+    });
+
+    it("a reworded statement on a row that already has one is also in place, and a patch", () => {
+      const withStatement = (words: string): Record<string, string> =>
+        ({ ...baseFiles(), "policies/rules/rules.yaml": dump(BASE_ROWS.map((r) => (r.id === "GOV-SVM-002" ? { ...r, statement: words } : r))) });
+      const plan = planPolicyPr(memTree(withStatement("Old words.")), memTree(withStatement("New words.")));
+      expect(plan).to.deep.include({ required: "patch" });
+      expect("changes" in plan && plan.changes.annotated).to.deep.equal(["GOV-SVM-002"]);
+    });
+
+    it("a minor bump is refused for a fill alone", () => {
+      const { base, head, files } = fillPr();
+      files["policies/VERSION"] = "1.5.0\n";
+      expect(checksOf(judge(base, head))).to.include("version");
+    });
+
+    it("refuses the statement and the expectation changed in place", () => {
+      const { base, head } = fillPr((r) => ({ ...r, statement: "Nobody may commit a secret.", expectation: "Changed." }));
+      expect(checksOf(judge(base, head))).to.include("append-only");
+    });
+
+    it("refuses a statement filled on a CLOSED row — history is never rewritten", () => {
+      const { base, head, files } = fillPr();
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, statement: "Too late." } : r)));
+      expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) is already closed and was edited — history is never rewritten");
+    });
+
+    it("refuses a chapter outside 1–8 (the store does not validate)", () => {
+      const { base, head } = fillPr((r) => ({ ...r, chapter: 9 as never }));
+      expect(checksOf(judge(base, head))).to.include("store");
+    });
+  });
+
   describe("(e) an ownership change is MINOR; an ownership sha refresh is a patch (Policy Owner, 2026-10-06)", () => {
     const OWN = "policies/ownership.yaml";
     const ROW = (over = "") => `- { doc: ${DOC}, section: "3", role: Data Owner, sha: "${sha(POLICY, "3")}"${over} }\n`;

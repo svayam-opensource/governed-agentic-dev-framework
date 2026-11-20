@@ -21,7 +21,7 @@
  * Pure over its ports.
  */
 import { log } from "../../log.js";
-import { inForce, type RuleRow, type Stamp } from "../model/rule-row.js";
+import { openRows, type RuleRow, type Stamp } from "../model/rule-row.js";
 import type { IdIssuer, Proposer, RuleSet, SectionOwnership, SectionVerdict } from "../model/contracts.js";
 import { applyVerdicts } from "../model/revise.js";
 import { policySections, sectionShas } from "../checks/sections.js";
@@ -104,8 +104,8 @@ interface Work {
 
 export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
   const { set } = deps;
-  const orgInForce = inForce(set.org);
-  const fwInForce = inForce(set.framework);
+  const orgInForce = openRows(set.org);
+  const fwInForce = openRows(set.framework);
   const roles = set.roles ? Object.keys(set.roles) : undefined;
   const work: Work[] = [];
 
@@ -247,10 +247,10 @@ export function createProposer(deps: { readonly set: RuleSet; readonly model: Mo
       const out: SectionVerdict[] = [];
       const ownership: SectionOwnership[] = [];
       const qaOut: { section: string; q: string; a: string }[] = [];
-      const fw = inForce(deps.set.framework);
+      const fw = openRows(deps.set.framework);
       const roles = deps.set.roles ? Object.keys(deps.set.roles) : undefined;
       for (const s of sections) {
-        const rows = inForce(s.rows);
+        const rows = openRows(s.rows);
         const o = await interviewSection(
           { doc: s.doc, section: s.section, sha: s.sha, text: s.text, rows, catalog: deps.set.catalog, frameworkRules: fw, roles, scope: deps.set.orgScope },
           { model: deps.model, channel: deps.channel, maxRounds: deps.maxRounds },
