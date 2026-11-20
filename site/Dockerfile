@@ -36,6 +36,12 @@ ARG GOV_DEPS=
 # site built from the WORKTREE: its install.sh, and a client packed from its publish/actions/ts, served at
 # /gov.tgz. Nothing a shared env builds ever sets it. See site/build-local.mjs.
 ARG GOV_LOCAL=
+# THE CLONE IS KEYED ON THE UPSTREAM REFS (#395). The RUN line below never changes, so the builder reused its
+# cached layer and build.mjs read install.sh at `dev` / `uat` / tags from an OLD clone: gov-dev kept serving an
+# installer the dev branch had replaced (deploy/dev/gov-install #14: "RUN git clone … --> Using cache"). ADD of a
+# remote URL is re-fetched on every build and its checksum is the cache key, so the ref advertisement — every
+# branch and tag with its commit, anonymous and not API-rate-limited — busts the clone exactly when any ref moves.
+ADD ${REPO}/info/refs?service=git-upload-pack /tmp/upstream-refs
 RUN git clone --quiet --no-single-branch "$REPO" /src
 # THE CONTEXT IS EITHER THE REPO ROOT OR site/ ITSELF, and this works with both. The catalog decides
 # (`build.context`), and the catalog and this file live in different repositories, so they cannot change in
