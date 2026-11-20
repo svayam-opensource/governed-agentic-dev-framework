@@ -522,7 +522,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r, i, all) =>
         (i === all.length - 1 ? { ...r, start: { version: "1.5.0", date: "2026-10-05", pr: 90 } } : r)));
       expect(judge(base, head).findings.filter((x) => x.check === "stamp").map((x) => x.message)).to.deep.equal([
-        "GOV-SVM-001 starts at 1.5.0 · 2026-10-05 · #90; a row this change opens starts at 1.5.0 · 2026-10-06 · #91",
+        "GOV-SVM-001 starts at 1.5.0 · 2026-10-05 · #90; a row this change opens starts at 1.5.0 · 2026-10-06 · #91 (or on a later date)",
       ]);
     });
     it("fails a closed row whose end lacks the PR", () => {

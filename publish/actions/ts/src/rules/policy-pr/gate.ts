@@ -557,14 +557,17 @@ function checkFrozen(base: TreeReader, head: TreeReader, prev: string | null, f:
   return null;
 }
 
-/** (i) New rows start, and newly closed rows end, at the new version, today, this PR. */
+/**
+ * (i) New rows start, and newly closed rows end, at the new version, today, this PR — save that a new row may start
+ * on a LATER date (F127: approved now, "Active from <date>"; not in force until then, rule-row.ts inForce).
+ */
 function checkStamps(base: readonly RuleRow[], head: readonly RuleRow[], at: { version: string; date: string; pr: number }, f: Emit): void {
   const { pairs, fresh } = pairRows(base, head);
   const show = (s: { version?: string; date?: string; pr?: number } | null) => (s ? `${s.version} · ${s.date} · #${s.pr ?? "?"}` : "none");
   const want = `${at.version} · ${at.date} · #${at.pr}`;
   for (const h of fresh) {
     const r = head[h]!, s = r.start;
-    if (!s || s.version !== at.version || s.date !== at.date || s.pr !== at.pr) f("stamp", `${r.id} starts at ${show(s)}; a row this change opens starts at ${want}`);
+    if (!s || s.version !== at.version || typeof s.date !== "string" || s.date < at.date || s.pr !== at.pr) f("stamp", `${r.id} starts at ${show(s)}; a row this change opens starts at ${want} (or on a later date)`);
   }
   for (const [h, b] of pairs) {
     const e = head[h]!.end;
