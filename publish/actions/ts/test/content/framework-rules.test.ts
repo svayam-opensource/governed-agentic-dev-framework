@@ -16,6 +16,7 @@ import { loadRuleStores, RULE_STORE_PATHS } from "../../src/rules/model/store-io
 import { inForce, parseRuleStore } from "../../src/rules/model/rule-row.js";
 import { sectionShas } from "../../src/rules/checks/sections.js";
 import type { GitRead } from "../../src/cli/policy-gate-io.js";
+import { parsePolicyDocument, POLICY_DOCUMENT_PATHS } from "../../src/rules/model/policy-document.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 const SPEC_DOC = "framework/framework-specification.md";
@@ -106,6 +107,42 @@ describe("framework rules — the shipped store", () => {
 
   it("expectations name their actor — no pronoun subjects (Q9)", () => {
     expect(rows.filter((r) => /^(It|They|This)\b/.test(r.expectation)).map((r) => r.id)).to.deep.equal([]);
+  });
+
+  // F127 (2026-11-20): the policy document. Every clause in force reads in plain English for a board reader and sits
+  // in one of the eight chapters; the technical expectation stays for the checks.
+  it("every row in force has a plain-English statement and a chapter (F127)", () => {
+    const missing = inForce(rows).filter((r) => !r.statement?.trim() || r.chapter === undefined).map((r) => r.id);
+    expect(missing).to.deep.equal([]);
+  });
+
+  it("statements name no file path or command, and say must (C01) or should (C03) as the level does (F127)", () => {
+    const COMMAND = /\bgov (doctor|work|task|merge|seed|setup|upgrade|rules|repo|check|signal|org|agent)\b/;
+    const bad = inForce(rows).flatMap((r) => {
+      const s = r.statement ?? "";
+      const out: string[] = [];
+      if (/[`$<>]|\/\w|\w\/|\.(md|ya?ml|json|ts)\b/.test(s)) out.push(`${r.id}: names a path or code`);
+      if (COMMAND.test(s)) out.push(`${r.id}: names a command`);
+      if (r.level === "C03" && !/\bshould\b/.test(s)) out.push(`${r.id}: a C03 statement says should`);
+      if (r.level === "C01" && !/\b(must|may)\b/.test(s)) out.push(`${r.id}: a C01 statement says must`);
+      return out;
+    });
+    expect(bad).to.deep.equal([]);
+  });
+
+  it("every chapter 1–8 holds at least one framework clause, and each has an introduction (F127)", () => {
+    const used = new Set(inForce(rows).map((r) => r.chapter));
+    expect([1, 2, 3, 4, 5, 6, 7, 8].filter((n) => !used.has(n as never))).to.deep.equal([]);
+    const doc = parsePolicyDocument(read(POLICY_DOCUMENT_PATHS.framework), "framework");
+    expect(doc.problems).to.deep.equal([]);
+    expect(doc.doc.chapters.filter((c) => !c.intro?.trim()).map((c) => c.id)).to.deep.equal([]);
+  });
+
+  it("the framework's glossary defines the terms its clauses lean on (F127)", () => {
+    const terms = parsePolicyDocument(read(POLICY_DOCUMENT_PATHS.framework), "framework").doc.glossary.map((g) => g.term);
+    for (const t of ["Agent", "Policy Owner", "Check Owner", "Mandatory (C01)", "Required (C02)", "Recommended (C03)", "Pull request", "Exception"]) {
+      expect(terms, t).to.include(t);
+    }
   });
 
   it("ids are unique within the shipped release (one row per rule)", () => {
