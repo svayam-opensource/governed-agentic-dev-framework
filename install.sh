@@ -287,13 +287,34 @@ write_wrapper() {
   return 0
 }
 
+# Is this a `gov` we may (over)write — absent, or one this installer wrote before (it carries MARKER)?
+# Someone else's `gov` in a shared folder is left alone.
+ours_or_absent() {
+  local f="$1/gov"
+  [ ! -e "$f" ] && return 0
+  grep -qF "$MARKER" "$f" 2>/dev/null
+}
+
+# A folder ALREADY on this shell's PATH that we can write without asking for a password: the
+# person's own ~/.local/bin first, then /usr/local/bin — on every shell's PATH, and writable when
+# installing as root (a server, a container) or on a Mac whose /usr/local belongs to the person.
+# Either way `gov` works in the shell the person is standing in: nothing to source, nothing to
+# reopen. (A `curl … | bash` installer runs in a CHILD shell, so sourcing a profile here could
+# never reach the person's shell — Policy Owner ruling Q23 A, 2026-11-21.) No sudo, ever.
 link_into_path() {
-  local target="$1" dir="$HOME/.local/bin"
-  on_path "$dir" || return 1
-  write_wrapper "$dir" "$target" || return 1
-  IMMEDIATELY_USABLE=1
-  ok "linked into $(tilde "$dir"), which is already on your PATH"
-  return 0
+  local target="$1" dir
+  for dir in "$HOME/.local/bin" "/usr/local/bin"; do
+    on_path "$dir" || continue
+    if [ "$dir" = "/usr/local/bin" ]; then
+      [ -d "$dir" ] && [ -w "$dir" ] || continue
+    fi
+    ours_or_absent "$dir" || continue
+    write_wrapper "$dir" "$target" || continue
+    IMMEDIATELY_USABLE=1
+    ok "linked into $(tilde "$dir"), which is already on your PATH"
+    return 0
+  done
+  return 1
 }
 
 # How gov stays reachable after this script exits — the wrapper when it can be proven, the
