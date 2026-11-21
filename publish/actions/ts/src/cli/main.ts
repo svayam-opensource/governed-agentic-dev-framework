@@ -1724,6 +1724,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     me,
     canWriteBoard: (n) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
+    // F135: seeded = the project branch is on the governance remote. One ls-remote, for the picked project only;
+    // a failed call is null ("could not ask"), never false — false would send a seeded project to `seed`.
+    projectBranchOnRemote: (branch: string) => {
+      const out = tryRun("git", ["-C", resolved.home, "ls-remote", "--heads", "origin", branch]);
+      if (out === undefined) return null;
+      return out.split("\n").some((l) => l.trim().endsWith(`refs/heads/${branch}`));
+    },
     run: runAny,
     prompt: async () => "",
     print: () => {},

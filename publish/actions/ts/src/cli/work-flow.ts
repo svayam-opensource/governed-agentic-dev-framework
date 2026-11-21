@@ -11,7 +11,8 @@ import * as path from "node:path";
 import { isRateLimited, type BoardSummary, type Projects } from "../lifecycle/project-list.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Fs } from "../lifecycle/fs-io.js";
-import { deriveProjectIdentity } from "../lifecycle/identity.js";
+import { deriveBranch, deriveProjectIdentity } from "../lifecycle/identity.js";
+import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 import { deriveStatus } from "../lifecycle/state.js";
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
@@ -71,6 +72,13 @@ export interface WorkFlowDeps {
   readonly git?: GitRead;
   readonly me: string | null;
   readonly canWriteBoard: (boardNumber: number) => boolean;
+  /**
+   * Is the project `branch` on the governance repo's remote? true / false, or null when it could not be asked
+   * (offline, no access). The test of "seeded" (F135): an anchor issue is opened by `gov project` BEFORE `gov seed`
+   * pushes the branch, so an anchor alone routed a brand-new project to `join` and git's exit 128.
+   * Asked once, for the project picked — never per board in the list. Absent: the anchor decides, as before.
+   */
+  readonly projectBranchOnRemote?: (branch: string) => boolean | null;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
   readonly prompt: (q: string) => Promise<string>;
   /** Is this command on PATH? Injected, so the menu is decidable in a test (#195). */
@@ -681,7 +689,7 @@ export function seedableBoards(deps: WorkFlowDeps): WorkProject[] {
   return fillPage(boards, (b) => deps.canWriteBoard(b.boardNumber), Math.max(1, boards.length), 0).items;
 }
 
-export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
+export type WorkspaceState = "not-seeded" | "not-cloned" | "ready" | "branch-unknown";
 /**
  * Where this project stands ON THIS MACHINE — and, separately, whether it exists at all (#198).
  *
@@ -696,12 +704,23 @@ export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
  * "not started"). So it is read here rather than guessed from the filesystem. A missing directory
  * for an anchored project means it is not cloned HERE, which is `join`'s job — and `join`
  * materializes the work root it does not find.
+ *
+ * AN ANCHOR IS NECESSARY, NOT SUFFICIENT (F135). `gov project` opens the anchor issue and `gov seed` pushes the
+ * branch later (seed reuses the anchor it finds), so a board can be anchored with no project branch anywhere —
+ * and `join` then died in `worktree add … origin/<branch>` with git's exit 128. Seeded therefore means the
+ * project BRANCH is on the remote governance repo: still a GitHub fact, never the local filesystem (#198).
+ * The question costs one `ls-remote`, asked only for an anchored project this machine has not cloned; when it
+ * cannot be answered the state says so ("branch-unknown") rather than guessing either way.
  */
 export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceState {
   const projRoot = path.join(deps.config.agentWorkRoot, p.projectId);
-  if (!deps.fs.pathExists(projRoot)) return p.status === NOT_STARTED ? "not-seeded" : "not-cloned";
-  if (!deps.fs.pathExists(path.join(projRoot, deps.config.workspaceRepo, ".git"))) return "not-cloned";
-  return "ready";
+  const cloned = deps.fs.pathExists(projRoot) && deps.fs.pathExists(path.join(projRoot, deps.config.workspaceRepo, ".git"));
+  if (cloned) return "ready";
+  if (p.status === NOT_STARTED) return deps.fs.pathExists(projRoot) ? "not-cloned" : "not-seeded";
+  if (!deps.projectBranchOnRemote) return "not-cloned";
+  const onRemote = deps.projectBranchOnRemote(deriveBranch(p.projectId));
+  if (onRemote === null) return "branch-unknown";
+  return onRemote ? "not-cloned" : "not-seeded";
 }
 
 /**
@@ -1150,6 +1169,15 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     }
     deps.printPrompt?.(kickoffPrompt(p.projectId, deps.config));
     return 0;
+  }
+
+  // F135: whether this project has been seeded could not be asked. Guessing either way is wrong — `seed` on a
+  // seeded project reports its success as leftovers (#198), `join` on an unseeded one is git's exit 128.
+  if (state === "branch-unknown") {
+    print(`  gov could not check whether '${p.projectId}' has been seeded — the governance repo's remote did not answer`);
+    print(`  for its project branch ${deriveBranch(p.projectId)} (offline, or no access to the repo?).`);
+    print(`  Check your connection and your sign-in (${GH_SIGNIN_HINT}), then retry.`);
+    return 1;
   }
 
   // SEEDING FROM SCRATCH HAS NO "LAST TIME" (Policy Owner, 2026-10-12): the org default is Enter, whatever an old
