@@ -41,7 +41,16 @@ export interface JoinDeps {
 
 export type JoinResult =
   | { readonly ok: true; readonly projectId: string; readonly branch: string; readonly orgGovClone: string; readonly repos: readonly string[] }
-  | { readonly ok: false; readonly code: number; readonly reason: "bad-url" | "empty-slug" | "unauthorized"; readonly message: string };
+  | { readonly ok: false; readonly code: number; readonly reason: "bad-url" | "empty-slug" | "unauthorized" | "branch-missing"; readonly message: string };
+
+/**
+ * The project branch is not on a repo's remote (F135). Thrown by {@link materialize} and turned into a refusal by
+ * {@link join}, so a project that was never seeded is named as such instead of surfacing as git's exit 128
+ * ("fatal: invalid reference") from `worktree add … origin/<branch>`.
+ */
+class BranchMissing extends Error {
+  constructor(readonly url: string, readonly branch: string) { super(`${branch} is not on ${url}`); }
+}
 
 /** Materialize a worktree of `url` at `worktreePath` on the existing `branch`. */
 function materialize(deps: JoinDeps, url: string, worktreePath: string, branch: string, agentWorkRoot: string, remote: string): void {
@@ -51,6 +60,10 @@ function materialize(deps: JoinDeps, url: string, worktreePath: string, branch: 
     { pathExists: (x) => deps.fs.pathExists(x), cloneRepo: (u, d) => deps.cloneRepo(u, d), fetch: (d, r, ref) => deps.vcs.fetch(d, r, ref) },
     agentWorkRoot, url, remote, branch,
   );
+  // JOIN NEEDS A SEEDED PROJECT, AND AN ANCHOR IS NOT PROOF OF ONE (F135). `gov project` opens the anchor issue
+  // before `gov seed` pushes the branch, so a board can be anchored with no branch anywhere. Checked here, from
+  // the clone the worktree is cut from, so the refusal names the fix rather than git's "invalid reference".
+  if (!deps.vcs.remoteBranchExists(baseClone, remote, branch)) throw new BranchMissing(url, branch);
   // Create a local branch tracking the existing remote project branch, checked
   // out in the new worktree (startPoint = origin/<branch>).
   deps.vcs.worktreeAdd(baseClone, branch, worktreePath, `${remote}/${branch}`);
@@ -76,16 +89,30 @@ export function join(deps: JoinDeps, config: JoinConfig, input: JoinInput): Join
   const projectWorkRoot = path.join(config.agentWorkRoot, projectId);
   const orgGovClone = path.join(projectWorkRoot, config.workspaceRepo);
 
-  log(`join ${projectId}: gov worktree on ${branch}`);
-  materialize(deps, config.orgRepoUrl, orgGovClone, branch, config.agentWorkRoot, remote);
-  if (input.identity) deps.vcs.setIdentity(orgGovClone, input.identity);
-
   const repos: string[] = [];
-  for (const url of board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo)) {
-    const dir = path.join(projectWorkRoot, repoNameFromUrl(url));
-    materialize(deps, url, dir, branch, config.agentWorkRoot, remote);
-    if (input.identity) deps.vcs.setIdentity(dir, input.identity);
-    repos.push(dir);
+  try {
+    log(`join ${projectId}: gov worktree on ${branch}`);
+    materialize(deps, config.orgRepoUrl, orgGovClone, branch, config.agentWorkRoot, remote);
+    if (input.identity) deps.vcs.setIdentity(orgGovClone, input.identity);
+
+    for (const url of board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo)) {
+      const dir = path.join(projectWorkRoot, repoNameFromUrl(url));
+      materialize(deps, url, dir, branch, config.agentWorkRoot, remote);
+      if (input.identity) deps.vcs.setIdentity(dir, input.identity);
+      repos.push(dir);
+    }
+  } catch (e) {
+    if (!(e instanceof BranchMissing)) throw e;
+    const isGov = e.url === config.orgRepoUrl;
+    return {
+      ok: false, code: 1, reason: "branch-missing",
+      message: [
+        `Cannot join ${projectId}: its project branch ${branch} is not on ${e.url} (or that remote could not be reached).`,
+        isGov
+          ? `  The project has not been seeded yet — an anchor issue alone does not create the branch. Seed it:  gov seed ${input.boardUrl}`
+          : `  The governance branch exists but this linked repo has none — the seed did not finish. Finish it:  gov seed ${input.boardUrl}`,
+      ].join("\n"),
+    };
   }
 
   return { ok: true, projectId, branch, orgGovClone, repos };

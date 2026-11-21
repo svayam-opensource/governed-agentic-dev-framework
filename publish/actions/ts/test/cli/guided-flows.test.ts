@@ -114,6 +114,48 @@ describe("gov-work — guided Work flow", () => {
     expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude-code", "/work/PRJ-9-infra"]]);
   });
 
+  describe("F135 — seeded means the project BRANCH is on the remote, not just an anchor", () => {
+    const anchored = { boardNumber: 7, title: "Alpha", url: "u", status: "active", projectId: "PRJ-7-alpha" };
+
+    it("workspaceState: anchored + no remote branch → not-seeded; + branch → not-cloned; unanswerable → branch-unknown", () => {
+      const asked: string[] = [];
+      const on = (v: boolean | null) => (b: string) => { asked.push(b); return v; };
+      expect(workspaceState({ ...deps().deps, projectBranchOnRemote: on(false) }, anchored)).to.equal("not-seeded");
+      expect(workspaceState({ ...deps().deps, projectBranchOnRemote: on(true) }, anchored)).to.equal("not-cloned");
+      expect(workspaceState({ ...deps().deps, projectBranchOnRemote: on(null) }, anchored)).to.equal("branch-unknown");
+      expect(asked).to.deep.equal(["BRNCH-7-alpha", "BRNCH-7-alpha", "BRNCH-7-alpha"]);
+    });
+
+    it("never asks for a project cloned here, nor for one with no anchor (#198 stands: the filesystem never decides existence)", () => {
+      let asked = 0;
+      const probe = () => { asked++; return false; };
+      expect(workspaceState({ ...deps().deps, fs: fsWith(["/work/PRJ-7-alpha/acme-gov/.git"]), projectBranchOnRemote: probe }, anchored)).to.equal("ready");
+      expect(workspaceState({ ...deps().deps, projectBranchOnRemote: probe }, { ...anchored, status: NOT_STARTED })).to.equal("not-seeded");
+      expect(asked).to.equal(0);
+    });
+
+    it("anchored but never pushed → the flow SEEDS (seed reuses the anchor), it does not join", async () => {
+      const { deps: d, ran } = deps({ prompt: async () => "1", projectBranchOnRemote: () => false });
+      expect(await runWorkFlow(d)).to.equal(0);
+      expect(ran[0]).to.deep.equal(["seed", "https://github.com/orgs/Acme/projects/7", "rk"]);
+      expect(ran.some((a) => a[0] === "join")).to.equal(false);
+    });
+
+    it("anchored and pushed → the flow JOINS", async () => {
+      const { deps: d, ran } = deps({ prompt: async () => "1", projectBranchOnRemote: () => true });
+      expect(await runWorkFlow(d)).to.equal(0);
+      expect(ran[0]).to.deep.equal(["join", "https://github.com/orgs/Acme/projects/7"]);
+    });
+
+    it("the remote cannot be asked → says so and stops; neither seed nor join runs", async () => {
+      const { deps: d, ran, out, launched } = deps({ prompt: async () => "1", projectBranchOnRemote: () => null });
+      expect(await runWorkFlow(d)).to.equal(1);
+      expect(ran).to.deep.equal([]);
+      expect(launched).to.deep.equal([]);
+      expect(out.join("\n")).to.match(/could not check whether 'PRJ-7-alpha' has been seeded/).and.match(/BRNCH-7-alpha/);
+    });
+  });
+
   it("agent picker '0) later' → no launch, prints the manual command", async () => {
     let calls = 0;
     const { deps: d, out, launched } = deps({ prompt: async () => (++calls === 1 ? "1" : "0") });   // project 1, then 'later'
