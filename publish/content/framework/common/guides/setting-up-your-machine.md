@@ -14,8 +14,11 @@ organization; on Windows, the installer does the same. This is what it hands bac
 person can do, like signing in.
 
 `install.sh` keeps its own Node out of your way: a Node you already have stays the one your
-shell finds. Where `~/.local/bin` is on your `PATH` it changes no shell profile at all;
-elsewhere it appends one line to the end of your profile and tells you which file.
+shell finds. Where `~/.local/bin` is on your `PATH` — or, installing as root or with a writable
+`/usr/local/bin`, there — it puts `gov` in that folder and changes no shell profile at all, so `gov`
+works in the terminal you are in. Elsewhere it appends one line to the end of your profile and tells
+you which file; open a new terminal (or `source` that file), because an installer run with
+`curl … | bash` cannot change the shell that started it.
 
 ## 1. Before the first session
 

@@ -48,6 +48,9 @@ saw "and it says so rather than leaving it to be discovered" "Installing Node"
 # what an adopter cares about, and it is asserted below in a new login shell.
 if [ -x "$HOME/.local/bin/gov" ]; then
   pass "gov is linked into ~/.local/bin — already on PATH here, so it works without a new terminal"
+elif [ -x /usr/local/bin/gov ] && grep -qF "# added by the gov installer" /usr/local/bin/gov; then
+  # Q23 A (2026-11-21): installing as root (or with a writable /usr/local/bin) links there.
+  pass "gov is linked into /usr/local/bin — on every shell's PATH, so it works without a new terminal"
 else
   info "no wrapper: ~/.local/bin is not on PATH on this image, so install.sh edited the profile"
   says "and it SAYS the current shell does not know about it yet" "This shell was started before gov was installed"
