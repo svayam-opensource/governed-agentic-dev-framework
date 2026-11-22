@@ -17,7 +17,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { adopterNextSteps, joinerNextSteps } from "../../src/cli/next-steps.js";
 import { expandEntries, parseManifest } from "../../src/maintain/upgrade-sync.js";
-import { starterProject } from "../../src/lifecycle/starter-project.js";
+import { practiceTask } from "../../src/lifecycle/starter-project.js";
 
 const CONTENT = fileURLToPath(new URL("../../../../content/", import.meta.url));
 const HOME = "/home/t/.gov/geneva/gov_repo";
@@ -61,8 +61,8 @@ describe("gov-work — the closing screens point at documents that exist (walk #
     expect(t).to.contain(`${HOME}/policies/common/data-classification.md`);
   });
 
-  it("the review issue names only documents setup seeds", () => {
-    const body = starterProject("acme", "acme-gov").issueBody;
+  it("the practice task names only documents setup seeds", () => {
+    const body = practiceTask("Acme Ltd").body;
     for (const m of body.matchAll(/`([A-Za-z0-9_./-]+\.(?:md|yaml))`/g)) {
       expect(SEEDED.has(m[1]!), `${m[1]} is not seeded`).to.equal(true);
     }

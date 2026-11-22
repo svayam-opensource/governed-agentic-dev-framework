@@ -1,140 +1,203 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * The first project, made for you, so the first governed thing you do is read your
- * own policies (#186).
+ * THE PRACTICE PROJECT — "Make the policy ours" (F136, PRJ-121; rulings Q27 B, Q29 A, Q30 A, Q38 B+, Q39 A).
  *
- * Adoption ended with "review the seeded policies" and no way to do it that was not
- * either read-only (GitHub) or ungoverned (open the folder and edit). Both work.
- * Neither is the framework. The one route that demonstrates what was just installed
- * — a board, an issue, a project branch, a pull request — required the adopter to
- * assemble it by hand, on their first day, out of concepts they had not met yet.
+ * The first governed change in a new organization is made for the adopter to walk through, without a question:
  *
- * So it is assembled for them, and the work in it is the review they already need
- * to do. The starter project is not a toy: its issue is real, its branch is real,
- * and merging it is how the org's policies become the org's.
+ *   first run (adopter only) ─► board "Make the policy ours"
+ *                            ─► anchor issue, labelled `anchor` + `practice`  (gov-licence finds the board by it)
+ *                            ─► one task issue: the title-page change to policies/policy-document.yaml
+ *                            ─► `gov seed` — the project branch BRNCH-<board#>-make-the-policy-ours
  *
- * Pure planning. The caller performs it, and may decline.
+ * The board and anchor are made the way `gov project <name> --seed` makes any project (project/create.ts), so the
+ * practice project is an ordinary project and every verb treats it as one. The task issue tells the agent to make
+ * the change with `gov rules propose`, and says ahead of time that the pull request will stop and wait for someone
+ * else's approval — that stop is what the exercise shows. There is no way round it for a solo organization; the
+ * issue says to invite a teammate (Q38 B+).
+ *
+ * It replaced the "Create it? [y/N]" starter project (#186), which made a board and a plain issue — no anchor, no
+ * project branch — and only when asked. Joiners never get it: their first project is one they are assigned to.
  */
 import type { BoardSummary } from "./project-list.js";
+import { createGovProject, type ProjectEnv } from "../project/create.js";
+import { boardListsAnchor } from "../project/board-wait.js";
+import { DEFAULT_ANCHOR_LABEL } from "./anchor.js";
+import { log } from "../log.js";
 
-export interface StarterProject {
-  readonly boardTitle: string;
-  readonly issueRepo: string;
-  readonly issueTitle: string;
-  readonly issueBody: string;
+/** The board's title — and so the project id's slug, `make-the-policy-ours`. */
+export const PRACTICE_BOARD_TITLE = "Make the policy ours";
+/** The label beside `anchor` on the practice project's anchor issue (Q39 A). */
+export const PRACTICE_LABEL = "practice";
+/** The policy file the practice change edits (Q29 A). */
+export const PRACTICE_FILE = "policies/policy-document.yaml";
+
+/** The slug `deriveProjectIdentity` makes of the board title — how `gov work` is pointed at the practice project. */
+export const practiceSlug = (): string => PRACTICE_BOARD_TITLE.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+/** The policy title the practice change writes: "<org> Development and Operations Policy" (Q30 A). */
+export function practicePolicyTitle(orgName: string): string {
+  const org = orgName.trim();
+  return org ? `${org} Development and Operations Policy` : "Development and Operations Policy";
 }
 
-export function starterProject(githubOrg: string, workspaceRepo: string): StarterProject {
+export interface PracticeTask {
+  readonly title: string;
+  readonly body: string;
+}
+
+/** The one task issue on the practice board: what to change, how, and why the pull request will stop. */
+export function practiceTask(orgName: string): PracticeTask {
+  const title = practicePolicyTitle(orgName);
   return {
-    boardTitle: "Review our governance",
-    issueRepo: `${githubOrg}/${workspaceRepo}`,
-    issueTitle: "Make the seeded policies ours",
-    issueBody: [
-      "The framework seeded a starting position. This issue is for turning it into",
-      "**our** position — and for doing that through the process it describes, so the",
-      "first governed change in this organization is the one that decides how the rest",
-      "will be governed.",
+    title: "Put our name on the policy",
+    body: [
+      "This is your organization's first governed change. It is small on purpose, so that what you notice is",
+      "the process around it: a project branch, a task, a policy change with its paperwork, and a pull request",
+      "that waits for someone else to approve it.",
       "",
-      "## What to look at, in this order",
+      "## The change",
       "",
-      "- `policies/common/authorized-representatives.md` — who approves what. Every role points at",
-      "  the Policy Owner after setup. Name the people who will actually hold them, or leave a role with the",
-      "  Policy Owner deliberately. An empty role escalates by design; an *assumed*",
-      "  one does not exist.",
-      "- `framework/framework-specification.md` — how the framework works.",
-      "  Read chapter 3 (how strict a rule is) and chapter 6 (what an agent does at",
-      "  session start) before changing anything; most of the document rests on those two.",
-      "- `policies/governance.yaml` (authorized_agents) — which agents are authorized, and what may",
-      "  be sent to a model and which models are allowed. These carry your strictest",
-      "  rules and are the likeliest to need your own wording rather than ours.",
-      "- `CODEOWNERS` — maps each knowledge area to whoever approves changes to it.",
-      "  If you changed roles above, reconcile it here or reviews route to the wrong",
-      "  person and nobody notices until someone is waiting.",
+      `In \`${PRACTICE_FILE}\`, on the title page (\`title_page:\`):`,
       "",
-      "## How",
+      `- \`title:\` becomes \`"${title}"\``,
+      "- `approved_by:` becomes `\"Policy Owner\"`",
       "",
-      "```",
-      "gov          →  1. Work  →  this project",
-      "```",
+      "Leave `approved_on` and `effective_from` empty. The real date is the day this change merges.",
       "",
-      "That puts you on a project branch with your agent already reading the rules.",
-      "Changes land as a pull request, reviewed by the owners named in `policies/common/authorized-representatives.md` —",
-      "which is the whole mechanism, exercised once, on the smallest possible change.",
+      "## How — you and your agent",
       "",
-      "Close this when the policies say what your organization means.",
+      "1. Run `gov work` and pick this project. You are on its project branch, with your agent reading the rules.",
+      "2. Start a task for this issue: `gov task <this issue's link>`.",
+      "3. Make the two edits above.",
+      "4. Run `gov rules propose`. Anything under `policies/` is policy, and a policy change carries its",
+      "   paperwork with it: the rule rows brought up to date, a new number in `policies/VERSION`, a frozen copy",
+      "   of the previous policy under `policies/history/`, and an entry in `policies/CHANGELOG.md` that lists",
+      "   the sections reviewed. `gov rules propose` writes all of it. Do not write it by hand — the policy",
+      "   check on the pull request compares it with the change and fails when it does not match.",
+      "5. Commit, then land the task on the project branch: `gov merge <this issue's link>`.",
+      "6. Run `gov close`. It opens the pull request into the default branch and leaves it open for review. If",
+      "   the policy check on that pull request says the changelog entry is waiting for it, run",
+      "   `gov rules propose` once more on the project branch and push.",
+      "",
+      "## Then it stops — and that is the point",
+      "",
+      "The pull request will not merge on your own approval. It waits for someone other than the person who",
+      "made the change to approve it. Nobody approves their own work here — not the author, not the Policy",
+      "Owner, not an administrator. Seeing gov stop your own change is what this exercise is for.",
+      "",
+      "If you are the only person in your organization so far, invite a teammate and ask them to review and",
+      "approve it. There is no way to approve it yourself, and no exception for it: a policy its author could",
+      "approve alone would not be governed.",
+      "",
+      "Once the pull request is waiting for that approval, the practice is done. The change merges when your",
+      "teammate approves it.",
     ].join("\n"),
   };
 }
 
 /** What was actually built, for the caller to report honestly. */
-export interface StarterOutcome {
+export interface PracticeOutcome {
   readonly boardUrl: string | null;
-  readonly issueUrl: string | null;
+  readonly anchorUrl: string | null;
+  readonly taskUrl: string | null;
+  /** `gov seed` finished: the project branch exists. */
   readonly seeded: boolean;
-  /** An open review project already existed and is the one to use — nothing was created. */
+  /** An open practice project already existed and is the one to use — nothing was created. */
   readonly reused?: boolean;
   /** GitHub could not list the org's boards, so gov did not risk creating a second one. */
   readonly unchecked?: boolean;
+  /** What `gov project` said when it could not finish — the whole of what exists, in its words. */
+  readonly stopped?: readonly string[];
 }
 
-/** The GitHub calls the starter project needs — injected, so the reuse rule is testable without GitHub. */
-export interface StarterDeps {
+/** The calls the practice project needs — injected, so it is testable against the memory ports. */
+export interface PracticeDeps extends ProjectEnv {
   /** The org's boards, open and closed; null when GitHub could not be asked. */
   readonly listBoards: (owner: string) => readonly BoardSummary[] | null;
-  readonly createBoard: (owner: string, title: string) => string | null;
-  readonly createIssue: (repo: string, title: string, body: string) => string | null;
-  readonly addToBoard: (owner: string, boardNumber: number, issueUrl: string) => void;
+  /** `gov seed <board-url>` — its exit code. */
+  readonly seed: (boardUrl: string) => Promise<number> | number;
+  readonly boardWaitMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 /**
- * REUSE THE OPEN REVIEW PROJECT; CREATE ONE ONLY WHEN NONE IS OPEN (adoption walk #5, 2026-10-07). Every setup run
- * used to create a new board — the walk found 17 of them (PRJ-13…29), each with its own copy of the same issue.
- * Matched by title (case-insensitive) and open (not started, or in progress — a closed board is finished or
- * cancelled); the oldest open one wins, being the one any work already went into. A board list GitHub did not
- * answer creates nothing: a possible duplicate is the defect, and a skipped convenience is not.
+ * REUSE THE OPEN PRACTICE PROJECT; CREATE ONE ONLY WHEN NONE IS OPEN (adoption walk #5, 2026-10-07: every run used to
+ * make another — the walk found 17). Matched by title, case-insensitive, open only; the oldest open one wins. A board
+ * list GitHub did not answer creates nothing: a possible duplicate is the defect, a skipped convenience is not.
  */
-export function ensureStarterProject(deps: StarterDeps, githubOrg: string, workspaceRepo: string): StarterOutcome {
-  const spec = starterProject(githubOrg, workspaceRepo);
-  const boards = deps.listBoards(githubOrg);
-  if (boards === null) return { boardUrl: null, issueUrl: null, seeded: false, unchecked: true };
-  const title = spec.boardTitle.toLowerCase();
-  const open = boards.filter((b) => !b.closed && b.title.trim().toLowerCase() === title).sort((a, b) => a.number - b.number)[0];
-  if (open) return { boardUrl: open.url, issueUrl: null, seeded: false, reused: true };
-  const boardUrl = deps.createBoard(githubOrg, spec.boardTitle);
-  const issueUrl = boardUrl ? deps.createIssue(spec.issueRepo, spec.issueTitle, spec.issueBody) : null;
-  if (boardUrl && issueUrl) {
-    const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
-    if (n) deps.addToBoard(githubOrg, n, issueUrl);
+export async function ensurePracticeProject(deps: PracticeDeps, orgName: string): Promise<PracticeOutcome> {
+  const none = { boardUrl: null, anchorUrl: null, taskUrl: null, seeded: false } as const;
+  const boards = deps.listBoards(deps.owner);
+  if (boards === null) return { ...none, unchecked: true };
+  const wanted = PRACTICE_BOARD_TITLE.toLowerCase();
+  const open = boards.filter((b) => !b.closed && b.title.trim().toLowerCase() === wanted).sort((a, b) => a.number - b.number)[0];
+  if (open) return { ...none, boardUrl: open.url, reused: true };
+
+  // THE SAME PATH AS `gov project "Make the policy ours" --seed` — board, anchor (with `practice`), on the board.
+  const made = await createGovProject(deps, { name: PRACTICE_BOARD_TITLE, repos: [], anchorLabels: [PRACTICE_LABEL] });
+  if (!made.ok) {
+    return { ...none, boardUrl: made.created.board?.url ?? null, anchorUrl: made.created.anchor?.url ?? null, stopped: made.lines };
   }
-  return { boardUrl, issueUrl, seeded: false, reused: false };
+  const board = made.created.board!.ref;
+  const anchorUrl = made.created.anchor?.url ?? null;
+
+  // THE TASK ISSUE, in the governance repo, assigned to the person who adopted, on the board.
+  const who = await deps.vcs.identity();
+  const task = practiceTask(orgName);
+  const issue = who.ok
+    ? await deps.tracker.create(deps.govRepo, { title: task.title, body: task.body, assignee: who.value.login })
+    : null;
+  const taskUrl = issue?.ok ? issue.value.url : null;
+  if (issue?.ok) await deps.tracker.addToProject(board, issue.value);
+
+  // THE PROJECT BRANCH — `gov seed`, once the board lists its anchor (GitHub's project index lags).
+  if (!(await boardListsAnchor(deps, made.created))) {
+    return { boardUrl: made.boardUrl, anchorUrl, taskUrl, seeded: false };
+  }
+  // A seed that THROWS is a seed that did not finish — the board, anchor and task stand, and the summary says how to
+  // finish it. It must never end an adoption that has otherwise succeeded.
+  let code: number;
+  try {
+    code = await deps.seed(made.boardUrl);
+  } catch (e) {
+    // Logged, not rethrown: rethrowing would end the adoption, and the summary already says "not seeded yet" with the
+    // command that finishes it.
+    log("warn", `gov seed did not finish for the practice project: ${(e as Error)?.message ?? String(e)}`,
+      "gov-work:lifecycle:starter-project", "ensurePracticeProject", { boardUrl: made.boardUrl });
+    code = 1;
+  }
+  return { boardUrl: made.boardUrl, anchorUrl, taskUrl, seeded: code === 0 };
 }
 
-export function starterSummary(o: StarterOutcome): readonly string[] {
+export function practiceSummary(o: PracticeOutcome): readonly string[] {
   if (o.unchecked) {
     return [
-      "  Could not check whether your organization already has a review project — GitHub did not list its boards —",
+      "  Could not check whether your organization already has a practice project — GitHub did not list its boards —",
       "  so gov did not create another. Run `gov` → Work to find it, or re-run setup when GitHub answers.",
     ];
   }
   if (o.reused && o.boardUrl) {
     return [
-      `  You already have one, still open — reusing it rather than creating another:`,
+      "  You already have one, still open — reusing it rather than creating another:",
       `  Board:   ${o.boardUrl}`,
-      "  Run `gov` → Work → pick it, and you are on the project branch",
+      "  Run `gov work` and pick it.",
     ];
   }
-  if (!o.boardUrl) {
+  if (o.stopped) {
     return [
-      "  Could not create the starter project board — your token may lack the `project` scope.",
-      "  Nothing else is affected; review the policies through GitHub or your editor instead.",
+      ...o.stopped.map((l) => `  ${l}`),
+      "  Nothing else is affected. You can create it later with:",
+      `    gov project "${PRACTICE_BOARD_TITLE}" --seed`,
+      `  and add the \`${PRACTICE_LABEL}\` label to its anchor issue.`,
     ];
   }
   return [
     `  Board:   ${o.boardUrl}`,
-    ...(o.issueUrl ? [`  Issue:   ${o.issueUrl}`] : ["  ⚠ the issue could not be created — the board is empty"]),
+    ...(o.anchorUrl ? [`  Anchor:  ${o.anchorUrl} — labelled ${DEFAULT_ANCHOR_LABEL}, ${PRACTICE_LABEL}`] : []),
+    o.taskUrl ? `  Task:    ${o.taskUrl}` : "  ⚠ the task issue could not be created — the board has only its anchor",
     o.seeded
-      ? "  Seeded:  run `gov` → Work → pick it, and you are on the project branch"
-      : "  Not seeded yet — run `gov` → Work → pick it, and gov will seed it for you",
+      ? "  Seeded:  the project branch exists — run `gov work` and pick it"
+      : `  Not seeded yet — run \`gov work\` and pick it, and gov will seed it (or: gov seed ${o.boardUrl})`,
   ];
 }

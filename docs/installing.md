@@ -48,8 +48,14 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
 2. It asks whether you are **adopting** the framework, **joining** an organization that has it,
    or **not sure**.
 3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it.
-4. It installs an approved AI agent, if you agree, and helps you sign it in.
-5. It opens a first project and launches the agent, which posts its context manifest.
+4. If you adopted, it makes your practice project, **Make the policy ours**, without asking. It is a real
+   project: a board, its anchor issue, a project branch, and one task. The task is to put your organization's
+   name on the policy's title page. The pull request for that change waits for someone other than you to
+   approve it. That wait is the point: nobody approves their own work, so if you are on your own, invite a
+   teammate to approve it. People who join get no practice project; their first project is one they are
+   assigned to.
+5. It installs an approved AI agent, if you agree, and helps you sign it in.
+6. It opens a first project and launches the agent, which posts its context manifest.
 
 ### The set-up code and the set-up trail
 

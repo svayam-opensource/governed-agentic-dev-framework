@@ -482,6 +482,32 @@ describe("gov-work — adoption offers to start the policy review", () => {
     expect(asked.at(-1)).to.match(/start work now.*projects you are assigned to/);
   });
 
+  it("F136: the ADOPTER's practice project is made without a question, and its lines are printed before the offer", async () => {
+    let made = 0;
+    const asked: string[] = [];
+    const { w, out } = io({
+      prompt: async (q, def) => { asked.push(q); return adopter(() => undefined)(q, def); },
+      createWorkspace: async () => 0,
+      createStarterProject: async () => { made++; return ["Your practice project — \"Make the policy ours\":"]; },
+      reviewNow: async () => 0,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(made).to.equal(1);
+    expect(asked.join("\n"), "the old starter question is gone").to.not.match(/Create it\?/);
+    expect(out.join("\n")).to.contain("Make the policy ours");
+  });
+
+  it("F136: a JOINER never gets the practice project", async () => {
+    let made = 0;
+    const { w } = io({
+      prompt: async (q, def) => (/Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : (joinerAnswer(q) ?? URL))),
+      createStarterProject: async () => { made++; return []; },
+      reviewNow: async () => 0,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(made).to.equal(0);
+  });
+
   it("without the hook, adoption ends exactly as it did", async () => {
     const { w, out } = io({ prompt: adopter(() => undefined), createWorkspace: async () => 0 });
     expect(await runFirstRun(w)).to.equal(0);

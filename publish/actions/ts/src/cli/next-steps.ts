@@ -66,7 +66,7 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     "  C. Through gov — the governed way, and the one recommended",
     "     1. Run:  gov",
     "     2. Choose  1. Work",
-    "     3. Pick the review project",
+    "     3. Pick the practice project, \"Make the policy ours\"",
     "     Your changes land on a project branch and arrive as a pull request, which",
     "     is how every change will work once other people are involved.",
     "",

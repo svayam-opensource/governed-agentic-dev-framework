@@ -9,6 +9,7 @@ scenario "30 · adopter founds an org, IBM Bob as the default"
 
 export GH_STUB_LOGIN="acme"          # the org we adopt for, and the board owner
 export GH_STUB_GOVERNED=""           # nobody has adopted for it yet
+export GH_STUB_REPOS="acme/acme-gov"  # the governance repo, readable once made — the practice project's pre-seed check
 
 # The vendor installer, doubled at `curl` — the command gov runs is unchanged.
 cat > "$WORLD/bin/curl" <<EOF
@@ -71,8 +72,6 @@ drive "$(conv <<'C'
 <
 # And it is read back before it becomes a rule.
 > happy with your AI agent selection
-< y
-> Create it\? \[y/N\]
 < y
 ~ 240
 > review your governance policies now
@@ -161,6 +160,14 @@ never "and so is <GITHUB_ORG>" "<GITHUB_ORG>"
 # both asking to be reported. Any ⚠ line anywhere in a clean founding run is the same class of defect.
 never "#193 — a clean adoption ends with zero ⚠ lines" "⚠"
 never "and never asks the adopter to report gov's own warnings" "tell gov-work"
+
+info "F136 — the practice project is made without a question: board, anchor labelled practice, one task issue"
+never "the old starter question is gone" "Create it?"
+gh_ran "the board is 'Make the policy ours'" "project create --owner acme --title Make the policy ours"
+gh_ran "its anchor is in the governance repo" "issue create --repo acme/acme-gov --title Make the policy ours: project scope & anchor"
+gh_ran "labelled practice beside anchor — how gov-licence finds it (Q39 A)" "--label anchor --label practice"
+gh_ran "and the one task: the title-page change" "issue create --repo acme/acme-gov --title Put our name on the policy"
+saw "the adopter is told it exists" "Your practice project"
 
 info "#186 — the closing screen is the founder's, and it is the truth"
 saw "the ADOPTER's next steps" "Install complete — for ADOPTERS"

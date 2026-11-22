@@ -373,8 +373,11 @@ export interface FirstRunIo {
    * broken. There is only ever one writer now, and it is the one that can also commit.
    */
   recordsApprovals?: boolean;
-  /** Build the starter review project; returns the lines to print (#186). */
-  createStarterProject?: () => readonly string[];
+  /**
+   * Build the practice project — "Make the policy ours" — and return the lines to print (F136; #186 before it).
+   * ADOPTER PATH ONLY, and asked nothing: a joiner's first project is one they are assigned to.
+   */
+  createStarterProject?: () => readonly string[] | Promise<readonly string[]>;
   /**
    * The whole checklist, ticked, at the true end of the run (#186).
    *
@@ -566,15 +569,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
     for (const line of approvalSummary(result.agents)) io.print(line);
   }
 
-  // THE FIRST GOVERNED THING, MADE FOR THEM (#186).
-  //
-  // The asking happens INSIDE createStarterProject, not here. `createWorkspace`
-  // hands the terminal to `gov setup`, which opens and closes its own readline —
-  // so a prompt from this function afterwards died with ERR_USE_AFTER_CLOSE, on
-  // the last question of an otherwise complete adoption. Whoever holds the
-  // terminal at the moment does the asking; by now, that is no longer this
-  // function.
-  for (const line of io.createStarterProject?.() ?? []) io.print(line);
+  // THE FIRST GOVERNED THING, MADE FOR THEM (#186) — and since F136 (Q27 B) made without asking: the practice
+  // project "Make the policy ours", with its anchor, task issue and project branch. Nothing here reads the terminal.
+  for (const line of (await io.createStarterProject?.()) ?? []) io.print(line);
 
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
@@ -621,7 +618,7 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string
   if (yes.startsWith("n")) {
     io.print("");
     io.print(role === "adopter"
-      ? "  Nothing else to do here. When you are ready:  gov   → 1. Work → the review project."
+      ? "  Nothing else to do here. When you are ready:  gov   → 1. Work → the practice project."
       : "  Nothing else to do here. When you are ready:  gov   → 1. Work → your project.");
     return 0;
   }

@@ -25,7 +25,7 @@ import { githubOrgIdProvider } from "./org-id.js";
 import { AFTER_UPDATE, formatSelfUpdatePlan, installKindOf, npmBeside, resolveTarget, selfUpdatePlan } from "../maintain/self-update.js";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
 import type { SpawnPlan } from "../win-spawn.js";
-import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
+import { ownerOnlyAclArgv, windowsLinkPlan } from "./windows.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin, phase } from "../log.js";
@@ -123,7 +123,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { advanceSetup, loadSetupState } from "./setup-progress.js";
 import { setupTrailDiagnostic } from "../setup/setup-state.js";
-import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { ensurePracticeProject, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -1439,60 +1439,28 @@ export async function runFirstRunIfNeeded(
     // both after the content seed and before the commit. This says the environment CAN record
     // one, which is what decides whether Q12 is asked; it is not a second writer.
     recordsApprovals: true,
-    createStarterProject: () => {
-      // Reads the terminal directly rather than through `ask`, because this hook is
-      // synchronous. Same rule either way: the handle lives only as long as the
-      // question.
-      const askHere = (q: string): string => {
-        try {
-          const fd = fsSync.openSync(ttyDevice(process.platform), "r");   // CONIN$ on Windows (plan 04 T11)
-          try {
-            process.stdout.write(q);
-            const buf = Buffer.alloc(64);
-            const n = fsSync.readSync(fd, buf, 0, buf.length, null);
-            return buf.toString("utf8", 0, n).trim().toLowerCase();
-          } finally { fsSync.closeSync(fd); }
-        } catch {
-          return "";                                   // no terminal: treated as "no"
-        }
-      };
-      process.stdout.write("\n" + [
-        "One more thing, and it is the useful one.",
-        "",
-        "The policies that arrived are the framework's starting position, not yours.",
-        "gov can create a small project for reviewing them — a board and one issue —",
-        "so the first governed change in your organization is the one that decides how",
-        "everything after it will be governed.",
-        "",
-      ].join("\n") + "\n");
-      const answer = askHere("Create it? [y/N] ");
-      if (!/^y(es)?$/.test(answer)) {
-        return ["  Skipped. You can review the policies on GitHub or in your editor."];
-      }
-      // Real calls, reported honestly: a board this token cannot create is a missing
-      // `project` scope, not a broken adoption, and saying so beats a stack trace.
-      const cfg = ((): { org: string; repo: string; home: string } | null => {
-        const r = prjResolveGov(createNodeEnv());
-        if (!r.ok) return null;
-        const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
-          ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-        if (!text) return null;
-        const c = loadOrgConfigText(text);
-        return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
-      })();
-      if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
-
-      // REUSED WHEN ONE IS OPEN (adoption walk #5): every run used to make another — the walk found 17.
-      const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+    // THE PRACTICE PROJECT, MADE WITHOUT A QUESTION (F136, Q27 B). Adopter path only — bootstrap never calls this for a
+    // joiner. The same board + anchor + `gov seed` as `gov project "<name>" --seed`, through the same ports, with the
+    // `practice` label on the anchor (Q39 A) and one task issue for the title-page change (Q29 A / Q30 A).
+    createStarterProject: async () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return ["  (no workspace resolved yet — skipping the practice project)"];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return ["  (no workspace resolved yet — skipping the practice project)"];
+      const c = loadOrgConfigText(text);
       const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
-      const outcome = ensureStarterProject({
+      const outcome = await ensurePracticeProject({
+        tracker: pickAdapter(builtInProviders, "workTracker", c.adapters.workTracker),
+        vcs: pickAdapter(builtInProviders, "vcs", c.adapters.vcs),
+        owner: c.githubOrg,
+        govRepo: { owner: c.githubOrg, name: c.workspaceRepo },
+        defaultCodeBranch: c.defaultCodeBranch,
         listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
-        createBoard: (owner, title) => tryRun("gh", ["project", "create", "--owner", owner, "--title", title, "--format", "json"])
-          ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null,
-        createIssue: (repo, title, body) => issues.create(repo, title, body, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")),
-        addToBoard: (owner, n, url) => { issues.addToBoard(owner, n, url); },
-      }, cfg.org, cfg.repo);
-      return ["", "Starter project:", ...starterSummary(outcome)];
+        // `gov seed` from inside the new workspace — the same call `gov project --seed` makes.
+        seed: (boardUrl) => main(["seed", boardUrl, "--gov-home", r.home], now),
+      }, c.orgName);
+      return ["", `Your practice project — "${PRACTICE_BOARD_TITLE}":`, ...practiceSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
     // `gov` -> 1. Work -> pick the review project, reached from the question that
@@ -1506,8 +1474,7 @@ export async function runFirstRunIfNeeded(
       // An ADOPTER has exactly one thing to review and gov made it, so it is named. A JOINER's
       // project is whichever they are assigned — nobody but them can pick it — so they get the
       // picker, which is step 3 of the instructions this question replaces.
-      const spec = starterProject("", "");                       // the title is org-independent
-      const slug = spec.boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const slug = practiceSlug();                               // the title is org-independent
       // Its own readline: `ask` above holds one only for the length of a question, and the
       // work flow needs the terminal for the whole session.
       const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });

@@ -62,8 +62,6 @@ drive "$(conv <<'C'
 # agent?", which would suggest the answer had not taken.
 > happy with this
 < y
-> Create it\? \[y/N\]
-< y
 ~ 240
 > review its policies now
 < n

@@ -15,8 +15,8 @@ export GH_STUB_GOVERNED=""
 
 # Each step: the prompt to wait for, and the answer an adopter gives when NOT interrupting there.
 # `-` means press Enter (accept the default). The last is Q12's read-back — the last answer before
-# anything irreversible happens. (The "Create it?" that follows the creation is the starter-project
-# offer, asked about a repository that by then exists; it is not part of the interview.)
+# anything irreversible happens. (The practice project that follows the creation is made without a
+# question since F136; it is not part of the interview.)
 STEPS=(
   "Q1 - What is full legal name|Acme Incorporated"
   "Q2 - What is short name|-"

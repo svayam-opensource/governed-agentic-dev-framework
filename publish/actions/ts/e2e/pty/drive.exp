@@ -10,7 +10,7 @@
 # them ever typed anything. A test that cannot answer a question cannot reach the code
 # behind it.
 #
-# A PIPE IS NOT ENOUGH. gov opens /dev/tty directly for the starter-project question, turns
+# A PIPE IS NOT ENOUGH. gov opens /dev/tty directly for some questions, turns
 # the echo off with `stty` to read an API key, and decides whether to emit colour from
 # `isTTY`. Feed it a pipe and it takes a different path from the one an adopter walks —
 # which is the same mistake as testing on a machine that already has everything (#186).

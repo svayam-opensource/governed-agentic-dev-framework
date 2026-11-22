@@ -53,6 +53,16 @@ templates in `policies/reference/lifecycles/ai-sdlc/`. It is yours — change it
 - [The AI-native software lifecycle](../../../policies/active/ai-sdlc-lifecycle.md) — who approves at each gate
 - [How the framework works, §1.7: the lifecycle a project follows](../../../framework/build/build-specification.md#17-the-lifecycle-a-project-follows)
 
-## 6. Then work like everyone else
+## 6. Make your first governed change
+
+First-run setup made you a practice project, **Make the policy ours**. Its one task puts your organization's
+name on the policy's title page, in `policies/policy-document.yaml`. Run `gov work`, pick the project, and let
+your agent follow the task. The pull request it ends in waits for someone other than you to approve it — that
+is the framework working, not a fault. If nobody else is in your organization yet, invite a teammate to
+approve it; there is no way to approve your own change.
+
+- [How the framework works, chapter 7: how a change is approved and lands](../../framework-specification.md#7-how-a-change-is-approved-and-lands)
+
+## 7. Then work like everyone else
 
 - [Path — Developer](../../build/guides/path-developer.md)
