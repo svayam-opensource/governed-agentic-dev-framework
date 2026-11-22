@@ -77,6 +77,7 @@ import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
 import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { fsTree } from "../rules/policy-pr/tree.js";
+import { firstRunWorkflows, protectAtFirstRun, SETUP_COMMIT_SUBJECT } from "../setup/first-run-workflows.js";
 import type { ModelSettings } from "../rules/propose/model-settings.js";
 import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
@@ -92,7 +93,7 @@ import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { createGhProjects } from "../lifecycle/project-list.js";
-import { readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { parseProtection, readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { runSuite } from "../governance/suite.js";
 import { policyChecks } from "./diff-check-io.js";
 import { formatDiffChecks } from "../rules/diff-check.js";
@@ -123,7 +124,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { advanceSetup, loadSetupState } from "./setup-progress.js";
 import { setupTrailDiagnostic } from "../setup/setup-state.js";
-import { ensurePracticeProject, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
+import { ensurePracticeProject, practiceEnforcement, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -1213,8 +1214,31 @@ export async function runSetupCommand(
             : `the nine agent files + the rule map, from the rule stores (rules ${compiled.hash})`,
       });
 
+      // ── THE CHECKS, IN THE SETUP COMMIT (F136 G2, ruling Q42 C) ──────────────────────────────────────────────
+      //
+      // The approval check and the rules' checks go into THIS commit, on every plan and either posture, so the first
+      // pull request — the practice change — shows a check waiting for someone else's approval. Not a later push: a
+      // direct push of the workflows would itself be a commit no pull request carried. landed-by-pr exempts exactly
+      // this commit (SETUP_COMMIT_SUBJECT, on the repository's root — rules/checks/gh-actions.ts).
+      {
+        const cfgNow = loadOrgConfigText(cfgText);
+        const govNow = readGovernance(createdHome);
+        const cliVersion = readCliVersion();
+        const wf = firstRunWorkflows(fsTree(createdHome), {
+          home: createdHome, defaultBranch: cfgNow.defaultBranch || "main", defaultCodeBranch: cfgNow.defaultCodeBranch,
+          githubOrg: cfgNow.githubOrg, workspaceRepo: cfgNow.workspaceRepo, posture: govNow.posture.posture,
+          runner: govNow.ci, ...(cliVersion === "?" ? {} : { govVersion: cliVersion }),
+        });
+        if (wf.ok) {
+          for (const f of wf.files) fs.writeFile(path.join(createdHome, ...f.path.split("/")), f.text);
+          manifest.push({ what: "Checks", detail: `${wf.files.map((f) => f.path).join(", ")} — the approval check and the rules' checks, from the first commit` });
+        } else {
+          manifest.push({ what: "⚠ Checks", detail: `not installed — ${wf.reason}. Pull requests will show no approval check until \`gov check install\` and \`gov repo protect apply\` land them by pull request.` });
+        }
+      }
+
       git("add", "-A");
-      const committed = git("commit", "-m", "configure the framework for this org");
+      const committed = git("commit", "-m", SETUP_COMMIT_SUBJECT);
       // FETCH BEFORE THE FIRST PUSH, NEVER FORCE (gadf#180). A remote that moved while setup ran stops here with
       // the pull hint; the bare push it replaced failed and told the adopter to run the same push again.
       const push = committed
@@ -1240,6 +1264,17 @@ export async function runSetupCommand(
         process.stderr.write(`  Your commit is kept in ${createdHome}; gov never force-pushes over someone else's commits.\n`);
         return 1;
       }
+
+      // ── HARD POSTURE ONLY: THE PLATFORM STOPS A MERGE (F136 G2, Q42 C) ──────────────────────────────────────
+      // The workflows are on the default branch now, so `gov repo protect apply` — the same path a person types — can
+      // make them required. Under soft, nothing (spec §11.1). Where the platform refuses (a private repository on
+      // GitHub Free), its own message says so with the ways forward, and the adoption carries on.
+      const protectHome = createdHome;
+      await protectAtFirstRun(
+        { pushed: push?.kind === "pushed", posture: readPosture(fs.readFile(govPath)) },
+        () => main(["repo", "protect", "apply", "--gov-home", protectHome], now),
+        (l) => process.stdout.write(`${l}\n`),
+      );
 
       // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
       // answered was abstract — a name, a slug, a branch — and this is the only place
@@ -1459,7 +1494,14 @@ export async function runFirstRunIfNeeded(
         listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
         // `gov seed` from inside the new workspace — the same call `gov project --seed` makes.
         seed: (boardUrl) => main(["seed", boardUrl, "--gov-home", r.home], now),
-      }, c.orgName);
+      }, c.orgName, practiceEnforcement(
+        readPosture(fsSync.existsSync(path.join(r.home, GOVERNANCE_PATH)) ? fsSync.readFileSync(path.join(r.home, GOVERNANCE_PATH), "utf8") : null).posture,
+        // What GitHub says protects the default branch now — after setup's `gov repo protect apply` under hard (Q42 C).
+        ((): ProtectionFacts | null => {
+          const out = tryRun("gh", ["api", `repos/${c.githubOrg}/${c.workspaceRepo}/branches/${c.defaultBranch || "main"}/protection`]);
+          return out === undefined ? null : parseProtection(out);
+        })(),
+      ));
       return ["", `Your practice project — "${PRACTICE_BOARD_TITLE}":`, ...practiceSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as

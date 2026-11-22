@@ -24,6 +24,8 @@ import { createGovProject, type ProjectEnv } from "../project/create.js";
 import { boardListsAnchor } from "../project/board-wait.js";
 import { DEFAULT_ANCHOR_LABEL } from "./anchor.js";
 import { log } from "../log.js";
+import type { GovernancePosture } from "../config/governance.js";
+import type { ProtectionFacts } from "./branch-protection.js";
 
 /** The board's title — and so the project id's slug, `make-the-policy-ours`. */
 export const PRACTICE_BOARD_TITLE = "Make the policy ours";
@@ -46,8 +48,46 @@ export interface PracticeTask {
   readonly body: string;
 }
 
+/**
+ * WHAT ACTUALLY STOPS THE MERGE, said honestly (Q42 C). Every new organization has the approval check from its first
+ * commit; whether GitHub also BLOCKS a merge past it depends on the posture and the plan:
+ *
+ *   enforced        hard posture, and the default branch is protected — GitHub will not merge it
+ *   soft            soft posture — nothing technically stops a merge; the check is visible, the merge recorded
+ *   unprotectable   hard posture, but the plan offers no protection (a private repository on GitHub Free)
+ */
+export type PracticeEnforcement = "enforced" | "soft" | "unprotectable";
+
+/**
+ * Which of the three the organization is in: its posture, and — under hard — what GitHub says protects the default
+ * branch (`parseProtection` of `branches/<b>/protection`; null when it would not say). Pure.
+ */
+export function practiceEnforcement(posture: GovernancePosture | null, protection: ProtectionFacts | null): PracticeEnforcement {
+  if (posture !== "hard") return "soft";
+  return protection && protection.pullRequestRequired && protection.approvingReviews >= 1 && protection.enforceAdmins
+    ? "enforced" : "unprotectable";
+}
+
+const STOP_TEXT: Readonly<Record<PracticeEnforcement, readonly string[]>> = {
+  enforced: [
+    "Your default branch is protected, so GitHub will not let the pull request merge until that approval",
+    "arrives.",
+  ],
+  soft: [
+    "Your organization uses soft governance, so GitHub does not block the merge: nothing technically stops",
+    "someone merging past the check. But the check stays red where everyone can see it, and a merge past a",
+    "failing check is recorded for the Policy Owner. Do not merge it yourself.",
+  ],
+  unprotectable: [
+    "Your organization chose hard governance, but GitHub's plan for this repository offers no branch",
+    "protection, so GitHub cannot block the merge: nothing technically stops someone merging past the check.",
+    "The check stays red on the pull request where everyone can see it. Do not merge it yourself.",
+    "`gov repo protect plan` explains the ways to make the protection possible.",
+  ],
+};
+
 /** The one task issue on the practice board: what to change, how, and why the pull request will stop. */
-export function practiceTask(orgName: string): PracticeTask {
+export function practiceTask(orgName: string, enforcement: PracticeEnforcement = "soft"): PracticeTask {
   const title = practicePolicyTitle(orgName);
   return {
     title: "Put our name on the policy",
@@ -82,9 +122,11 @@ export function practiceTask(orgName: string): PracticeTask {
       "",
       "## Then it stops — and that is the point",
       "",
-      "The pull request will not merge on your own approval. It waits for someone other than the person who",
-      "made the change to approve it. Nobody approves their own work here — not the author, not the Policy",
-      "Owner, not an administrator. Seeing gov stop your own change is what this exercise is for.",
+      "The pull request shows a check waiting for approval by someone other than the person who made the",
+      "change. Nobody approves their own work here — not the author, not the Policy Owner, not an administrator.",
+      "Seeing gov stop your own change is what this exercise is for.",
+      "",
+      ...STOP_TEXT[enforcement],
       "",
       "If you are the only person in your organization so far, invite a teammate and ask them to review and",
       "approve it. There is no way to approve it yourself, and no exception for it: a policy its author could",
@@ -126,7 +168,7 @@ export interface PracticeDeps extends ProjectEnv {
  * make another — the walk found 17). Matched by title, case-insensitive, open only; the oldest open one wins. A board
  * list GitHub did not answer creates nothing: a possible duplicate is the defect, a skipped convenience is not.
  */
-export async function ensurePracticeProject(deps: PracticeDeps, orgName: string): Promise<PracticeOutcome> {
+export async function ensurePracticeProject(deps: PracticeDeps, orgName: string, enforcement: PracticeEnforcement = "soft"): Promise<PracticeOutcome> {
   const none = { boardUrl: null, anchorUrl: null, taskUrl: null, seeded: false } as const;
   const boards = deps.listBoards(deps.owner);
   if (boards === null) return { ...none, unchecked: true };
@@ -144,7 +186,7 @@ export async function ensurePracticeProject(deps: PracticeDeps, orgName: string)
 
   // THE TASK ISSUE, in the governance repo, assigned to the person who adopted, on the board.
   const who = await deps.vcs.identity();
-  const task = practiceTask(orgName);
+  const task = practiceTask(orgName, enforcement);
   const issue = who.ok
     ? await deps.tracker.create(deps.govRepo, { title: task.title, body: task.body, assignee: who.value.login })
     : null;

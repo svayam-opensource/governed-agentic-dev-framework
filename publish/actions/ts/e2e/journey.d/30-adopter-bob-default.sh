@@ -169,6 +169,18 @@ gh_ran "labelled practice beside anchor — how gov-licence finds it (Q39 A)" "-
 gh_ran "and the one task: the title-page change" "issue create --repo acme/acme-gov --title Put our name on the policy"
 saw "the adopter is told it exists" "Your practice project"
 
+info "F136 G2 — the approval check and the rules' checks are in the setup commit itself (Q42 C)"
+G="$HOME/.gov/acme/gov_repo"
+[ "$(git -C "$G" log -1 --format=%s)" = "configure the framework for this org" ] \
+  && pass "the setup commit is the one landed-by-pr exempts, by its subject" || fail "the setup commit's subject changed — landed-by-pr would not exempt it"
+in_setup="$(git -C "$G" show --name-only --format= HEAD)"     # captured: grep -q would SIGPIPE git under pipefail
+for wf in .github/workflows/approver-check.yml .github/workflows/gov-checks.yml; do
+  grep -qxF "$wf" <<<"$in_setup" \
+    && pass "the setup commit carries $wf" || fail "the setup commit does not carry $wf"
+done
+saw "and setup says so" "the approval check and the rules' checks"
+never "soft posture — the default — protects nothing" "Hard posture — protecting"
+
 info "#186 — the closing screen is the founder's, and it is the truth"
 saw "the ADOPTER's next steps" "Install complete — for ADOPTERS"
 never "not the joiner's" "Install complete — for JOINERS"

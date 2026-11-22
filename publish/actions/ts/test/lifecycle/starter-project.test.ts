@@ -9,7 +9,7 @@
  */
 import { expect } from "chai";
 import {
-  ensurePracticeProject, practicePolicyTitle, practiceSlug, practiceSummary, practiceTask,
+  ensurePracticeProject, practiceEnforcement, practicePolicyTitle, practiceSlug, practiceSummary, practiceTask,
   PRACTICE_BOARD_TITLE, PRACTICE_FILE, PRACTICE_LABEL, type PracticeDeps,
 } from "../../src/lifecycle/starter-project.js";
 import type { BoardSummary } from "../../src/lifecycle/project-list.js";
@@ -109,9 +109,34 @@ describe("F136 — the task issue: the change, how to make it, and why the pull 
     }
   });
 
-  it("says ahead of time that the pull request stops for someone else's approval, and that the stop is the point", () => {
-    expect(body).to.match(/will not merge on your own approval/);
+  it("says ahead of time that the pull request shows a check waiting for someone else's approval, and that the stop is the point", () => {
+    expect(body).to.match(/check waiting for approval by someone other than the person who made/);
     expect(body).to.match(/that is the point/);
+  });
+
+  it("is honest about what blocks the merge — per posture and plan (Q42 C)", () => {
+    const enforced = practiceTask("Acme Ltd", "enforced").body;
+    expect(enforced).to.match(/GitHub will not let the pull request merge/);
+    expect(enforced).to.not.match(/nothing technically stops/);
+
+    const soft = practiceTask("Acme Ltd", "soft").body;
+    expect(soft, "the default").to.equal(body);
+    expect(soft).to.match(/soft governance/).and.to.match(/nothing technically stops/)
+      .and.to.match(/recorded for the Policy Owner/).and.to.match(/Do not merge it yourself/);
+    expect(soft).to.not.match(/GitHub will not let/);
+
+    const free = practiceTask("Acme Ltd", "unprotectable").body;
+    expect(free).to.match(/offers no branch\s+protection/).and.to.match(/nothing technically stops/).and.to.match(/Do not merge it yourself/);
+    expect(free, "under hard a merge past the check is not recorded — so it is not claimed").to.not.match(/recorded/);
+  });
+
+  it("which one: soft unless hard; hard is enforced only when GitHub says reviews are required and admins are bound", () => {
+    const facts = { pullRequestRequired: true, approvingReviews: 1, enforceAdmins: true, requiredStatusChecks: [] };
+    expect(practiceEnforcement("soft", facts)).to.equal("soft");
+    expect(practiceEnforcement(null, null)).to.equal("soft");
+    expect(practiceEnforcement("hard", facts)).to.equal("enforced");
+    expect(practiceEnforcement("hard", { ...facts, enforceAdmins: false })).to.equal("unprotectable");
+    expect(practiceEnforcement("hard", null), "GitHub would not say (a Free private repo answers 403)").to.equal("unprotectable");
   });
 
   it("a solo organization is told to invite a teammate — no self-approval, no exception (Q38 B+)", () => {

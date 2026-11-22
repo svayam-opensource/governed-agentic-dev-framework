@@ -34,7 +34,7 @@ import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
 import { createCheckRunner } from "../rules/checks/runner.js";
-import { githubCheckRunsForCommit, githubPullsForCommit, redMerges } from "../rules/checks/gh-actions.js";
+import { githubCheckRunsForCommit, githubCommitFacts, githubPullsForCommit, isSetupCommit, redMerges } from "../rules/checks/gh-actions.js";
 import { buildPayload } from "../rules/checks/event-payload.js";
 import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
 import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
@@ -302,7 +302,12 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ...(policyPr ? { policyPr } : {}),
     ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
     ...(deps.paidOutcomes ? { paidOutcomes: deps.paidOutcomes } : {}),
-    ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
+    ...(repository ? { github: {
+      pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
+      // The one commit setup pushed on a new GOVERNANCE repository (F136 G2, Q42 C) — exempt from landed-by-pr. Setup
+      // never makes a code repository, so no commit there is exempt.
+      ...(resource === "vcs.gov-repo" ? { isSetupCommit: (sha: string) => isSetupCommit(sha, githubCommitFacts((a) => deps.gh(a), repository)) } : {}),
+    } } : {}),
   });
   const verdict = runner.run(id, ctx);
 
