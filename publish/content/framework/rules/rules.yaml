@@ -84,7 +84,7 @@
 
 # W2-Q3
 - id: GOV-FRM-040
-  source: { doc: framework/framework-specification.md, section: "7.1", sha: "f2202b6" }
+  source: { doc: framework/framework-specification.md, section: "7.1", sha: "0a399ea" }
   expectation: "Everyone lands every change to code, knowledge or policy through a pull request approved by someone with the authority to approve it."
   statement: "Every change to code, knowledge or policy must be made through a pull request and approved by someone with the authority to approve it."
   chapter: 3

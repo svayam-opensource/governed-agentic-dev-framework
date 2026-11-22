@@ -25,7 +25,7 @@ import { githubOrgIdProvider } from "./org-id.js";
 import { AFTER_UPDATE, formatSelfUpdatePlan, installKindOf, npmBeside, resolveTarget, selfUpdatePlan } from "../maintain/self-update.js";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
 import type { SpawnPlan } from "../win-spawn.js";
-import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
+import { ownerOnlyAclArgv, windowsLinkPlan } from "./windows.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin, phase } from "../log.js";
@@ -77,6 +77,7 @@ import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
 import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { fsTree } from "../rules/policy-pr/tree.js";
+import { firstRunWorkflows, protectAtFirstRun, SETUP_COMMIT_SUBJECT } from "../setup/first-run-workflows.js";
 import type { ModelSettings } from "../rules/propose/model-settings.js";
 import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
@@ -92,7 +93,7 @@ import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { createGhProjects } from "../lifecycle/project-list.js";
-import { readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { parseProtection, readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { runSuite } from "../governance/suite.js";
 import { policyChecks } from "./diff-check-io.js";
 import { formatDiffChecks } from "../rules/diff-check.js";
@@ -123,7 +124,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { advanceSetup, loadSetupState } from "./setup-progress.js";
 import { setupTrailDiagnostic } from "../setup/setup-state.js";
-import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { ensurePracticeProject, practiceEnforcement, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -1213,8 +1214,31 @@ export async function runSetupCommand(
             : `the nine agent files + the rule map, from the rule stores (rules ${compiled.hash})`,
       });
 
+      // ── THE CHECKS, IN THE SETUP COMMIT (F136 G2, ruling Q42 C) ──────────────────────────────────────────────
+      //
+      // The approval check and the rules' checks go into THIS commit, on every plan and either posture, so the first
+      // pull request — the practice change — shows a check waiting for someone else's approval. Not a later push: a
+      // direct push of the workflows would itself be a commit no pull request carried. landed-by-pr exempts exactly
+      // this commit (SETUP_COMMIT_SUBJECT, on the repository's root — rules/checks/gh-actions.ts).
+      {
+        const cfgNow = loadOrgConfigText(cfgText);
+        const govNow = readGovernance(createdHome);
+        const cliVersion = readCliVersion();
+        const wf = firstRunWorkflows(fsTree(createdHome), {
+          home: createdHome, defaultBranch: cfgNow.defaultBranch || "main", defaultCodeBranch: cfgNow.defaultCodeBranch,
+          githubOrg: cfgNow.githubOrg, workspaceRepo: cfgNow.workspaceRepo, posture: govNow.posture.posture,
+          runner: govNow.ci, ...(cliVersion === "?" ? {} : { govVersion: cliVersion }),
+        });
+        if (wf.ok) {
+          for (const f of wf.files) fs.writeFile(path.join(createdHome, ...f.path.split("/")), f.text);
+          manifest.push({ what: "Checks", detail: `${wf.files.map((f) => f.path).join(", ")} — the approval check and the rules' checks, from the first commit` });
+        } else {
+          manifest.push({ what: "⚠ Checks", detail: `not installed — ${wf.reason}. Pull requests will show no approval check until \`gov check install\` and \`gov repo protect apply\` land them by pull request.` });
+        }
+      }
+
       git("add", "-A");
-      const committed = git("commit", "-m", "configure the framework for this org");
+      const committed = git("commit", "-m", SETUP_COMMIT_SUBJECT);
       // FETCH BEFORE THE FIRST PUSH, NEVER FORCE (gadf#180). A remote that moved while setup ran stops here with
       // the pull hint; the bare push it replaced failed and told the adopter to run the same push again.
       const push = committed
@@ -1240,6 +1264,17 @@ export async function runSetupCommand(
         process.stderr.write(`  Your commit is kept in ${createdHome}; gov never force-pushes over someone else's commits.\n`);
         return 1;
       }
+
+      // ── HARD POSTURE ONLY: THE PLATFORM STOPS A MERGE (F136 G2, Q42 C) ──────────────────────────────────────
+      // The workflows are on the default branch now, so `gov repo protect apply` — the same path a person types — can
+      // make them required. Under soft, nothing (spec §11.1). Where the platform refuses (a private repository on
+      // GitHub Free), its own message says so with the ways forward, and the adoption carries on.
+      const protectHome = createdHome;
+      await protectAtFirstRun(
+        { pushed: push?.kind === "pushed", posture: readPosture(fs.readFile(govPath)) },
+        () => main(["repo", "protect", "apply", "--gov-home", protectHome], now),
+        (l) => process.stdout.write(`${l}\n`),
+      );
 
       // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
       // answered was abstract — a name, a slug, a branch — and this is the only place
@@ -1439,60 +1474,35 @@ export async function runFirstRunIfNeeded(
     // both after the content seed and before the commit. This says the environment CAN record
     // one, which is what decides whether Q12 is asked; it is not a second writer.
     recordsApprovals: true,
-    createStarterProject: () => {
-      // Reads the terminal directly rather than through `ask`, because this hook is
-      // synchronous. Same rule either way: the handle lives only as long as the
-      // question.
-      const askHere = (q: string): string => {
-        try {
-          const fd = fsSync.openSync(ttyDevice(process.platform), "r");   // CONIN$ on Windows (plan 04 T11)
-          try {
-            process.stdout.write(q);
-            const buf = Buffer.alloc(64);
-            const n = fsSync.readSync(fd, buf, 0, buf.length, null);
-            return buf.toString("utf8", 0, n).trim().toLowerCase();
-          } finally { fsSync.closeSync(fd); }
-        } catch {
-          return "";                                   // no terminal: treated as "no"
-        }
-      };
-      process.stdout.write("\n" + [
-        "One more thing, and it is the useful one.",
-        "",
-        "The policies that arrived are the framework's starting position, not yours.",
-        "gov can create a small project for reviewing them — a board and one issue —",
-        "so the first governed change in your organization is the one that decides how",
-        "everything after it will be governed.",
-        "",
-      ].join("\n") + "\n");
-      const answer = askHere("Create it? [y/N] ");
-      if (!/^y(es)?$/.test(answer)) {
-        return ["  Skipped. You can review the policies on GitHub or in your editor."];
-      }
-      // Real calls, reported honestly: a board this token cannot create is a missing
-      // `project` scope, not a broken adoption, and saying so beats a stack trace.
-      const cfg = ((): { org: string; repo: string; home: string } | null => {
-        const r = prjResolveGov(createNodeEnv());
-        if (!r.ok) return null;
-        const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
-          ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-        if (!text) return null;
-        const c = loadOrgConfigText(text);
-        return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
-      })();
-      if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
-
-      // REUSED WHEN ONE IS OPEN (adoption walk #5): every run used to make another — the walk found 17.
-      const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+    // THE PRACTICE PROJECT, MADE WITHOUT A QUESTION (F136, Q27 B). Adopter path only — bootstrap never calls this for a
+    // joiner. The same board + anchor + `gov seed` as `gov project "<name>" --seed`, through the same ports, with the
+    // `practice` label on the anchor (Q39 A) and one task issue for the title-page change (Q29 A / Q30 A).
+    createStarterProject: async () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return ["  (no workspace resolved yet — skipping the practice project)"];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return ["  (no workspace resolved yet — skipping the practice project)"];
+      const c = loadOrgConfigText(text);
       const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
-      const outcome = ensureStarterProject({
+      const outcome = await ensurePracticeProject({
+        tracker: pickAdapter(builtInProviders, "workTracker", c.adapters.workTracker),
+        vcs: pickAdapter(builtInProviders, "vcs", c.adapters.vcs),
+        owner: c.githubOrg,
+        govRepo: { owner: c.githubOrg, name: c.workspaceRepo },
+        defaultCodeBranch: c.defaultCodeBranch,
         listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
-        createBoard: (owner, title) => tryRun("gh", ["project", "create", "--owner", owner, "--title", title, "--format", "json"])
-          ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null,
-        createIssue: (repo, title, body) => issues.create(repo, title, body, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")),
-        addToBoard: (owner, n, url) => { issues.addToBoard(owner, n, url); },
-      }, cfg.org, cfg.repo);
-      return ["", "Starter project:", ...starterSummary(outcome)];
+        // `gov seed` from inside the new workspace — the same call `gov project --seed` makes.
+        seed: (boardUrl) => main(["seed", boardUrl, "--gov-home", r.home], now),
+      }, c.orgName, practiceEnforcement(
+        readPosture(fsSync.existsSync(path.join(r.home, GOVERNANCE_PATH)) ? fsSync.readFileSync(path.join(r.home, GOVERNANCE_PATH), "utf8") : null).posture,
+        // What GitHub says protects the default branch now — after setup's `gov repo protect apply` under hard (Q42 C).
+        ((): ProtectionFacts | null => {
+          const out = tryRun("gh", ["api", `repos/${c.githubOrg}/${c.workspaceRepo}/branches/${c.defaultBranch || "main"}/protection`]);
+          return out === undefined ? null : parseProtection(out);
+        })(),
+      ));
+      return ["", `Your practice project — "${PRACTICE_BOARD_TITLE}":`, ...practiceSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
     // `gov` -> 1. Work -> pick the review project, reached from the question that
@@ -1506,8 +1516,7 @@ export async function runFirstRunIfNeeded(
       // An ADOPTER has exactly one thing to review and gov made it, so it is named. A JOINER's
       // project is whichever they are assigned — nobody but them can pick it — so they get the
       // picker, which is step 3 of the instructions this question replaces.
-      const spec = starterProject("", "");                       // the title is org-independent
-      const slug = spec.boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const slug = practiceSlug();                               // the title is org-independent
       // Its own readline: `ask` above holds one only for the length of a question, and the
       // work flow needs the terminal for the whole session.
       const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });

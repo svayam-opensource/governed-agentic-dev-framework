@@ -29,6 +29,11 @@ export interface PullRef {
 export interface GithubPorts {
   /** The pull requests associated with a commit, or null when GitHub could not be asked. */
   pullsForCommit(sha: string): readonly PullRef[] | null;
+  /**
+   * Is this the commit `gov setup` made on a new governance repository (F136 G2, Q42 C)? Absent: no commit is
+   * exempt. null: GitHub could not say — the commit is then judged like any other.
+   */
+  isSetupCommit?(sha: string): boolean | null;
 }
 
 export interface GhActionInput {
@@ -62,6 +67,9 @@ export function landedByPr(input: GhActionInput, ports: GithubPorts): GhActionOu
     const pulls = ports.pullsForCommit(sha);
     if (pulls === null) { notes.push(`${tag}: GitHub did not answer for commit ${sha.slice(0, 7)}, so it was not checked.`); continue; }
     if (!pulls.some((p) => p.mergedAt !== null && p.base === branch)) {
+      // THE SETUP COMMIT (Q42 C): the one commit setup pushes on a new governance repository, before anyone works —
+      // it carries the checks themselves, so no pull request could have carried it. Exempt exactly that one.
+      if (ports.isSetupCommit?.(sha) === true) continue;
       misses.push(`${tag}: commit ${sha.slice(0, 7)} was pushed to \`${branch}\` without a merged pull request. Every change lands by pull request — open one for this work; the record goes to the Policy Owner.`);
     }
   }
@@ -172,5 +180,42 @@ export function githubCheckRunsForCommit(gh: (args: readonly string[]) => string
       conclusion: typeof r.conclusion === "string" ? r.conclusion : null,
       summary: typeof r.output?.title === "string" ? r.output.title : "",
     }));
+  };
+}
+
+/** The subject of the one commit setup makes on a new governance repository. Written by setup, read by landed-by-pr. */
+export const SETUP_COMMIT_SUBJECT = "configure the framework for this org";
+
+/** What the GitHub commits API says about one commit — as much as {@link isSetupCommit} needs. */
+export interface CommitFacts {
+  readonly message: string;
+  readonly parents: readonly string[];
+}
+
+/**
+ * IS THIS THE SETUP COMMIT? — the one commit GOV-FRM-040's landed-by-pr exempts (Q42 C). Narrowly: its subject is
+ * {@link SETUP_COMMIT_SUBJECT}, it has exactly one parent, and that parent is the repository's ROOT (the copy GitHub
+ * made from the template). So it can only ever be the second commit of a repository — the one setup pushed before
+ * anyone worked. `null` when GitHub could not say, which the check reports as "not checked", never as exempt.
+ */
+export function isSetupCommit(sha: string, commit: (sha: string) => CommitFacts | null): boolean | null {
+  const c = commit(sha);
+  if (c === null) return null;
+  if ((c.message.split("\n")[0] ?? "").trim() !== SETUP_COMMIT_SUBJECT || c.parents.length !== 1) return false;
+  const parent = commit(c.parents[0]!);
+  if (parent === null) return null;
+  return parent.parents.length === 0;
+}
+
+/** The production reader: `gh api repos/<repo>/commits/<sha>`. null on any failure or an answer of the wrong shape. */
+export function githubCommitFacts(gh: (args: readonly string[]) => string | null, repo: string): (sha: string) => CommitFacts | null {
+  return (sha) => {
+    const out = gh(["api", `repos/${repo}/commits/${sha}`]);
+    if (out === null) return null;
+    let doc: unknown;
+    try { doc = JSON.parse(out); } catch { return null; /* not JSON: GitHub did not answer the question — null is the account */ }
+    const d = doc as { commit?: { message?: unknown }; parents?: { sha?: unknown }[] } | null;
+    if (!d || typeof d.commit?.message !== "string" || !Array.isArray(d.parents)) return null;
+    return { message: d.commit.message, parents: d.parents.map((p) => (typeof p?.sha === "string" ? p.sha : "")).filter(Boolean) };
   };
 }

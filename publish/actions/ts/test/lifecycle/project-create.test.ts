@@ -131,6 +131,16 @@ describe("gov project — board + labelled anchor, assigned to the invoker, on t
     expect(anchor.title).to.equal("Invoice API: project scope & anchor");
   });
 
+  it("extra anchor labels ride beside `anchor`, once each — how the practice project is marked (F136, Q39 A)", async () => {
+    const { tracker, env } = world();
+    const r = await createGovProject(env, { name: "Make the policy ours", repos: [], anchorLabels: ["practice", "anchor", " "] });
+    expect(r.ok, r.lines.join("\n")).to.equal(true);
+    if (!r.ok) return;
+    const items = await tracker.items(r.created.board!.ref);
+    expect(items.ok && items.value[0]!.labels).to.deep.equal(["anchor", "practice"]);
+    expect(r.lines.join("\n")).to.contain("labelled anchor, practice");
+  });
+
   it("each --repo takes part: an item in that repo, assigned to the invoker, on the board; the base branch is recorded", async () => {
     const { tracker, env } = world();
     const r = await createGovProject(env, { name: "Invoice API", repos: ["invoice-api", "acme/acme-gov"] });

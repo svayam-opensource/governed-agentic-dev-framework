@@ -5,7 +5,8 @@
  * `gov seed` live here; what a project is made of lives in `src/project/create.ts`. Pure apart from the injected
  * deps, so it is tested with the memory ports.
  */
-import { createGovProject, type Created, type ProjectEnv } from "../project/create.js";
+import { createGovProject, type ProjectEnv } from "../project/create.js";
+import { boardListsAnchor } from "../project/board-wait.js";
 
 export interface ProjectVerbDeps extends ProjectEnv {
   readonly print: (line: string) => void;
@@ -14,28 +15,6 @@ export interface ProjectVerbDeps extends ProjectEnv {
   /** How long `--seed` waits for the board to list its new anchor (default 90 s), and how it waits (tests: no-op). */
   readonly boardWaitMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
-}
-
-const POLL_MS = 3000;
-
-/**
- * Does the board LIST the anchor yet? GitHub's project item index is eventually consistent: an item added a second ago
- * can be missing from the list for a minute, and `gov seed` then stops at "GitHub Project has no linked Issues or PRs"
- * (svayam-e2e, run 38481578886 — the same lag the adopter journey polls for). So `--seed` asks the board first.
- */
-async function boardListsAnchor(d: ProjectVerbDeps, created: Created): Promise<boolean> {
-  const board = created.board?.ref;
-  const anchor = created.anchor?.url;
-  if (!board || !anchor) return true;               // nothing to wait for — seed reports what is missing
-  const sleep = d.sleep ?? ((ms: number) => new Promise<void>((res) => setTimeout(res, ms)));
-  const tries = Math.max(1, Math.ceil((d.boardWaitMs ?? 90_000) / POLL_MS));
-  for (let i = 0; i < tries; i++) {
-    const items = await d.tracker.items(board);
-    // Only the LAG is waited out: a board that cannot be read at all is seed's to report, at once, in its own words.
-    if (!items.ok || items.value.some((it) => it.ref.url === anchor)) return true;
-    if (i < tries - 1) await sleep(POLL_MS);
-  }
-  return false;
 }
 
 type Flags = Readonly<Record<string, string | boolean>>;

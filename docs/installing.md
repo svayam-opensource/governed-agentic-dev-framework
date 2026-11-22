@@ -47,9 +47,20 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
    GitHub. Re-running resumes; it never repeats a finished step.
 2. It asks whether you are **adopting** the framework, **joining** an organization that has it,
    or **not sure**.
-3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it.
-4. It installs an approved AI agent, if you agree, and helps you sign it in.
-5. It opens a first project and launches the agent, which posts its context manifest.
+3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it. A new governance
+   repo has the approval check and the rules' checks from its very first commit, so every pull request in it
+   shows whether someone other than its author has approved it. If you chose **hard** governance, setup also
+   protects the default branch, so GitHub blocks a merge until that approval arrives. On a plan that cannot
+   protect the repo (a private repo on GitHub Free), setup says so, lists the ways forward, and carries on.
+4. If you adopted, it makes your practice project, **Make the policy ours**, without asking. It is a real
+   project: a board, its anchor issue, a project branch, and one task. The task is to put your organization's
+   name on the policy's title page. The pull request for that change shows a check waiting for someone other
+   than you to approve it. That wait is the point: nobody approves their own work, so if you are on your own,
+   invite a teammate to approve it. Under soft governance, or where GitHub cannot protect the repo, nothing
+   technically stops a merge past the check, but the red check is there for everyone to see. Don't merge it
+   yourself. People who join get no practice project; their first project is one they are assigned to.
+5. It installs an approved AI agent, if you agree, and helps you sign it in.
+6. It opens a first project and launches the agent, which posts its context manifest.
 
 ### The set-up code and the set-up trail
 

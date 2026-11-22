@@ -279,7 +279,9 @@ For task branches, use `gov merge`. It lands a task sub-branch into its project 
 
 Even in the soft posture (§11.1), where a direct push to the default branch is technically possible, a check
 looks at every push to a default branch. It confirms that each commit pushed arrived through a merged pull
-request. A commit that did not is recorded as a violation for the Policy Owner to review. gov does not try to
+request. A commit that did not is recorded as a violation for the Policy Owner to review. The one commit it
+does not ask this of is the one setup makes when it creates a new governance repository, before anyone works
+in it: that commit brings the checks themselves, so no pull request could have carried it. gov does not try to
 undo it automatically, because reverting a shared default branch could destroy work other people have already
 pulled.
 

@@ -15,7 +15,7 @@ import type { RuleSet, EventContext, CheckVerdict } from "../../../src/rules/mod
 import { lintCatalog, validateParams } from "../../../src/rules/checks/params.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
-import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rules/checks/gh-actions.js";
+import { landedByPr, githubPullsForCommit, githubCommitFacts, isSetupCommit, SETUP_COMMIT_SUBJECT, type CommitFacts, type PullRef } from "../../../src/rules/checks/gh-actions.js";
 import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { renderWorkflow, digestHolds } from "../../../src/rules/checks/render-github.js";
@@ -103,6 +103,44 @@ describe("check engine slice 2 — gh-action/landed-by-pr", () => {
     expect(calls[0]).to.deep.equal(["api", "repos/acme/acme-gov/commits/abc/pulls"]);
     expect(githubPullsForCommit(() => null, "a/b")("x"), "gh failed → could not tell").to.equal(null);
     expect(githubPullsForCommit(() => "not json", "a/b")("x")).to.equal(null);
+  });
+
+  describe("the setup commit is exempt — exactly that one (F136 G2, Q42 C)", () => {
+    const commits: Record<string, CommitFacts> = {
+      root: { message: "Initial commit", parents: [] },
+      setup: { message: `${SETUP_COMMIT_SUBJECT}\n\nbody`, parents: ["root"] },
+      later: { message: SETUP_COMMIT_SUBJECT, parents: ["setup"] },
+      merge: { message: SETUP_COMMIT_SUBJECT, parents: ["root", "setup"] },
+      other: { message: "fix a typo", parents: ["root"] },
+    };
+    const read = (sha: string): CommitFacts | null => commits[sha] ?? null;
+
+    it("the setup subject, one parent, and that parent the repository's root — and nothing else", () => {
+      expect(isSetupCommit("setup", read)).to.equal(true);
+      expect(isSetupCommit("later", read), "same subject, not on the root").to.equal(false);
+      expect(isSetupCommit("merge", read), "two parents").to.equal(false);
+      expect(isSetupCommit("other", read), "on the root, another subject").to.equal(false);
+      expect(isSetupCommit("root", read), "the root itself").to.equal(false);
+      expect(isSetupCommit("gone", read), "GitHub could not say").to.equal(null);
+    });
+
+    it("landed-by-pr passes the setup push, and still misses any other direct commit in it", () => {
+      const p = { pullsForCommit: (): PullRef[] => [], isSetupCommit: (sha: string) => isSetupCommit(sha, read) };
+      const ok = landedByPr({ ruleId: "GOV-FRM-040", params: {}, ctx: push({ branch: "main", defaultBranch: "main", commits: ["setup"] }) }, p);
+      expect(ok.verdict).to.equal("pass");
+      const bad = landedByPr({ ruleId: "GOV-FRM-040", params: {}, ctx: push({ branch: "main", defaultBranch: "main", commits: ["setup", "other"] }) }, p);
+      expect(bad.verdict).to.equal("miss");
+      expect(bad.findings.join()).to.contain("other").and.not.contain("commit setup ");
+    });
+
+    it("the GitHub adapter reads `GET /repos/{repo}/commits/{sha}`", () => {
+      const calls: string[][] = [];
+      const facts = githubCommitFacts((args) => { calls.push([...args]); return JSON.stringify({ commit: { message: "m" }, parents: [{ sha: "p1" }] }); }, "acme/acme-gov");
+      expect(facts("abc")).to.deep.equal({ message: "m", parents: ["p1"] });
+      expect(calls[0]).to.deep.equal(["api", "repos/acme/acme-gov/commits/abc"]);
+      expect(githubCommitFacts(() => null, "a/b")("x")).to.equal(null);
+      expect(githubCommitFacts(() => "not json", "a/b")("x")).to.equal(null);
+    });
   });
 
   it("through the runner: the port is injected; without it, cannot-tell", () => {

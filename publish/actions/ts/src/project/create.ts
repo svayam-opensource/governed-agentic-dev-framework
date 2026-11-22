@@ -42,6 +42,11 @@ export interface ProjectRequest {
   readonly name: string;
   /** `owner/name`, a bare name (this org), or a repository URL. */
   readonly repos: readonly string[];
+  /**
+   * Labels the anchor carries BESIDE `anchor` — the practice project's `practice` (F136, ruled Q39 A: gov-licence
+   * recognises the practice board by this label on its anchor). Absent: `anchor` alone, as every project has.
+   */
+  readonly anchorLabels?: readonly string[];
 }
 
 export type PreSeedRule = "name" | "linked-item" | "repositories" | "description" | "scope";
@@ -152,6 +157,7 @@ export async function createGovProject(env: ProjectEnv, req: ProjectRequest): Pr
   }
   const name = req.name.trim();
   const invoker = pre.invoker;
+  const labels = [...new Set([DEFAULT_ANCHOR_LABEL, ...(req.anchorLabels ?? []).map((l) => l.trim()).filter(Boolean)])];
   let created: Created = NOTHING;
 
   const stop = (step: string, reason: string, notDone: readonly string[]): ProjectOutcome => ({
@@ -184,7 +190,7 @@ export async function createGovProject(env: ProjectEnv, req: ProjectRequest): Pr
     title: `${name}: project scope & anchor`,
     body: anchorIssueBody(ref.number, name, pre.codeRepos.length ? env.defaultCodeBranch : null),
     assignee: invoker,
-    labels: [DEFAULT_ANCHOR_LABEL],
+    labels,
   });
   if (!anchor.ok) {
     return stop("creating the anchor issue", anchor.reason,
@@ -224,7 +230,7 @@ export async function createGovProject(env: ProjectEnv, req: ProjectRequest): Pr
     lines: [
       `Created project "${name}"`,
       `  Board:   ${boardUrl} (#${ref.number})`,
-      `  Anchor:  ${anchor.value.url} — labelled ${DEFAULT_ANCHOR_LABEL}, assigned to ${invoker}, on the board`,
+      `  Anchor:  ${anchor.value.url} — labelled ${labels.join(", ")}, assigned to ${invoker}, on the board`,
       ...items.map((r) => `  Repo:    ${r.repo} takes part — ${r.url}`),
       ...advisories,
       `  Next:    gov seed ${boardUrl}`,
