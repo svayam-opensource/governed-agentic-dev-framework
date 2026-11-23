@@ -63,6 +63,40 @@ export const githubHandle: Validator = (v) => {
   return /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(t) ? null : `'${v.trim()}' is not a GitHub handle (letters, digits and single dashes).`;
 };
 
+/**
+ * THE SECOND PERSON (Policy Owner ruling Q44 A, 2026-11-23): a teammate who approves the Policy Owner's own changes,
+ * named Check Owner. Optional — blank or `none` is "nobody yet". A handle is checked like every other handle, and
+ * may not be the Policy Owner's own: the whole point is a second pair of eyes.
+ */
+export const secondPerson = (policyOwner: string): Validator => (v) => {
+  const t = v.trim();
+  if (t === "" || t.toLowerCase() === "none") return null;
+  const bad = githubHandle(t);
+  if (bad) return bad;
+  const key = (h: string) => h.trim().replace(/^@+/, "").toLowerCase();
+  return key(t) === key(policyOwner)
+    ? `'${t}' is the Policy Owner. Name someone else — the person who approves the Policy Owner's own changes — or \`none\`.`
+    : null;
+};
+
+/** Q44 A's question, shared by the adopter interview and bare `gov setup`. */
+export const SECOND_PERSON_QUESTION =
+  "Who will approve your own changes? As Policy Owner you cannot approve your own pull requests, so name a teammate's\n"
+  + "  GitHub handle: they become your Check Owner, and also review the code of your check actions (policies/actions/).\n"
+  + "  Optional — `none` if you are on your own for now.";
+
+/** The default: a Check Owner already named who is not the Policy Owner (a re-run), else `none`. */
+export const secondPersonDefault = (v: { readonly policyOwnerGithub: string; readonly checkOwnerGithub: string }): string => {
+  const key = (h: string) => h.trim().replace(/^@+/, "").toLowerCase();
+  return v.checkOwnerGithub && key(v.checkOwnerGithub) !== key(v.policyOwnerGithub) ? v.checkOwnerGithub : "none";
+};
+
+/** The second person's handle, or null for `none` / blank. */
+export const parseSecondPerson = (v: string): string | null => {
+  const t = v.trim();
+  return t === "" || t.toLowerCase() === "none" ? null : t;
+};
+
 /** Shape only. Whether the address can DO anything is a separate question. */
 export const emailShape: Validator = (v) => {
   const t = v.trim();

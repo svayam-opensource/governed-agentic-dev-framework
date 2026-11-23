@@ -178,8 +178,11 @@ Some of your rules will be enforced by small programs, called **actions**, that 
 a repository. An action is code, and code needs a reviewer who can read it. The **Check Owner** reviews every
 executable action your organization adds under `policies/actions/`.
 
-`policies/governance.yaml` names them, under `check_owner`. By default the Policy Owner holds this role too. That
-works, but it removes the second pair of eyes, so `gov doctor` warns you when one person holds both roles.
+`policies/governance.yaml` names them, under `check_owner`. The Check Owner is also the second person who approves
+the Policy Owner's own changes: nobody approves their own pull request, so a change the Policy Owner makes waits
+for the Check Owner. Setup asks for that person, as a teammate's GitHub handle, and the answer is optional. If you
+name nobody, the Policy Owner holds this role too. That works, but it removes the second pair of eyes, so
+`gov doctor` warns you when one person holds both roles.
 
 The split exists because the two approvals answer different questions. The Policy Owner approves the
 **intent**: is this what we want to require? The Check Owner approves the **code**: does this program check
@@ -292,10 +295,13 @@ Approval follows what the change touches.
 **Policy is approved section by section.** Your policy documents say, in plain English, who owns each
 section, for example *"Section 4 is owned by the Data Owner."* gov reads those sentences into
 `policies/ownership.yaml`. When a pull request changes a policy, gov works out which sections changed, asks
-each section's owner to review, and requires every one of them to approve. There are three guard rails:
+each section's owner to review, and requires every one of them to approve. There are four guard rails:
 
 - A section that names no owner belongs to the Policy Owner.
 - A change to who owns what always needs the Policy Owner. Nobody can hand a section to themselves.
+- A change to the policy's title page needs the Policy Owner. The title page is
+  `policies/policy-document.yaml`: the policy's title, who approved it, the chapter introductions and the
+  glossary.
 - An executable action under `policies/actions/` needs the Check Owner (§2.2).
 
 **Knowledge is approved folder by folder.** gov generates `CODEOWNERS` from your role list:
@@ -715,6 +721,12 @@ A developer who clones a repository and pushes by hand runs none of gov's code, 
 
 When you choose `hard` during setup, gov warns you first. Choosing "hard" requires your repositories to be
 public, or a paid GitHub plan. You are then asked to confirm, and the default answer is no.
+
+Hard also needs a second person. Under `hard`, a change the Policy Owner makes cannot merge until someone else
+approves it, so setup applies `hard` only when you named a Check Owner who is not the Policy Owner. If you named
+nobody, setup records `soft` and says why. To switch later, name a Check Owner (`check_owner.github` in
+`policies/governance.yaml`), then set `governance_posture: hard` there, each by pull request, and run
+`gov repo protect apply`.
 
 Under `hard`, `gov repo protect apply` also makes each rule's pull-request check a required check, on the
 governance repository and on each code repository. A failing check then stops the merge, so the rule is

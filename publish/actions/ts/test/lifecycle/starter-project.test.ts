@@ -9,7 +9,7 @@
  */
 import { expect } from "chai";
 import {
-  ensurePracticeProject, practiceEnforcement, practicePolicyTitle, practiceSlug, practiceSummary, practiceTask,
+  ensurePracticeProject, practiceCheckOwner, practiceEnforcement, practicePolicyTitle, practiceSlug, practiceSummary, practiceTask,
   PRACTICE_BOARD_TITLE, PRACTICE_FILE, PRACTICE_LABEL, type PracticeDeps,
 } from "../../src/lifecycle/starter-project.js";
 import type { BoardSummary } from "../../src/lifecycle/project-list.js";
@@ -140,7 +140,7 @@ describe("F136 — the task issue: the change, how to make it, and why the pull 
   });
 
   it("a solo organization is told to invite a teammate — no self-approval, no exception (Q38 B+)", () => {
-    expect(body).to.match(/invite a teammate/);
+    expect(body).to.match(/invite a teammate/i);
     expect(body).to.match(/no way to approve it yourself, and no exception/);
     expect(body, "never offers a way round the approval").to.not.match(/self-approv|--admin|bypass/i);
   });
@@ -180,5 +180,55 @@ describe("F136 — the practice project is reused, not re-created (walk #5)", ()
     const items = await tracker.search({});
     expect(items.ok && items.value.length).to.equal(0);
     expect(practiceSummary(r).join("\n")).to.match(/could not check/i);
+  });
+});
+
+// POLICY OWNER RULINGS F142 A + Q44 A (2026-11-23): the title page is the Policy Owner's; the adopter is the Policy
+// Owner and the author, so the pull request waits for the Check Owner — the second person setup asked for, or, with
+// none, a teammate the adopter still has to name. Every posture × both answers.
+describe("F142 A / Q44 A — who the practice pull request waits for", () => {
+  const flat = (t: string) => t.replace(/\s+/g, " ");
+  for (const e of ["enforced", "soft", "unprotectable"] as const) {
+    it(`${e}, a second person named: it waits for @reviewer, and nothing else is needed`, () => {
+      const body = flat(practiceTask("Acme Ltd", e, "@reviewer").body);
+      expect(body).to.contain("title page is the Policy Owner's to approve");
+      expect(body).to.contain("asks your **Check Owner**, @reviewer, to approve it instead. Nothing else is needed: ask @reviewer to review and approve it.");
+      expect(body).to.contain("The change merges when @reviewer approves it.");
+      expect(body, "no invitation to name somebody").to.not.contain("Invite a teammate");
+      expect(body).to.not.contain("check_owner.github");
+      expect(body).to.not.contain("Name a second person");
+      expect(body, "the posture's own stop text stays").to.contain(flat(practiceTask("Acme Ltd", e).body.match(/^(Your default branch is protected|Your organization uses soft|Your organization chose hard)[^\n]*/m)![0]));
+    });
+
+    it(`${e}, nobody named: invite a teammate as Check Owner, and say how that pull request merges`, () => {
+      const body = flat(practiceTask("Acme Ltd", e, null).body);
+      expect(body).to.contain("asks the **Check Owner** to approve it instead. You named nobody else at setup");
+      expect(body).to.contain("Name a second person as Policy Owner or Check Owner");
+      expect(body).to.contain("Invite a teammate to your GitHub organization and name them Check Owner: put their GitHub handle in `check_owner.github` in `policies/governance.yaml`");
+      expect(body).to.contain("naming them is a pull request of its own, and it needs the same approval");
+      expect(body).to.contain("The change merges when your Check Owner approves it.");
+      if (e === "soft") {
+        expect(body).to.contain("can merge only past its red check, and a merge past a failing check is recorded for the Policy Owner");
+      } else if (e === "unprotectable") {
+        expect(body).to.contain("can merge only past its red check: GitHub cannot block it here");
+        expect(body, "under hard a merge past the check is not recorded — so it is not claimed").to.not.match(/recorded/);
+      } else {
+        expect(body).to.contain("GitHub will not merge that pull request either");
+        expect(body).to.not.match(/merge only past/);
+      }
+    });
+  }
+
+  it("the default (no second person) is the solo text", () => {
+    expect(practiceTask("Acme Ltd").body).to.equal(practiceTask("Acme Ltd", "soft", null).body);
+  });
+
+  it("practiceCheckOwner: the Check Owner when it is someone else; null when vacant or the Policy Owner", () => {
+    const gov = (po: string, co: string) => `governance_posture: soft\npolicy_owner:\n  github: ${po}\ncheck_owner:\n  github: "${co}"\n`;
+    expect(practiceCheckOwner(gov("adopter", "reviewer"))).to.equal("reviewer");
+    expect(practiceCheckOwner(gov("adopter", "@reviewer"))).to.equal("reviewer");
+    expect(practiceCheckOwner(gov("adopter", "Adopter"))).to.equal(null);
+    expect(practiceCheckOwner(gov("adopter", ""))).to.equal(null);
+    expect(practiceCheckOwner(null)).to.equal(null);
   });
 });

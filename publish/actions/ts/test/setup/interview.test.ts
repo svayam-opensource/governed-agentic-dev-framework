@@ -23,17 +23,32 @@ async function run(reply: (q: string) => string) {
 describe("gov-work — the adopter interview, Check Owner", () => {
   const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : "");
 
-  it("asks Q9 for the Check Owner, defaulting to the Policy Owner, and keeps the answer", async () => {
+  // Q44 A (2026-11-23): Q9 asks for a SECOND PERSON — who approves the Policy Owner's own changes — named Check Owner.
+  it("asks Q9 for the second person, named Check Owner; the default is none; a handle is kept", async () => {
     const { r, asked } = await run((q) => (/^Q9 /.test(q) ? "@dave" : base(q)));
     const q9 = asked.find((q) => /^Q9 /.test(q));
-    expect(q9).to.match(/Check Owner/);
-    expect(q9).to.contain("[@rk]");
+    expect(q9).to.match(/approve your own changes/).and.match(/Check Owner/).and.match(/optional/i);
+    expect(q9).to.contain("[none]");
     expect(r!.answers.checkOwnerGithub).to.equal("@dave");
   });
 
-  it("Enter accepts the Policy Owner", async () => {
+  it("Enter (none) keeps the Policy Owner as Check Owner", async () => {
     const { r } = await run(base);
     expect(r!.answers.checkOwnerGithub).to.equal("@rk");
+  });
+
+  it("refuses the Policy Owner's own handle (any case, with or without @) and a malformed one, then asks again", async () => {
+    for (const bad of ["rk", "@RK", "not a handle"]) {
+      let n = 0;
+      const printed: string[] = [];
+      const r = await askOrgInterview({
+        prompt: async (q) => (/^Q9 /.test(q) ? (n++ === 0 ? bad : "@dave") : base(q)),
+        print: (l) => printed.push(l),
+        derive: (partial) => deriveOrgConfig(partial, CTX),
+      });
+      expect(r!.answers.checkOwnerGithub, bad).to.equal("@dave");
+      expect(printed.join("\n"), bad).to.match(/is the Policy Owner|is not a GitHub handle/);
+    }
   });
 
   it("refuses FRM as the identifier and asks again", async () => {
@@ -54,10 +69,28 @@ describe("gov-work — the adopter interview, governance posture", () => {
     expect(r!.answers.governancePosture).to.equal("soft");
   });
 
-  it("GOV-FRM-450 hard shows the confirmation VERBATIM; y keeps hard", async () => {
-    const { r, asked } = await run((q) => (/^Q11 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
+  it("GOV-FRM-450 hard shows the confirmation VERBATIM; y keeps hard (a second person was named)", async () => {
+    const { r, asked } = await run((q) => (/^Q11 /.test(q) ? "2" : /^Q9 /.test(q) ? "@dave" : q.startsWith("Choosing") ? "y" : base(q)));
     expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(true);
     expect(r!.answers.governancePosture).to.equal("hard");
+  });
+
+  // Q44 A: hard needs a second person. With none, setup records soft and says why — no confirmation is asked.
+  it("Q44 A: hard with no second person → soft, said plainly, with the way to switch; no confirmation", async () => {
+    const asked: string[] = [];
+    const printed: string[] = [];
+    const r = await askOrgInterview({
+      prompt: async (q) => { asked.push(q); return /^Q11 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q); },
+      print: (l) => printed.push(l),
+      derive: (partial) => deriveOrgConfig(partial, CTX),
+    });
+    expect(r!.answers.governancePosture).to.equal("soft");
+    expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION)), "no confirmation for an answer that cannot stand").to.equal(false);
+    const said = printed.join("\n");
+    expect(said).to.contain("Hard posture needs a second person to approve the Policy Owner's own changes");
+    expect(said).to.contain("starts with soft posture");
+    expect(said).to.contain("`check_owner.github` in policies/governance.yaml").and.contain("`governance_posture: hard`").and.contain("gov repo protect apply");
+    expect(asked.findIndex((q) => /^Q9 /.test(q)), "the second person is asked before the posture").to.be.lessThan(asked.findIndex((q) => /^Q11 /.test(q)));
   });
 
   it("GOV-FRM-450 the confirmation defaults to N — Enter (or anything but yes) is soft", async () => {

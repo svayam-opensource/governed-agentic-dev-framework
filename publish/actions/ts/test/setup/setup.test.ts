@@ -163,22 +163,42 @@ describe("gov-work — setup, the Check Owner", () => {
       .to.deep.equal({ kind: "agents", agents: [{ id: "claude-code", default: true }] });
   });
 
-  it("is ASKED in a configure-in-place run, offering the Policy Owner as the default", async () => {
+  it("is ASKED in a configure-in-place run as the optional second person (Q44 A)", async () => {
     const writes: Record<string, string> = {};
     const asked: Array<[string, string]> = [];
     const answers: Record<string, string> = { "Full legal name of your organization": "Acme Inc", "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME" };
     const code = await runSetup({
       fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
-      prompt: async (q, def) => { asked.push([q, def]); return /Check Owner/.test(q) ? "@dave" : agentAnswer(q) ?? answers[q] ?? def; },
+      prompt: async (q, def) => { asked.push([q, def]); return /approve your own changes/.test(q) ? "@dave" : agentAnswer(q) ?? answers[q] ?? def; },
       print: () => {},
     }, true);
     expect(code).to.equal(0);
-    const q = asked.find(([question]) => /Check Owner/.test(question));
+    // Q44 A: the second person, named Check Owner — optional, defaulting to none.
+    const q = asked.find(([question]) => /approve your own changes/.test(question));
     expect(q, "the question is asked").to.not.equal(undefined);
-    expect(q![1], "and defaults to the Policy Owner").to.equal("@rk");
+    expect(q![0]).to.match(/Check Owner/);
+    expect(q![1], "and defaults to none").to.equal("none");
     expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(/^check_owner:\n {2}github: "@dave"$/m);
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.not.match(/check_owner/);
   });
+
+  // Q44 A: in place too, hard needs a second person — with none, soft is written and the reason printed.
+  for (const [second, want] of [["none", "soft"], ["@dave", "hard"]] as const) {
+    it(`configure-in-place, hard chosen, second person ${second} → ${want}`, async () => {
+      const writes: Record<string, string> = {};
+      const printed: string[] = [];
+      const answers: Record<string, string> = { "Full legal name of your organization": "Acme Inc", "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME" };
+      const code = await runSetup({
+        fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
+        prompt: async (q, def) => /approve your own changes/.test(q) ? second : /governance posture should/.test(q) ? "2"
+          : /still want the governance posture/.test(q) ? "y" : agentAnswer(q) ?? answers[q] ?? def,
+        print: (l) => printed.push(l),
+      }, true);
+      expect(code).to.equal(0);
+      expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(new RegExp(`^governance_posture: "?${want}"?$`, "m"));
+      expect(printed.join("\n").includes("Hard posture needs a second person"), second).to.equal(want === "soft");
+    });
+  }
 
   it("is NOT asked again when the adopter interview already answered it", async () => {
     const asked: string[] = [];
@@ -190,7 +210,7 @@ describe("gov-work — setup, the Check Owner", () => {
       print: () => {},
     }, true);
     expect(code).to.equal(0);
-    expect(asked.filter((q) => /Check Owner/.test(q))).to.deep.equal([]);
+    expect(asked.filter((q) => /Check Owner|approve your own changes/.test(q))).to.deep.equal([]);
   });
 
   it("GOV-FRM-033 setup cannot finish with the Check Owner empty — nothing is written", async () => {

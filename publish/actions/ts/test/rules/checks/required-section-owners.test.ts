@@ -34,11 +34,47 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
     expect(r.owners[0]!.why).to.deep.equal(["`policies/actions/lint/run.sh` (executable action) (Check Owner)"]);
   });
 
-  it("files outside the owned documents — policy-document.yaml, the machine-written files — need nobody", () => {
+  it("the machine-written files need nobody", () => {
     const r = requiredSectionOwners(rules,
-      [file("policies/policy-document.yaml", "title: Ours\n"), file("policies/VERSION", "1.0.1\n"), file("policies/rules/rules.yaml", "[]\n")],
-      { "policies/policy-document.yaml": "title: x\n" }, "someone");
+      [file("policies/VERSION", "1.0.1\n"), file("policies/rules/rules.yaml", "[]\n"), file("policies/CHANGELOG.md", "# x\n")],
+      {}, "someone");
     expect(r).to.deep.equal({ owners: [], notes: [] });
+  });
+
+  // POLICY OWNER RULING F142 A (2026-11-23): the policy's title page is the Policy Owner's, like governance.yaml.
+  describe("policies/policy-document.yaml — the title page needs the Policy Owner (F142 A)", () => {
+    const PD = "policies/policy-document.yaml";
+    const titlePage = [file(PD, "title_page: { title: Ours, approved_by: Policy Owner }\n")];
+    const why = "`policies/policy-document.yaml` (the policy's title page)";
+
+    it("an author who is not the Policy Owner → the Policy Owner", () => {
+      expect(requiredSectionOwners(rules, titlePage, { [PD]: "title_page: { title: x }\n" }, "dana"))
+        .to.deep.equal({ owners: [{ handle: "@polly", why: [`${why} (Policy Owner)`] }], notes: [] });
+    });
+
+    it("the Policy Owner as author → the Check Owner approves instead", () => {
+      const r = requiredSectionOwners(rules, titlePage, {}, "@Polly");
+      expect(r.owners).to.deep.equal([{ handle: "@chuck", why: [`${why} (Policy Owner) — its owner is the author, so the Check Owner approves instead`] }]);
+      expect(r.selfApprovedMiss).to.equal(undefined);
+    });
+
+    it("the Policy Owner as author with no Check Owner (vacant, or the same person) → a miss: name a second person", () => {
+      for (const roles of [{ "Policy Owner": "@polly" }, { "Policy Owner": "@polly", "Check Owner": "polly" }]) {
+        const r = requiredSectionOwners({ ownership, roles }, titlePage, {}, "polly");
+        expect(r.owners).to.deep.equal([]);
+        expect(r.selfApprovedMiss).to.contain(why).and.contain("Name a second person as Policy Owner or Check Owner");
+      }
+    });
+
+    it("needs no base text (the whole file is the Policy Owner's), and the check misses the same way", () => {
+      const ctx = (author: string): EventContext =>
+        ({ resource: "vcs.gov-repo", event: "pull_request", payload: { changed: [{ ...titlePage[0]!, addedLines: [] }], author, approvals: [] } as EventContext["payload"] });
+      const full = { framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ownership, roles: { "Policy Owner": "@polly" } } as unknown as RuleSet;
+      const r = sectionOwnerApproval("GOV-FRM-455", {}, ctx("polly"), full);
+      expect(r.verdict).to.equal("miss");
+      expect(r.findings.join()).to.contain("Name a second person as Policy Owner or Check Owner");
+      expect(sectionOwnerApproval("GOV-FRM-455", {}, ctx("dana"), full).requestReview).to.deep.equal(["polly"]);
+    });
   });
 
   it("the author is never listed; if that leaves nobody, the Policy Owner (or Check Owner) approves instead", () => {

@@ -16,6 +16,7 @@ scenario "32 · adopter founds an org that uses NO AI agents (structure-only)"
 
 export GH_STUB_LOGIN="acme"          # the org we adopt for, and the board owner
 export GH_STUB_GOVERNED=""           # nobody has adopted for it yet
+export GH_STUB_REPOS="acme/acme-gov"  # the governance repo, readable once made — so the practice project is made (Q44 A asserts its task)
 
 # NO `curl` DOUBLE, AND NO AGENT ON PATH — deliberately, because this run must never reach an
 # installer. 30 needs one; if this scenario ever does, something offered an install it should not
@@ -45,13 +46,14 @@ drive "$(conv <<'C'
 # git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
 > Q8 - Who is the Policy Owner
 < adopter
-> Q9 - Who is the Check Owner
-< adopter
+# Q9 — THE SECOND PERSON (Q44 A), answered `none`: on your own for now. (Scenario 30 names somebody.)
+> Q9 - Who will approve your own changes
+< none
 > Q10 - What contact email
 < adopter@acme.test
-# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+# Q11 — HARD IS ASKED FOR, WITH NOBODY SECOND (Q44 A): setup keeps soft and says why — no confirmation.
 > Q11 - What governance posture
-<
+< 2
 ~ 240
 # Q12 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
@@ -69,6 +71,16 @@ C
 )" gov
 
 info "Q12 offers 'none' as an ANSWER, not as a way past the question"
+info "Q44 A — no second person: hard is not applied; the practice task says how to name a Check Owner"
+saw "hard needs a second person, and setup says so" "Hard posture needs a second person to approve the Policy Owner's own changes"
+saw "and that it starts soft" "starts with soft posture"
+saw "and how to switch once someone is named" "gov repo protect apply"
+never "no hard confirmation for an answer that cannot stand" "Do you still want the governance posture"
+runs grep -qE '^governance_posture: "?soft"?' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "governance.yaml records soft" || fail "governance.yaml does not record soft"
+gh_ran "the practice task says nobody else was named" "so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,"
+gh_ran "and under soft, that both pull requests merge only past a red check, recorded" "check, and a merge past a failing check is recorded for the Policy Owner."
+
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"

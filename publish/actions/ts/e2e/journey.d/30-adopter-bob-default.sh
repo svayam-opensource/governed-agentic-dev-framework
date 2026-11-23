@@ -52,8 +52,10 @@ drive "$(conv <<'C'
 # git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
 > Q8 - Who is the Policy Owner
 < adopter
-> Q9 - Who is the Check Owner
-< adopter
+# Q9 — THE SECOND PERSON (Q44 A): a teammate who approves the Policy Owner's own changes, named Check Owner.
+# Scenario 32 answers `none`; this one names somebody.
+> Q9 - Who will approve your own changes
+< reviewer
 > Q10 - What contact email
 < adopter@acme.test
 # Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
@@ -169,12 +171,21 @@ gh_ran "labelled practice beside anchor — how gov-licence finds it (Q39 A)" "-
 gh_ran "and the one task: the title-page change" "issue create --repo acme/acme-gov --title Put our name on the policy"
 saw "the adopter is told it exists" "Your practice project"
 
+info "Q44 A — a second person named at setup: Check Owner, in the setup commit, and the practice task waits for them"
+saw "Q9 asks for the person who approves the Policy Owner's own changes" "Q9 - Who will approve your own changes"
+saw "and says it is optional" "Optional — \`none\` if you are on your own for now"
+runs grep -qE '^check_owner:' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && runs grep -qE '^[[:space:]]+github: "?reviewer"?$' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "governance.yaml names the second person as Check Owner" || fail "governance.yaml does not name reviewer as Check Owner"
+gh_ran "the practice task waits for that Check Owner, by handle" "asks your **Check Owner**, @reviewer, to approve it instead. Nothing else is"
+gh_never "and does not ask the adopter to invite anybody" "Invite a teammate to your GitHub organization"
+
 info "F136 G2 — the approval check and the rules' checks are in the setup commit itself (Q42 C)"
 G="$HOME/.gov/acme/gov_repo"
 [ "$(git -C "$G" log -1 --format=%s)" = "configure the framework for this org" ] \
   && pass "the setup commit is the one landed-by-pr exempts, by its subject" || fail "the setup commit's subject changed — landed-by-pr would not exempt it"
 in_setup="$(git -C "$G" show --name-only --format= HEAD)"     # captured: grep -q would SIGPIPE git under pipefail
-for wf in .github/workflows/approver-check.yml .github/workflows/gov-checks.yml; do
+for wf in .github/workflows/approver-check.yml .github/workflows/gov-checks.yml policies/governance.yaml; do
   grep -qxF "$wf" <<<"$in_setup" \
     && pass "the setup commit carries $wf" || fail "the setup commit does not carry $wf"
 done
