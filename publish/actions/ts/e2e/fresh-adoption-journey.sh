@@ -186,11 +186,15 @@ grep -qF "Your practice project" "$PLAIN" || { tail -40 "$PLAIN" | sed 's/^/    
 gh api "repos/$E2E_ORG/$REPO" --silent 2>/dev/null && ok "setup created $E2E_ORG/$REPO" || die "setup did not create $E2E_ORG/$REPO"
 gh api "repos/$E2E_ORG/$REPO/contents/.github/workflows/approver-check.yml" --silent 2>/dev/null \
   && ok "the setup commit carries the approval check" || die "the default branch has no .github/workflows/approver-check.yml"
+SETUP_BOARD="$(sed -n "s|^  Board:   https://github.com/orgs/$E2E_ORG/projects/\([0-9][0-9]*\)$|\1|p" "$PLAIN" | head -1)"
 # Polled: GitHub's project list can lag a board just made. On a miss, what the org holds and what setup SAID about it.
 PROJ_NUM=""; BOARDS=""
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
   BOARDS="$(org_projects 2>&1 || true)"
-  PROJ_NUM="$(printf '%s\n' "$BOARDS" | awk -F'\t' -v t="$PRACTICE_TITLE" '$2 == t && $4 == "false" { print $1 }' | head -1)"
+  # `gov seed` renames the board to "PRJ-<n> · <title>" (lifecycle/seed.ts) — the first dispatch looked for the bare
+  # title and missed it. The number setup printed ("Board: …/projects/<n>") is the one; the title, either form, confirms.
+  PROJ_NUM="$(printf '%s\n' "$BOARDS" | awk -F'\t' -v t="$PRACTICE_TITLE" -v n="$SETUP_BOARD" \
+    '$4 == "false" && ($2 == t || $2 ~ ("^PRJ-" $1 " · " t "$")) && (n == "" || $1 == n) { print $1 }' | head -1)"
   [ -n "$PROJ_NUM" ] && break
   sleep 5
 done
