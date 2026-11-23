@@ -30,7 +30,6 @@ const rules = (posture: "soft" | "hard", roles: Record<string, string> = { "Poli
 const push: EventContext = { resource: "vcs.gov-repo", event: "push", payload: { branch: "main", defaultBranch: "main", commits: [C1] } as EventContext["payload"] };
 const PR4: PullRef = { number: 4, mergedAt: "2026-11-23T10:00:00Z", base: "main", headSha: H4 };
 const run455: CheckRunRef = { id: 455, name: "GOV-FRM-455 · pull_request", conclusion: "failure", summary: "" };
-const run467: CheckRunRef = { id: 467, name: "GOV-FRM-467 · pull_request", conclusion: "failure", summary: "" };
 
 describe("solo mode — telling a solo-mode red check from any other (redMerges)", () => {
   const find = (runs: CheckRunRef[], annotations: Record<number, readonly string[] | null>) =>

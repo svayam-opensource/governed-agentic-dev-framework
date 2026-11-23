@@ -20,6 +20,7 @@ const SCRIPT = (() => {
   return doc.jobs["approver-check"]!.steps.find((s) => s.run)!.run!;
 })();
 
+const APPROVER_LOGINS = "approverLogins (the GOV_APPROVERS line gov prints) carries the alternates too";
 const ROLES_OLD = "| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n";
 const ROLES_ALT = "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---|\n| Data Owner | @dana | `knowledge/data/` | @dev |\n";
 const gov = (posture: string, po: string, poAlt = "", co = "") =>
@@ -45,7 +46,11 @@ function run(files: { governance: string; roles?: string }, author: string, appr
   }
 }
 
-describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)", () => {
+/** The script needs bash and jq, as GitHub's hosted runner has them; a machine without either skips (not a pass). */
+const hasTools = ["bash", "jq"].every((t) => spawnSync(t, ["--version"], { encoding: "utf8" }).status === 0);
+
+describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)", function () {
+  beforeEach(function () { if (!hasTools && this.currentTest?.title !== APPROVER_LOGINS) this.skip(); });
   it("the Policy Owner's alternate (governance.yaml) is an authorized representative", () => {
     const r = run({ governance: gov("soft", "polly", "@pat"), roles: ROLES_OLD }, "polly", ["pat"]);
     expect(r.code, r.out).to.equal(0);
@@ -92,7 +97,7 @@ describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)",
     expect(r.out).to.not.contain("self-merged");
   });
 
-  it("approverLogins (the GOV_APPROVERS line gov prints) carries the alternates too", () => {
+  it(APPROVER_LOGINS, () => {
     expect(approverLogins(gov("soft", "polly", "@pat", "chuck"), ROLES_ALT)).to.deep.equal(["polly", "pat", "chuck", "dana", "dev"]);
   });
 });
