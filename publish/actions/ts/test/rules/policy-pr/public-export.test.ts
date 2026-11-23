@@ -44,7 +44,7 @@ describe("@svayam-opensource/gov/policy-pr from a packed tarball (F127 G3)", fun
   const probe = (load: string) => `${load}
 const t = p.memTree({ "policies/VERSION": "1.0.0\\n" });
 console.log(JSON.stringify({
-  fns: [p.applyPolicyEdit, p.judgePolicyPr, p.planPolicyPr, p.parseRuleStore, p.inForce, p.openRows, p.parsePolicyDocument, p.requiredSectionOwners, p.parseOwnership].every((f) => typeof f === "function"),
+  fns: [p.applyPolicyEdit, p.judgePolicyPr, p.planPolicyPr, p.parseRuleStore, p.inForce, p.openRows, p.parsePolicyDocument, p.requiredSectionOwners, p.parseOwnership, p.sectionOwnersRulesFrom].every((f) => typeof f === "function"),
   chapters: Object.keys(p.CHAPTERS).length,
   read: t.read("policies/VERSION"),
 }));`;

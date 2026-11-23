@@ -6,6 +6,7 @@
 // (gov-licence's practice record) calls the same function, so the two never disagree.
 import { expect } from "chai";
 import { requiredSectionOwners, sectionOwnerApproval, type SectionOwnersFile } from "../../../src/rules/checks/policy-actions.js";
+import { sectionOwnersRulesFrom } from "../../../src/rules/checks/section-owners-rules.js";
 import type { EventContext, RuleSet } from "../../../src/rules/model/contracts.js";
 
 const DOC = "policies/org-policy.md";
@@ -78,5 +79,27 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
     const full = { framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ...rules } as unknown as RuleSet;
     expect(sectionOwnerApproval("T", {}, ctx({ approvals: [] }), full).requestReview).to.deep.equal(want);
     expect(sectionOwnerApproval("T", {}, ctx({ approvals: want }), full).verdict).to.equal("pass");
+  });
+});
+
+describe("sectionOwnersRulesFrom — the rule set's ownership and roles from the gov repo's texts", () => {
+  const governance = "governance_posture: soft\npolicy_owner:\n  github: polly\ncheck_owner:\n  github: \"\"\n";
+  const roleList = "# Reps\n\n| Role | GitHub handle | Owns |\n|------|---------------|------|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal | vacant | |\n";
+  const own = '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "0000004" }\n';
+
+  it("roles as the check loads them: a vacant Check Owner reads as the Policy Owner, a vacant org role as empty", () => {
+    const r = sectionOwnersRulesFrom({ governance, roleList, ownership: own });
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.rules.roles).to.deep.equal({ "Policy Owner": "polly", "Check Owner": "polly", "Data Owner": "@dana", Legal: "" });
+    expect(r.rules.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }]);
+    const owners = requiredSectionOwners(r.rules, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, undefined).owners;
+    expect(owners).to.deep.equal([{ handle: "@dana", why: ["`policies/org-policy.md` §4 (Data Owner)"] }]);
+  });
+
+  it("no ownership.yaml → no rows; an unreadable one is refused, never guessed", () => {
+    const none = sectionOwnersRulesFrom({ governance, roleList: null, ownership: null });
+    expect(none).to.deep.include({ ok: true });
+    expect(sectionOwnersRulesFrom({ governance, roleList, ownership: "{ not: a list" }).ok).to.equal(false);
   });
 });

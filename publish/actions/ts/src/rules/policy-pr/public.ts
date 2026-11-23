@@ -19,3 +19,4 @@ export {
 } from "../checks/policy-actions.js";
 export { parseOwnership, OWNERSHIP_PATH } from "../checks/ownership.js";
 export type { SectionOwnership } from "../model/contracts.js";
+export { sectionOwnersRulesFrom, SECTION_OWNERS_RULE_PATHS, type SectionOwnersRuleTexts, type SectionOwnersRulesLoad } from "../checks/section-owners-rules.js";
