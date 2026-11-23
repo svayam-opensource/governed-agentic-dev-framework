@@ -15,6 +15,7 @@
  * Values travel as GraphQL VARIABLES (`-f name=value`) or as separate argv entries, never spliced into query text.
  */
 import { isTransientGhError, type RunGh } from "../../lifecycle/gh-board.js";
+import { retry } from "../../lifecycle/retry.js";
 import { fail, ok, type Result } from "../../ports/result.js";
 import type { RepoRef } from "../../ports/vcs.js";
 import {
@@ -192,11 +193,26 @@ const toItem = (j: GhIssue, fallbackUrl = ""): Item => ({
 /** GitHub's "refused" for a link it will not make: missing endpoint, feature off, not allowed, invalid. */
 const REFUSED = /HTTP 4(?:0[0-9]|1[0-9]|2[0-9])|Not Found|not enabled|not available|Validation Failed/i;
 
-export interface GithubWorkTrackerDeps { readonly gh?: GhRun }
+/**
+ * GitHub's refusal to close an issue it will close a moment later (F152): `GraphQL: Could not close the issue.
+ * (closeIssue)`. Seen in the live signal journey while the same token closed other issues in the same run — not a
+ * permission, most likely a race with the project's own automation moving the card. Retried by {@link closeIssue}.
+ */
+const CLOSE_RACE = /Could not close the issue/i;
+
+/** Blocking, like the gh call it sits between. */
+const sleepSync = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+
+export interface GithubWorkTrackerDeps {
+  readonly gh?: GhRun;
+  /** The pause between close retries (default: a blocking sleep). Tests pass a no-op. */
+  readonly sleep?: (ms: number) => void;
+}
 
 /** The full {@link WorkTrackerPort} on GitHub. The runner is injectable; unit tests use a fake. */
 export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkTrackerPort {
   const gh = deps.gh ?? defaultGhRun;
+  const sleep = deps.sleep ?? sleepSync;
 
   /** A write whose only answer is its exit status. */
   const write = (args: readonly string[], what: string): Result<void> => {
@@ -207,6 +223,29 @@ export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkT
     text.trim() ? write(["issue", "comment", i.url, "--body", text], `commenting on ${i.url}`) : fail("a comment needs text");
   const addToProject = (p: ProjectRef, i: ItemRef): Result<void> =>
     write(["project", "item-add", String(p.number), "--owner", p.owner, "--url", i.url, "--format", "json"], `adding ${i.url} to project ${board(p)}`);
+
+  /**
+   * `gh issue close`, through GitHub's close race (F152): on "Could not close the issue" it tries again — four
+   * attempts, 2 s / 4 s / 8 s apart, on the shared {@link retry} — and before reporting any failure it reads the
+   * issue back: one that is closed is the outcome asked for, whoever closed it. Every caller of `close` (signal
+   * ack, answer, handover, merge) gets this.
+   */
+  const closeIssue = (i: ItemRef): Result<void> => {
+    const args = ["issue", "close", i.url];
+    let r: GhReply;
+    try {
+      // Only the close race is thrown, so only it is retried; any other answer comes back on the first try.
+      r = retry(() => {
+        const reply = ghCall(gh, args);
+        if (reply.status !== 0 && CLOSE_RACE.test(reply.stderr)) throw Object.assign(new Error(reply.stderr), { reply });
+        return reply;
+      }, { attempts: 4, delayMs: 2000, backoff: 2, sleep });
+    } catch (e) { r = (e as { reply: GhReply }).reply; }
+    if (r.status === 0) return done;
+    const now = ghJson<{ state?: string }>(gh, ["issue", "view", i.url, "--json", "state"], `reading ${i.url}`);
+    if (now.ok && lower(now.value.state) === "closed") return done;
+    return ghFailure(r, `closing ${i.url}`);
+  };
 
   const linkByMarker = (on: ItemRef, a: ItemRef, kind: LinkKind, b: ItemRef, note = ""): Result<{ via: "marker" }> => {
     const say = { blocks: `Blocked by ${a.url}.`, relates: `Related to ${b.url}.`, "moved-to": `Moved to ${b.url}.` }[kind];
@@ -308,7 +347,7 @@ export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkT
 
     async comment(i, text) { return comment(i, text); },
 
-    async close(i) { return write(["issue", "close", i.url], `closing ${i.url}`); },
+    async close(i) { return closeIssue(i); },
 
     async search(q) {
       if (!q.repo) return fail("search needs a repository on GitHub — gov will not search all of GitHub");
