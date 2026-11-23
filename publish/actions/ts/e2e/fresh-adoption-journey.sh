@@ -119,6 +119,12 @@ fi
 step "Preflight — is $E2E_ORG unadopted?"
 LOGIN="$(gh api user --jq .login 2>/dev/null)" || die "GH_TOKEN does not authenticate (FRESH_ADOPT_PAT)"
 ok "authenticated as $LOGIN"
+# THE SCOPES, BEFORE ANY CALL THAT NEEDS THEM. The first dispatch (2026-11-24) died on the projects query with a bare
+# "line … exited 1": the token had no `project` scope, and GitHub said so only on stderr. Named here instead.
+HEADERS="$(gh api -i user 2>/dev/null || true)"
+MISSING="$(missing_scopes "$HEADERS")"
+[ -z "$MISSING" ] && ok "the token has the scopes it needs: ${FRESH_SCOPES[*]}" \
+  || die "FRESH_ADOPT_PAT lacks the scope(s):$MISSING (it has: $(token_scopes "$HEADERS" | tr '\n' ' ')) — a classic token needs ${FRESH_SCOPES[*]}"
 ROLE="$(gh api "orgs/$E2E_ORG/memberships/$LOGIN" --jq '"\(.state) \(.role)"' 2>/dev/null)" || ROLE="none"
 [ "$ROLE" = "active admin" ] && ok "$LOGIN is an owner of $E2E_ORG" \
   || die "$LOGIN must be an active OWNER of $E2E_ORG to adopt it (membership: $ROLE) — accept the org invitation as that account"
@@ -214,19 +220,13 @@ for wf in .github/workflows/*.yml; do
 done
 grep -qF "runs-on: $RUNS_ON" .github/workflows/approver-check.yml || die "could not point approver-check.yml at $RUNS_ON"
 ok "test concession: the PR's workflows ask for $RUNS_ON (the sandbox has no hosted minutes)"
-PROPOSE_RC=0; PROPOSE_OUT="$(gov rules propose </dev/null 2>&1)" || PROPOSE_RC=$?
-PROPOSE="wrote the paperwork"
-if [ "$PROPOSE_RC" -ne 0 ]; then
-  printf '%s\n' "$PROPOSE_OUT" | tail -12 | sed 's/^/    /'
-  if printf '%s' "$PROPOSE_OUT" | grep -qF "has not approved a language model"; then
-    # A FINDING, not this journey's failure: setup approves no model, so the task's step 4 refuses on every fresh
-    # organization. The stop is measured all the same; the summary says the paperwork is missing.
-    PROPOSE="REFUSED — no approved model (setup approves none)"
-    warn "gov rules propose refused: the organization has no approved model — the practice task's step 4 cannot be done as written; continuing to the stop"
-  else
-    die "gov rules propose failed (exit $PROPOSE_RC)"
-  fi
-else ok "gov rules propose: $(printf '%s\n' "$PROPOSE_OUT" | tail -1)"; fi
+# The title page has no rule rows: propose reads no section, needs no model, and writes the version bump.
+VERSION_BEFORE="$(cat policies/VERSION 2>/dev/null || true)"
+PROPOSE_OUT="$(gov rules propose </dev/null 2>&1)" || { printf '%s\n' "$PROPOSE_OUT" | tail -12 | sed 's/^/    /'; die "gov rules propose failed"; }
+printf '%s' "$PROPOSE_OUT" | grep -qF "0 section(s) read" || { printf '%s\n' "$PROPOSE_OUT" | tail -12 | sed 's/^/    /'; die "gov rules propose did not say \"0 section(s) read\" for a title-page-only change"; }
+VERSION_AFTER="$(cat policies/VERSION 2>/dev/null || true)"
+[ -n "$VERSION_AFTER" ] && [ "$VERSION_AFTER" != "$VERSION_BEFORE" ] && ok "gov rules propose: 0 section(s) read, policies/VERSION ${VERSION_BEFORE:-?} → $VERSION_AFTER" \
+  || die "gov rules propose did not change policies/VERSION (still '${VERSION_AFTER:-absent}')"
 git add -- policies .github
 git commit -qm "Put our name on the policy (closes #${TASK_URL##*/})" || die "nothing to commit after the change"
 ok "committed the change"
@@ -269,7 +269,7 @@ esac
 
 # ── the measurement ────────────────────────────────────────────────────────────────────────────────────────────────
 step "Time to the first stop"
-[ -z "${GITHUB_STEP_SUMMARY:-}" ] || { echo "PR: $PR_URL · approver-check: failed · gov rules propose: $PROPOSE"; echo; } >>"$GITHUB_STEP_SUMMARY"
+[ -z "${GITHUB_STEP_SUMMARY:-}" ] || { echo "PR: $PR_URL · approver-check: failed · policies/VERSION $VERSION_BEFORE → $VERSION_AFTER"; echo; } >>"$GITHUB_STEP_SUMMARY"
 BUDGET_OK=0
 timing_report "$BUDGET" "install=$T_INSTALL" "setup=$((T1 - T0))" "practice task → PR open=$((T2 - T1))" "PR open → approver-check red=$((T3 - T2))" || BUDGET_OK=$?
 [ "$BUDGET_OK" -eq 0 ] && ok "the first stop came in ${TIMING_TOTAL}s — within the ${BUDGET}s the home page promises" \

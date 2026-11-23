@@ -463,9 +463,9 @@ request's workflows at the sandbox runner (`E2E_RUNS_ON`, default `[self-hosted,
 `pull_request` run uses the workflow as the pull request has it, so the check that stops the change is the
 shipped one, on another machine.
 
-**A known gap it reports.** Setup approves no language model, so `gov rules propose` (step 4 of the practice
-task) refuses on a fresh organization. The journey records that as a warning and in the summary
-(`gov rules propose: REFUSED`), and goes on to the stop.
+**The paperwork.** The title page has no rule rows, so `gov rules propose` reads no section and needs no
+model: the journey asserts it says `0 section(s) read` and bumps `policies/VERSION`. Its preflight names any
+scope the token lacks before the first GitHub query.
 
 The conversation file is also driven hermetically on every PR, by `journey.d/34-fresh-adoption-conversation.sh`,
 so a reworded prompt fails there first. The guard and the timing are tested in `test/e2e/fresh-adopt-gate.test.ts`.

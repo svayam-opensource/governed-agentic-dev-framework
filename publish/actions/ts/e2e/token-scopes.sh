@@ -38,3 +38,24 @@ leak_report() {
   [ "$#" -gt 0 ] || return 0
   _gha_warning "could not delete $# repo(s): $* — delete by hand (the token needs delete_repo)"
 }
+
+# The scopes a classic token carries, one per line (empty for a fine-grained token or an App: no header).
+token_scopes() {
+  printf '%s\n' "$1" | tr -d '\r' | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[ \t]*/, ""); print; exit }' \
+    | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' || true
+}
+
+# missing_scopes HEADERS — the scopes in FRESH_SCOPES the token lacks, each with a leading space; empty when none.
+# A broader scope covers a narrower one (admin:org ⊇ read:org); a token with no scope header is not judged here.
+FRESH_SCOPES=(repo workflow project read:org delete_repo)
+missing_scopes() {
+  local have want miss=""
+  printf '%s\n' "$1" | tr -d '\r' | grep -qi '^x-oauth-scopes:' || return 0
+  have="$(token_scopes "$1")"
+  for want in "${FRESH_SCOPES[@]}"; do
+    grep -qx "$want" <<<"$have" && continue
+    [ "$want" = read:org ] && grep -qxE 'admin:org|write:org' <<<"$have" && continue
+    miss="$miss $want"
+  done
+  printf '%s' "$miss"
+}

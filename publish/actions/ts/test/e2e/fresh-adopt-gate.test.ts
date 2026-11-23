@@ -123,3 +123,23 @@ describe("e2e/fresh-adoption-journey.sh — refuses before touching anything", f
     expect(r.out).to.include("created nothing to tear down");
   });
 });
+
+describe("e2e/token-scopes.sh — missing_scopes, for the fresh-adoption preflight", function () {
+  if (process.platform === "win32") return;
+  const missing = (headers: string): Run =>
+    run(["-c", `. "${path.join(E2E, "token-scopes.sh")}"; printf '[%s]' "$(missing_scopes "$1")"`, "x", headers], {});
+
+  it("REGRESSION (first dispatch, 2026-11-24): a token without `project` is named, not a bare exit on the projects query", () => {
+    expect(missing("HTTP/2 200\r\nX-OAuth-Scopes: delete_repo, read:org, repo, workflow\r\n").out).to.equal("[ project]");
+  });
+  it("every scope present → nothing missing; admin:org covers read:org", () => {
+    expect(missing("X-OAuth-Scopes: repo, workflow, project, read:org, delete_repo").out).to.equal("[]");
+    expect(missing("X-OAuth-Scopes: repo, workflow, project, admin:org, delete_repo").out).to.equal("[]");
+  });
+  it("read:project is not project (setup creates a board)", () => {
+    expect(missing("X-OAuth-Scopes: repo, workflow, read:project, read:org, delete_repo").out).to.equal("[ project]");
+  });
+  it("no scope header (fine-grained token) is not judged here", () => {
+    expect(missing("HTTP/2 200").out).to.equal("[]");
+  });
+});
