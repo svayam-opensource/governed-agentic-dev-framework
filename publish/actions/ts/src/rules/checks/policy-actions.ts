@@ -77,7 +77,7 @@ export function forbidForcedPush(tag: string, params: Readonly<Record<string, un
 }
 
 /** The most specific ownership row for doc §section: §4.2.1 → 4.2.1, else 4.2, else 4. */
-function ownerRole(rules: RuleSet, doc: string, section: string): string | undefined {
+function ownerRole(rules: SectionOwnersRules, doc: string, section: string): string | undefined {
   const rows = (rules.ownership ?? []).filter((o) => o.doc === doc);
   for (let s = section; s !== ""; s = s.includes(".") ? s.slice(0, s.lastIndexOf(".")) : "") {
     const hit = rows.find((o) => o.section === s);
@@ -86,17 +86,57 @@ function ownerRole(rules: RuleSet, doc: string, section: string): string | undef
   return undefined;
 }
 
-export function sectionOwnerApproval(tag: string, params: Readonly<Record<string, unknown>>, ctx: EventContext, rules: RuleSet | undefined): ActionOutcome {
-  if (!rules) return cannot([`${tag}: the rule set (ownership and roles) was not given, so nothing was checked.`]);
+/** One changed file, as {@link requiredSectionOwners} reads it: the path, how it changed, and its text at the head. */
+export interface SectionOwnersFile {
+  readonly path: string;
+  readonly status: "added" | "modified" | "deleted";
+  /** The whole file at the head, or null (deleted, or unreadable). */
+  readonly text: string | null;
+}
+
+/** Who must approve a policy change, and why (GOV-FRM-455). */
+export interface RequiredSectionOwners {
+  /** Each approver, as `@handle`, with what they must approve — e.g. "`policies/org-policy.md` §4 (Data Owner)". Sorted by handle. */
+  readonly owners: readonly { readonly handle: string; readonly why: readonly string[] }[];
+  /** What could not be worked out (a base text not given, a head unreadable). Non-empty → the list may be short. */
+  readonly notes: readonly string[];
+  /** Set when the author is the only one who could approve: the change cannot be approved by anyone else. */
+  readonly selfApprovedMiss?: string;
+}
+
+/** What {@link requiredSectionOwners} needs of the rule set: who owns which section, and who holds each role. */
+export type SectionOwnersRules = Pick<RuleSet, "ownership" | "roles">;
+
+export interface RequiredSectionOwnersOptions {
+  /** Globs of the policy documents whose sections are owned. Default `policies/**\/*.md`. */
+  readonly docs?: readonly string[];
+  /** Paths no one need approve, added to {@link MACHINE_WRITTEN_POLICY_PATHS}. */
+  readonly ignore?: readonly string[];
+  /** What starts each note — the rule id, usually. Default `GOV-FRM-455`. */
+  readonly tag?: string;
+}
+
+/**
+ * WHO MUST APPROVE A POLICY CHANGE (GOV-FRM-455; Policy Owner ruling D3 A+, 2026-11-23) — the owner of every changed
+ * section, the Policy Owner for unowned sections, ownership changes and governance.yaml, the Check Owner for
+ * executable actions; never the author. Pure: the one place this is decided, so the check and a service showing the
+ * approvers (gov-licence's practice record) cannot disagree. {@link sectionOwnerApproval} compares the result with
+ * the approvals.
+ */
+export function requiredSectionOwners(
+  rules: SectionOwnersRules,
+  changed: readonly SectionOwnersFile[],
+  baseTexts: Readonly<Record<string, string | null>> | undefined,
+  author: string | undefined,
+  options: RequiredSectionOwnersOptions = {},
+): RequiredSectionOwners {
+  const tag = options.tag ?? "GOV-FRM-455";
   const roles = rules.roles ?? {};
   const policyOwner = roles[POLICY_OWNER];
-  if (!policyOwner || !handleKey(policyOwner)) return cannot([`${tag}: the Policy Owner has no handle, so nobody could be asked to approve.`]);
-  const changed = ctx.payload.changed;
-  if (!Array.isArray(changed)) return cannot([`${tag}: the event carried no changeset, so nothing was checked.`]);
+  if (!policyOwner || !handleKey(policyOwner)) return { owners: [], notes: [`${tag}: the Policy Owner has no handle, so nobody could be asked to approve.`] };
 
-  const docs = asList(params.docs).length ? asList(params.docs) : ["policies/**/*.md"];
-  const ignore = [...MACHINE_WRITTEN_POLICY_PATHS, ...asList(params.ignore)];
-  const baseTexts = payloadTextMap(ctx, "baseTexts");
+  const docs = options.docs?.length ? [...options.docs] : ["policies/**/*.md"];
+  const ignore = [...MACHINE_WRITTEN_POLICY_PATHS, ...(options.ignore ?? [])];
 
   /** handle key → { shown handle, what it must approve } */
   const need = new Map<string, { handle: string; why: string[] }>();
@@ -138,22 +178,41 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
   // THE AUTHOR IS NEVER AN APPROVER (Policy Owner, 2026-10-06). GitHub refuses an author's review of their own PR, so
   // listing them would make the check unpassable. If leaving them off leaves nobody, someone else must still review —
   // the Policy Owner, or the Check Owner when the author IS the Policy Owner — because nothing merges unreviewed.
-  const author = payloadString(ctx, "author");
-  if (author !== undefined && need.has(handleKey(author))) {
+  if (author !== undefined && author !== "" && need.has(handleKey(author))) {
     const own = need.get(handleKey(author))!;
     need.delete(handleKey(author));
     if (!need.size) {
       const fallbacks = [policyOwner, roles[CHECK_OWNER]].filter((h): h is string => !!h && !!handleKey(h) && handleKey(h) !== handleKey(author));
       if (!fallbacks.length) {
-        return { verdict: "miss", findings: [`${tag}: ${own.handle} changed ${own.why.sort(byWhy).join(", ")} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner; until then this change is self-approved.`] };
+        return {
+          owners: [], notes,
+          selfApprovedMiss: `${tag}: ${own.handle} changed ${[...own.why].sort(byWhy).join(", ")} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner; until then this change is self-approved.`,
+        };
       }
       const key = handleKey(fallbacks[0]);
       need.set(key, { handle: `@${key}`, why: own.why.map((w) => `${w} — its owner is the author, so the ${key === handleKey(policyOwner) ? POLICY_OWNER : CHECK_OWNER} approves instead`) });
     }
   }
 
-  const requestReview = [...need.keys()].sort();
-  if (notes.length) return cannot(notes, requestReview);
+  const owners = [...need.keys()].sort().map((k) => { const e = need.get(k)!; return { handle: e.handle, why: [...e.why].sort(byWhy) }; });
+  return { owners, notes };
+}
+
+export function sectionOwnerApproval(tag: string, params: Readonly<Record<string, unknown>>, ctx: EventContext, rules: RuleSet | undefined): ActionOutcome {
+  if (!rules) return cannot([`${tag}: the rule set (ownership and roles) was not given, so nothing was checked.`]);
+  const policyOwner = (rules.roles ?? {})[POLICY_OWNER];
+  if (!policyOwner || !handleKey(policyOwner)) return cannot([`${tag}: the Policy Owner has no handle, so nobody could be asked to approve.`]);
+  const changed = ctx.payload.changed;
+  if (!Array.isArray(changed)) return cannot([`${tag}: the event carried no changeset, so nothing was checked.`]);
+
+  const required = requiredSectionOwners(rules, changed, payloadTextMap(ctx, "baseTexts"), payloadString(ctx, "author"), {
+    docs: asList(params.docs), ignore: asList(params.ignore), tag,
+  });
+  if (required.selfApprovedMiss) return { verdict: "miss", findings: [required.selfApprovedMiss] };
+
+  const need = new Map(required.owners.map((o) => [handleKey(o.handle), o]));
+  const requestReview = [...need.keys()];
+  if (required.notes.length) return cannot([...required.notes], requestReview);
   if (!need.size) return { verdict: "pass", findings: [] };
   const approvals = payloadStrings(ctx, "approvals");
   if (approvals === undefined) {
@@ -167,7 +226,7 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
     requestReview: missing,
     findings: missing.map((h) => {
       const e = need.get(h)!;
-      return `${tag}: ${e.handle} has not approved this change to ${e.why.sort(byWhy).join(", ")}.`;
+      return `${tag}: ${e.handle} has not approved this change to ${e.why.join(", ")}.`;
     }),
   };
 }

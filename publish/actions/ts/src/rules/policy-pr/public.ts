@@ -13,3 +13,10 @@ export { judgePolicyPr, planPolicyPr, POLICY_PR_PATHS, type PolicyPrInput, type 
 export { memTree, type TreeReader, type TreeWriter } from "./tree.js";
 export { CHAPTERS, isChapter, inForce, openRows, parseRuleStore, validateRuleStore, type Chapter, type Level, type Actor, type RuleRow, type Stamp } from "../model/rule-row.js";
 export { parsePolicyDocument, mergePolicyDocuments, POLICY_DOCUMENT_PATHS, type PolicyDocument } from "../model/policy-document.js";
+export {
+  requiredSectionOwners, POLICY_OWNER, CHECK_OWNER, MACHINE_WRITTEN_POLICY_PATHS,
+  type RequiredSectionOwners, type RequiredSectionOwnersOptions, type SectionOwnersFile, type SectionOwnersRules,
+} from "../checks/policy-actions.js";
+export { parseOwnership, OWNERSHIP_PATH } from "../checks/ownership.js";
+export type { SectionOwnership } from "../model/contracts.js";
+export { sectionOwnersRulesFrom, SECTION_OWNERS_RULE_PATHS, type SectionOwnersRuleTexts, type SectionOwnersRulesLoad } from "../checks/section-owners-rules.js";
