@@ -356,7 +356,7 @@ workspace repo (`WALK-SCRIPT.md`, `TEMPLATE.md`, `MACHINES.md`).
 
 `adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`
 (pty, three distros), `os-tier` (bare machines), `windows` (the MSI on `windows-latest`), `live` (the adopter, joiner and rule-model journeys
-against real GitHub in the sandbox org), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
+against real GitHub in the sandbox org), `fresh-adoption` (a fresh adoption, timed, in its own sandbox org — below), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
 nobody decides it by reading a summary line:
 
 - the run concluded `success`, and **every job** concluded `success` — a skipped job is not a pass;
@@ -388,6 +388,7 @@ one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`
 | `live` — joiner journey (second identity) | secret `TESTBED_JOINER_PAT` (a **second** member of the sandbox org — classic: `repo`, `project`, `read:org`) and secret `TESTBED_JOINER_LOGIN` (its login) | as for the adopter journey: **fails** a strict run, naming both; on a feature-branch push only the joiner skips, visibly. The journey itself fails if the token is not `TESTBED_JOINER_LOGIN`, or is the adopter bot's own account |
 | `live` — signal round-trip | the joiner's two secrets (it runs as both bots) | as the joiner journey |
 | `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
+| `fresh-adoption` — the timed fresh adoption | secret `FRESH_ADOPT_PAT` (an **owner** of the org — classic: `repo`, `workflow`, `project`, `read:org`, `delete_repo`), variable `FRESH_ADOPT_ORG` (`svayam-e2e-3`), a self-hosted runner there carrying `svayam-e2e-3` | until the variable `FRESH_ADOPT_REQUIRED` is `true`: **incomplete** on a strict run (a warning; passes; never green evidence). Once it is `true`: **fails** a strict run, like `live`. Off `dev`/`main`: skips visibly |
 | `live` — rule-model journey's checks, bridge rehearsal | a **self-hosted runner** registered on the sandbox org, carrying the labels in variable `E2E_RUNS_ON` (default `[self-hosted, linux, svayam-e2e]`), with `git` and the GitHub CLI `gh` on its service's PATH. The sandbox's Actions spending limit is $0, so the journey writes that runner into its governance repo as `ci.runs_on` | no skip: every check the journey waits for stays queued, and the journey fails, saying which runner the jobs asked for and how many runs are still queued |
 
 **The joiner tier** (PRJ-121 intent 05, Item 4). First, in seconds, `e2e/joiner-identity.sh` checks that
@@ -421,6 +422,53 @@ the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and e
 in the run summary. Both are tested with the secrets unset (`test/e2e/live-gate.test.ts`), so proving
 the guard never needs the repository's real secrets removed. Token scopes are in
 `publish/actions/ts/e2e/README.md`.
+
+### The fresh-adoption tier — the home page's promise, timed
+
+The home page says: *"Watch gov stop your first change until someone else approves it, in under 10 minutes."*
+The `fresh-adoption` job measures the machine part of that on real GitHub (rulings Q62 A and Q64 A). It runs
+`e2e/fresh-adoption-journey.sh`:
+
+```mermaid
+flowchart LR
+  P[preflight: org unadopted?] --> I[install<br/>not counted]
+  I --> S[setup<br/>gov first run, pty]
+  S --> W[practice<br/>work · task · edit · propose · merge · close]
+  W --> R[stop<br/>approver-check fails on the PR]
+  R --> T[teardown<br/>org unadopted again]
+```
+
+- **preflight** — the org (`FRESH_ADOPT_ORG`, svayam-e2e-3) must be unadopted: no repository with
+  `org-config.yaml` at HEAD (the probe gov runs itself) and no open project. Otherwise it fails and names the
+  leftovers. An org is adopted once, so svayam-e2e, which holds many governance repositories, cannot host this:
+  gov would make every run there a joiner.
+- **setup** — `gov` in a HOME that has never run it, answering the first-run interview in a pty
+  (`e2e/fresh-adoption.conv`): adopter, soft posture, no AI agents, nobody named as Check Owner. Setup creates the
+  governance repository with the approval check in its first commit, and the practice project
+  "Make the policy ours" (board, anchor labelled `anchor` and `practice`, the task "Put our name on the policy", and
+  the project branch).
+- **practice** — what the task tells the agent, scripted: `gov work --project=… --no-launch`, `gov task`, the two
+  title-page edits (read from the task text), `gov rules propose`, commit, `gov merge`, `gov close`, which opens
+  the pull request.
+- **stop** — waits for `approver-check` to report failure on that pull request.
+
+Each phase's wall-clock seconds and the total (setup + practice + stop) go to the job log and the run summary.
+A total over `E2E_BUDGET_SECS` (600; variable `FRESH_ADOPT_BUDGET_SECS`) fails the job. One run at a time
+across all branches (concurrency group `adopter-e2e-fresh-adoption`). The teardown deletes the repository and
+every project made since the run began, in the script's own exit trap and again in an `always()` step.
+
+**One test concession.** The sandbox's Actions spending limit is $0 and setup's repository is private, so a
+workflow asking for `ubuntu-latest` never gets a runner. The scripted edit also points the practice pull
+request's workflows at the sandbox runner (`E2E_RUNS_ON`, default `[self-hosted, svayam-e2e-3]`). A
+`pull_request` run uses the workflow as the pull request has it, so the check that stops the change is the
+shipped one, on another machine.
+
+**A known gap it reports.** Setup approves no language model, so `gov rules propose` (step 4 of the practice
+task) refuses on a fresh organization. The journey records that as a warning and in the summary
+(`gov rules propose: REFUSED`), and goes on to the stop.
+
+The conversation file is also driven hermetically on every PR, by `journey.d/34-fresh-adoption-conversation.sh`,
+so a reworded prompt fails there first. The guard and the timing are tested in `test/e2e/fresh-adopt-gate.test.ts`.
 
 ### The bridge tier — rehearsing the Svayamtech migration
 

@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# THE FRESH-ADOPTION JOURNEY, TIMED (Policy Owner rulings Q62 A and Q64 A, 2026-11-24).
+#
+# The home page promises: "Watch gov stop your first change until someone else approves it, in under 10 minutes."
+# This measures the machine part of that path on real GitHub, in an org kept UNADOPTED for it (FRESH_ADOPT_ORG,
+# svayam-e2e-3 — never Svayamtech, never svayam-e2e: an org is adopted once, and svayam-e2e is adopted many times over).
+#
+#   preflight   the org is unadopted: no repository with org-config.yaml at HEAD, no open project — else fail, naming them
+#   install     npm i -g the packed gov into a HOME of its own                      (reported, not counted)
+#   setup       `gov` on a machine that has never run it, in a pty, answering the first-run interview as an adopter
+#               (e2e/fresh-adoption.conv): the governance repo, the setup commit with the approval check, and the
+#               practice project "Make the policy ours" — board, anchor (anchor, practice), task, project branch —
+#               made by setup itself, without a question
+#   practice    the agent's part, scripted as the task issue tells the agent: gov work → gov task → the two title-page
+#               edits → gov rules propose → commit → gov merge → gov close, which opens the pull request
+#   stop        PR open → approver-check reports failure on it: gov has stopped the change
+#   total       setup + practice + stop, against E2E_BUDGET_SECS (default 600): over budget fails the run
+#   teardown    every repository and project it created, so the org is unadopted again (also `… teardown`, always())
+#
+# ONE TEST CONCESSION, said where it is made: the sandbox org's Actions spending limit is $0 and the repository setup
+# creates is private, so a workflow asking for GitHub's `ubuntu-latest` is never given a runner. The scripted edit
+# also points the practice PR's workflows at the sandbox's runner (E2E_RUNS_ON). A pull_request run uses the
+# workflow as the PR has it, so the check that stops the PR is the shipped one, on another machine. An adopter on
+# GitHub's hosted runners makes no such edit.
+#
+# Required env:
+#   E2E_ORG       the unadopted sandbox org (FRESH_ADOPT_ORG)
+#   GH_TOKEN      classic token of an OWNER of E2E_ORG: repo, workflow, project, read:org, delete_repo (FRESH_ADOPT_PAT)
+#   GOV_TARBALL   the packed gov under test (npm pack)
+# Optional:
+#   E2E_BUDGET_SECS        the promise, in seconds (default 600)
+#   E2E_STOP_DEADLINE_SECS how long to wait for the approval check (default 900)
+#   E2E_RUNS_ON            the runner the practice PR's workflows ask for (default [self-hosted, svayam-e2e-3])
+#   E2E_CHECK_OWNER        the answer to Q9, the second person (default none: solo, the check says so and fails)
+#   E2E_LEDGER             file recording what was created, for the `teardown` mode (default: in the run's HOME)
+#   E2E_KEEP=1             leave everything for inspection
+#
+#   bash e2e/fresh-adoption-journey.sh            the journey
+#   bash e2e/fresh-adoption-journey.sh teardown   delete what E2E_LEDGER lists (the workflow's always() step)
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=token-scopes.sh
+. "$HERE/token-scopes.sh"
+# shellcheck source=fresh-timing.sh
+. "$HERE/fresh-timing.sh"
+
+MODE="${1:-run}"
+case "$MODE" in run|teardown) ;; *) echo "usage: fresh-adoption-journey.sh [run|teardown]" >&2; exit 2 ;; esac
+: "${E2E_ORG:?set E2E_ORG (FRESH_ADOPT_ORG)}"; : "${GH_TOKEN:?set GH_TOKEN (FRESH_ADOPT_PAT)}"
+BUDGET="${E2E_BUDGET_SECS:-600}"
+STOP_DEADLINE="${E2E_STOP_DEADLINE_SECS:-900}"
+RUNS_ON="${E2E_RUNS_ON:-[self-hosted, svayam-e2e-3]}"
+CHECK_OWNER="${E2E_CHECK_OWNER:-none}"
+PRACTICE_TITLE="Make the policy ours"
+TASK_TITLE="Put our name on the policy"
+
+PASS=0
+step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
+ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
+warn() { printf '  \033[33m! %s\033[0m\n' "$*"; if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::warning::fresh-adoption journey: $*"; fi; }
+die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::fresh-adoption journey: $*"; fi; exit 1; }
+on_err() { local rc=$? line=$1 cmd=$2; [ "$rc" -eq 0 ] && return 0
+  printf '  \033[31m✗ line %s exited %s: %s\033[0m\n' "$line" "$rc" "$cmd"
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::fresh-adoption journey: line $line exited $rc: $cmd"; fi; return 0; }
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
+now() { date +%s; }
+
+# ── what this run created, one shell-quoted line per fact, appended AS it becomes true ──────────────────────────────
+LEDGER="${E2E_LEDGER:-}"
+ledger() { [ -n "$LEDGER" ] || return 0; local k; for k in "$@"; do printf '%s=%q\n' "$k" "${!k}" >>"$LEDGER"; done; }
+
+# Every repository named in the ledger, and every project in the org created since the run began (the preflight saw
+# none open; a new one is this run's — setup's practice board). Reports exactly what it could not delete.
+teardown() {
+  local rc=$?
+  trap - ERR
+  if [ "${E2E_KEEP:-0}" = 1 ]; then echo "E2E_KEEP=1 — leaving ${REPO:-?} and the board"; else
+    step "Teardown — return $E2E_ORG to unadopted"
+    local leaked=() err n
+    if [ -n "${REPO:-}" ]; then
+      if ! gh api "repos/$E2E_ORG/$REPO" --silent 2>/dev/null; then echo "  $E2E_ORG/$REPO does not exist (nothing to delete)"
+      elif err="$(gh repo delete "$E2E_ORG/$REPO" --yes 2>&1 >/dev/null)"; then echo "  deleted $E2E_ORG/$REPO"
+      else leaked+=("$E2E_ORG/$REPO"); echo "  ! could not delete $E2E_ORG/$REPO: ${err%%$'\n'*}"; fi
+    fi
+    if [ -n "${START_ISO:-}" ]; then
+      for n in $(org_projects | awk -F'\t' -v s="$START_ISO" '$3 >= s { print $1 }'); do
+        gh project delete "$n" --owner "$E2E_ORG" >/dev/null 2>&1 && echo "  deleted project #$n" || leaked+=("project #$n")
+      done
+    fi
+    leak_report "${leaked[@]:+${leaked[@]}}"
+    # Recorded, so the workflow's always() teardown step does not try again; a leak leaves it for that step to retry.
+    if [ "${#leaked[@]}" -eq 0 ]; then TORN_DOWN=1; ledger TORN_DOWN; fi
+    if [ -n "${RUN_HOME:-}" ] && [ -d "$RUN_HOME" ] && [ "$MODE" = run ]; then rm -rf "$RUN_HOME"; fi
+  fi
+  printf '\n\033[1m═══ fresh-adoption-journey%s: %d passed, %s ═══\033[0m\n' "$([ "$MODE" = teardown ] && echo ' (teardown)')" "$PASS" \
+    "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")"
+  exit "$rc"
+}
+
+# number<TAB>title<TAB>createdAt<TAB>closed, every project the org owns.
+org_projects() {
+  gh api graphql -f o="$E2E_ORG" -f query='query($o:String!){organization(login:$o){projectsV2(first:100){nodes{number title createdAt closed}}}}' \
+    --jq '.data.organization.projectsV2.nodes[] | "\(.number)\t\(.title)\t\(.createdAt)\t\(.closed)"'
+}
+
+if [ "$MODE" = teardown ]; then
+  [ -n "$LEDGER" ] && [ -f "$LEDGER" ] || { echo "  no ledger at ${LEDGER:-<unset>} — the journey created nothing to tear down"; exit 0; }
+  # shellcheck disable=SC1090
+  . "$LEDGER"
+  [ "${TORN_DOWN:-0}" = 1 ] && { echo "  the journey already tore down what it created"; exit 0; }
+  trap teardown EXIT
+  exit 0
+fi
+
+# ── preflight: the org is UNADOPTED, or nothing here measures a fresh adoption ──────────────────────────────────────
+step "Preflight — is $E2E_ORG unadopted?"
+LOGIN="$(gh api user --jq .login 2>/dev/null)" || die "GH_TOKEN does not authenticate (FRESH_ADOPT_PAT)"
+ok "authenticated as $LOGIN"
+ROLE="$(gh api "orgs/$E2E_ORG/memberships/$LOGIN" --jq '"\(.state) \(.role)"' 2>/dev/null)" || ROLE="none"
+[ "$ROLE" = "active admin" ] && ok "$LOGIN is an owner of $E2E_ORG" \
+  || die "$LOGIN must be an active OWNER of $E2E_ORG to adopt it (membership: $ROLE) — accept the org invitation as that account"
+# THE PROBE GOV ITSELF RUNS (setup/create.ts, findExistingGovernanceRepo): any repository with org-config.yaml at HEAD.
+PROBE="$(gh api graphql -f org="$E2E_ORG" -f query='query($org:String!){organization(login:$org){repositories(first:100){pageInfo{hasNextPage} nodes{nameWithOwner object(expression:"HEAD:org-config.yaml"){__typename}}}}}' \
+  --jq '(.data.organization.repositories.nodes[] | select(.object != null) | .nameWithOwner), (if .data.organization.repositories.pageInfo.hasNextPage then "…and more than 100 repositories (gov would refuse: it cannot see them all)" else empty end)')" \
+  || die "could not read $E2E_ORG's repositories"
+[ -z "$PROBE" ] || die "$E2E_ORG is already adopted — gov would make this run a JOINER. Leftovers: $(printf '%s' "$PROBE" | tr '\n' ' ')— delete them (a failed teardown?) before the next run"
+OPEN_BOARDS="$(org_projects | awk -F'\t' '$4 == "false" { printf "#%s \"%s\"  ", $1, $2 }')"
+[ -z "$OPEN_BOARDS" ] || die "$E2E_ORG has open projects: $OPEN_BOARDS— setup would REUSE an open \"$PRACTICE_TITLE\"; delete them before the next run"
+ok "no governance repository and no open project in $E2E_ORG"
+scope_check "$(gh api -i user 2>/dev/null || true)" "$E2E_ORG/<this run's governance repo>"
+[ "$CAN_DELETE" != no ] || die "the token lacks delete_repo — this run would leave $E2E_ORG adopted, and the next one could not start"
+
+RUN_ID="${E2E_RUN_ID:-$(date +%s)}"
+REPO="fresh-${RUN_ID}-gov"
+START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+RUN_HOME="$(mktemp -d)"
+if [ -z "$LEDGER" ]; then LEDGER="$RUN_HOME/ledger.env"; fi
+: >"$LEDGER"
+ledger REPO START_ISO
+trap 'exit 143' TERM INT          # a cancelled job still runs the EXIT trap — and so the teardown
+trap teardown EXIT
+
+# ── install (reported, not counted) ─────────────────────────────────────────────────────────────────────────────────
+step "Install — the packed gov, into a machine that has never run it"
+T_INSTALL0=$(now)
+: "${GOV_TARBALL:?set GOV_TARBALL}"
+command -v expect >/dev/null || die "the first-run interview is driven in a pty: install expect (apt-get install expect)"
+export HOME="$RUN_HOME/home"; mkdir -p "$HOME"
+export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; mkdir -p "$NPM_CONFIG_PREFIX/bin"
+npm i -g "$GOV_TARBALL" >/dev/null 2>&1 || die "npm i -g $GOV_TARBALL failed"
+command -v gov >/dev/null || die "gov not on PATH after install"
+[ ! -e "$HOME/.gov" ] || die "this HOME already has ~/.gov — not a first run"
+EMAIL="${LOGIN}@users.noreply.github.com"
+git config --global user.email "$EMAIL"; git config --global user.name "$LOGIN (fresh adoption e2e)"
+git config --global init.defaultBranch main
+gh auth setup-git >/dev/null 2>&1 || true
+T_INSTALL=$(( $(now) - T_INSTALL0 ))
+ok "gov $(gov --version 2>/dev/null || echo '?') installed, git identity set (${T_INSTALL}s, not counted)"
+
+# ── setup: the first-run interview, as an adopter ──────────────────────────────────────────────────────────────────
+step "Setup — \`gov\`, the first-run interview (adopter, soft, no agents), in a pty"
+CONV="$RUN_HOME/fresh-adoption.conv"; TRANSCRIPT="$RUN_HOME/setup.transcript"
+sed -e "s|@ORG_NAME@|Fresh Adoption E2E|" -e "s|@ORG@|$E2E_ORG|" -e "s|@REPO@|$REPO|" -e "s|@SLUG@|FRESH|" \
+    -e "s|@LOGIN@|$LOGIN|" -e "s|@CHECK_OWNER@|$CHECK_OWNER|" -e "s|@EMAIL@|$EMAIL|" "$HERE/fresh-adoption.conv" >"$CONV"
+T0=$(now)
+DRIVE_RC=0; expect "$HERE/pty/drive.exp" "$TRANSCRIPT" "$CONV" -- gov 2>"$RUN_HOME/drive.err" || DRIVE_RC=$?
+T1=$(now)
+PLAIN="$RUN_HOME/setup.txt"; perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g; s/\r//g' "$TRANSCRIPT" >"$PLAIN"
+if [ "$DRIVE_RC" -ne 0 ]; then
+  sed 's/^/    /' "$RUN_HOME/drive.err"; echo "  --- the last of the interview ---"; tail -40 "$PLAIN" | sed 's/^/    /'
+  die "the first-run interview did not finish (drive.exp exited $DRIVE_RC)"
+fi
+grep -qF "is already governed" "$PLAIN" && die "gov found $E2E_ORG already governed and offered the joiner path"
+grep -qF "Your practice project" "$PLAIN" || { tail -40 "$PLAIN" | sed 's/^/    /'; die "setup did not report the practice project"; }
+gh api "repos/$E2E_ORG/$REPO" --silent 2>/dev/null && ok "setup created $E2E_ORG/$REPO" || die "setup did not create $E2E_ORG/$REPO"
+gh api "repos/$E2E_ORG/$REPO/contents/.github/workflows/approver-check.yml" --silent 2>/dev/null \
+  && ok "the setup commit carries the approval check" || die "the default branch has no .github/workflows/approver-check.yml"
+PROJ_NUM="$(org_projects | awk -F'\t' -v t="$PRACTICE_TITLE" '$2 == t && $4 == "false" { print $1 }' | head -1)"
+[ -n "$PROJ_NUM" ] && ok "practice board #$PROJ_NUM \"$PRACTICE_TITLE\"" || die "no open \"$PRACTICE_TITLE\" board in $E2E_ORG after setup"
+ledger PROJ_NUM
+ANCHOR="$(gh api "repos/$E2E_ORG/$REPO/issues?state=open&labels=anchor,practice" --jq '.[0].html_url // empty' 2>/dev/null || true)"
+[ -n "$ANCHOR" ] && ok "anchor labelled anchor + practice: $ANCHOR" || die "no open issue labelled anchor,practice in $E2E_ORG/$REPO"
+TASK_JSON="$(gh api "repos/$E2E_ORG/$REPO/issues?state=open&per_page=50" --jq "[.[] | select(.title == \"$TASK_TITLE\")][0] // empty")"
+TASK_URL="$(printf '%s' "$TASK_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).html_url||"")}catch{}})')"
+[ -n "$TASK_URL" ] && ok "practice task: $TASK_URL" || die "no open \"$TASK_TITLE\" issue in $E2E_ORG/$REPO"
+TASK_BODY="$(printf '%s' "$TASK_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).body||"")}catch{}})')"
+grep -qF "Seeded:  the project branch exists" "$PLAIN" && ok "setup seeded the practice project's branch" \
+  || warn "setup did not report the practice project seeded — gov work will seed it (counted in the practice phase)"
+
+# ── practice: what the task tells the agent to do, scripted ────────────────────────────────────────────────────────
+PID="PRJ-${PROJ_NUM}-make-the-policy-ours"
+step "Practice — gov work → task → the change → propose → merge → close ($PID)"
+WORK_OUT="$(gov work --project="$PID" --no-launch </dev/null 2>&1)" || { printf '%s\n' "$WORK_OUT" | tail -15; die "gov work --project=$PID --no-launch failed"; }
+PWR="$(printf '%s\n' "$WORK_OUT" | sed -n "s/^  ✓ '[^']*' is ready at:  //p" | tail -1)"
+[ -n "$PWR" ] && [ -e "$PWR/$REPO/.git" ] || { printf '%s\n' "$WORK_OUT" | tail -15; die "gov work did not open $REPO under the project (${PWR:-no path printed})"; }
+cd "$PWR/$REPO"
+ok "project open at $PWR, on $(git rev-parse --abbrev-ref HEAD)"
+TASK_OUT="$(gov task "$TASK_URL" </dev/null 2>&1)" || { printf '%s\n' "$TASK_OUT" | tail -15; die "gov task failed"; }
+ok "task sub-branch $(git rev-parse --abbrev-ref HEAD)"
+# The two edits, read from the task text — the values the agent is told to write.
+NEW_TITLE="$(printf '%s\n' "$TASK_BODY" | sed -n 's/^- `title:` becomes `"\(.*\)"`$/\1/p' | head -1)"
+NEW_BY="$(printf '%s\n' "$TASK_BODY" | sed -n 's/^- `approved_by:` becomes `"\(.*\)"`$/\1/p' | head -1)"
+[ -n "$NEW_TITLE" ] && [ -n "$NEW_BY" ] || die "the task text no longer says what title: and approved_by: become"
+POLICY="policies/policy-document.yaml"
+T="$NEW_TITLE" B="$NEW_BY" perl -0pi -e 's/^(  title:[ \t]*).*$/$1"$ENV{T}"/m; s/^(  approved_by:[ \t]*).*$/$1"$ENV{B}"/m' "$POLICY"
+grep -qF "  title: \"$NEW_TITLE\"" "$POLICY" && grep -qF "  approved_by: \"$NEW_BY\"" "$POLICY" \
+  && ok "title_page: title \"$NEW_TITLE\", approved_by \"$NEW_BY\"" || die "the title-page edit did not apply to $POLICY"
+# THE TEST CONCESSION (see the header): the practice PR's workflows ask for the sandbox's runner.
+for wf in .github/workflows/*.yml; do
+  RO="$RUNS_ON" perl -pi -e 's{^(\s+runs-on:[ \t]*)(?!.*\$\{\{).*$}{$1$ENV{RO}}' "$wf"
+done
+grep -qF "runs-on: $RUNS_ON" .github/workflows/approver-check.yml || die "could not point approver-check.yml at $RUNS_ON"
+ok "test concession: the PR's workflows ask for $RUNS_ON (the sandbox has no hosted minutes)"
+PROPOSE_RC=0; PROPOSE_OUT="$(gov rules propose </dev/null 2>&1)" || PROPOSE_RC=$?
+PROPOSE="wrote the paperwork"
+if [ "$PROPOSE_RC" -ne 0 ]; then
+  printf '%s\n' "$PROPOSE_OUT" | tail -12 | sed 's/^/    /'
+  if printf '%s' "$PROPOSE_OUT" | grep -qF "has not approved a language model"; then
+    # A FINDING, not this journey's failure: setup approves no model, so the task's step 4 refuses on every fresh
+    # organization. The stop is measured all the same; the summary says the paperwork is missing.
+    PROPOSE="REFUSED — no approved model (setup approves none)"
+    warn "gov rules propose refused: the organization has no approved model — the practice task's step 4 cannot be done as written; continuing to the stop"
+  else
+    die "gov rules propose failed (exit $PROPOSE_RC)"
+  fi
+else ok "gov rules propose: $(printf '%s\n' "$PROPOSE_OUT" | tail -1)"; fi
+git add -- policies .github
+git commit -qm "Put our name on the policy (closes #${TASK_URL##*/})" || die "nothing to commit after the change"
+ok "committed the change"
+MERGE_OUT="$(gov merge "$TASK_URL" </dev/null 2>&1)" || { printf '%s\n' "$MERGE_OUT" | tail -15; die "gov merge failed"; }
+ok "gov merge landed the task on the project branch"
+CLOSE_OUT="$(gov close </dev/null 2>&1)" || { printf '%s\n' "$CLOSE_OUT" | tail -15; die "gov close failed"; }
+PR_LINE="$(gh pr list --repo "$E2E_ORG/$REPO" --state open --json number,url,headRefName \
+  --jq ".[] | select(.headRefName | startswith(\"BRNCH-${PROJ_NUM}-\")) | \"\(.number) \(.url)\"" | head -1)"
+T2=$(now)
+[ -n "$PR_LINE" ] || { printf '%s\n' "$CLOSE_OUT" | tail -15; die "gov close opened no pull request from BRNCH-${PROJ_NUM}-…"; }
+PR_NUM="${PR_LINE%% *}"; PR_URL="${PR_LINE#* }"
+ok "gov close opened $PR_URL"
+
+# ── stop: the approval check reports failure on the PR ─────────────────────────────────────────────────────────────
+step "Stop — wait for approver-check to fail on PR #$PR_NUM (≤ ${STOP_DEADLINE}s)"
+VERDICT=""; LAST=""
+while [ $(( $(now) - T2 )) -lt "$STOP_DEADLINE" ]; do
+  # The PR's CURRENT head: the policy check may push a commit, and the approval check then runs again on it.
+  SHA="$(gh api "repos/$E2E_ORG/$REPO/pulls/$PR_NUM" --jq .head.sha 2>/dev/null || true)"
+  if [ -n "$SHA" ]; then
+    LAST="$(gh api "repos/$E2E_ORG/$REPO/commits/$SHA/check-runs?check_name=approver-check" \
+      --jq '.check_runs | sort_by(.started_at) | last | select(. != null) | "\(.id) \(.status) \(.conclusion)"' 2>/dev/null || true)"
+    case "$LAST" in
+      *" completed failure") VERDICT=failure; break ;;
+      *" completed success") VERDICT=success; break ;;
+    esac
+  fi
+  sleep 5
+done
+T3=$(now)
+case "$VERDICT" in
+  failure)
+    MSG="$(gh api "repos/$E2E_ORG/$REPO/check-runs/${LAST%% *}/annotations" --jq '[.[] | select(.annotation_level == "failure") | .message][0] // ""' 2>/dev/null | head -1 || true)"
+    ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change${MSG:+: \"$MSG\"}" ;;
+  success) die "approver-check PASSED on PR #$PR_NUM with nobody's approval — the stop the home page promises did not happen" ;;
+  *)
+    case "$LAST" in *" queued "*|*" queued") die "approver-check is still QUEUED after ${STOP_DEADLINE}s — is a runner carrying $RUNS_ON online in $E2E_ORG?" ;; esac
+    die "approver-check did not complete on PR #$PR_NUM within ${STOP_DEADLINE}s (last: ${LAST:-no check run})" ;;
+esac
+
+# ── the measurement ────────────────────────────────────────────────────────────────────────────────────────────────
+step "Time to the first stop"
+[ -z "${GITHUB_STEP_SUMMARY:-}" ] || { echo "PR: $PR_URL · approver-check: failed · gov rules propose: $PROPOSE"; echo; } >>"$GITHUB_STEP_SUMMARY"
+BUDGET_OK=0
+timing_report "$BUDGET" "install=$T_INSTALL" "setup=$((T1 - T0))" "practice task → PR open=$((T2 - T1))" "PR open → approver-check red=$((T3 - T2))" || BUDGET_OK=$?
+[ "$BUDGET_OK" -eq 0 ] && ok "the first stop came in ${TIMING_TOTAL}s — within the ${BUDGET}s the home page promises" \
+  || die "the first stop took ${TIMING_TOTAL}s — over the ${BUDGET}s budget (E2E_BUDGET_SECS): the home page's \"under 10 minutes\" is not met"
