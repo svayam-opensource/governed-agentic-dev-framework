@@ -139,7 +139,8 @@ export function recordViolation(input: ViolationInput, ports: ViolationPorts): V
 // Under soft posture gov's pull-request checks report but nothing waits for them, so a PR can merge with one red.
 // The push to the default branch finds it (gh-actions.ts redMerges) and opens ONE record per PR, naming the PR and
 // each failed rule. Never two for the same PR: the record carries a marker, and an open record with it is enough.
-// Under hard posture the checks are required and this cannot happen; gov does not look.
+// gov looks under every posture (Q43 A): where main is protected the checks were required and nothing is found, but
+// hard posture on a repo GitHub will not protect (private, GitHub Free) can still merge red.
 
 /** The line every red-merge record carries, so a re-run finds it. */
 export const redMergeMarker = (pr: number): string => `<!-- gov-red-merge pr=${pr} -->`;
@@ -152,7 +153,7 @@ export function redMergeIssue(m: RedMerge, rules: RuleSet, runUrl?: string): Vio
   let title = `gov-violation: PR #${m.pr} merged with failing gov checks (${ids.join(", ")})`;
   if (title.length > TITLE_MAX) title = `gov-violation: PR #${m.pr} merged with ${ids.length} failing gov checks`;
   const body = [
-    `Pull request #${m.pr} merged under soft posture with these checks failing. Soft posture lets a merge go ahead while a check is red; this record is how the merge is detected (Q15).`,
+    `Pull request #${m.pr} merged with these checks failing. Nothing on the default branch required them — soft posture, or a repository GitHub will not protect on this plan — so the merge went ahead while a check was red; this record is how the merge is detected (Q15, Q43).`,
     "",
     `**Pull request:** #${m.pr} (head ${m.headSha.slice(0, 7)})`,
     `**Run:** ${runUrl ?? "(no run link)"}`,

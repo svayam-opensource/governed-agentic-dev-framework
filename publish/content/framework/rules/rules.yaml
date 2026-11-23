@@ -500,7 +500,7 @@
 
 # W2-Q6
 - id: GOV-FRM-450
-  source: { doc: framework/framework-specification.md, section: "11.1", sha: "0e2bdd3" }
+  source: { doc: framework/framework-specification.md, section: "11.1", sha: "5b88319" }
   expectation: "Setup records governance_posture as soft unless the Policy Owner confirms hard after being told that hard needs public repositories or a paid GitHub plan."
   statement: "Governance must start as soft. It may become hard only when the Policy Owner confirms it, after being told what hard governance requires."
   chapter: 1

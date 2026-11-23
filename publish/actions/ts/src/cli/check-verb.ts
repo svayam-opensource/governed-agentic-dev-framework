@@ -335,10 +335,11 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
     ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
   // SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07). On the landed-by-pr binding, the push also reads the check
-  // runs of each PR it merged: a gov check red there opens one record per PR. Under hard posture those checks were
-  // required, so this cannot happen and gov does not look.
+  // runs of each PR it merged: a gov check red there opens one record per PR. It looks under EVERY posture (Q43 A,
+  // 2026-11-23): hard posture asks for protection, but a private repo on GitHub Free cannot have it (GOV-FRM-449), so
+  // a red merge can still happen there. Where main is protected the checks were required and nothing is found.
   const landed = row?.checks?.find((b) => b.action === "gh-action/landed-by-pr" && b.on.resource === resource && b.on.event === eventFlag);
-  if (landed && cfg.posture !== "hard" && repository) {
+  if (landed && repository) {
     const found = redMerges({ ruleId: id, params: landed.with ?? {}, ctx }, {
       pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
       checkRunsForCommit: githubCheckRunsForCommit((a) => deps.gh(a), repository),
