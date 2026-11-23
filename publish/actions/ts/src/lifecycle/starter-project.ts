@@ -26,7 +26,7 @@ import { createGovProject, type ProjectEnv } from "../project/create.js";
 import { boardListsAnchor } from "../project/board-wait.js";
 import { DEFAULT_ANCHOR_LABEL } from "./anchor.js";
 import { log } from "../log.js";
-import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
+import { frameworkOwners, GOVERNANCE_PATH, parseGovernance, type GovernancePosture } from "../config/governance.js";
 import type { ProtectionFacts } from "./branch-protection.js";
 
 /** The board's title — and so the project id's slug, `make-the-policy-ours`. */
@@ -88,8 +88,70 @@ const STOP_TEXT: Readonly<Record<PracticeEnforcement, readonly string[]>> = {
   ],
 };
 
+/**
+ * WHO THE PULL REQUEST WAITS FOR (rulings F142 A and Q44 A, 2026-11-23). The title page is the Policy Owner's; the
+ * adopter is the Policy Owner and the author, so the check asks the Check Owner. Setup asks for that second person:
+ *
+ *   named   the pull request waits for them, by handle, and nothing else is needed
+ *   none    the adopter invites a teammate and names them Check Owner — itself a policy pull request, which stops
+ *           the same way while nobody else holds either role (said per posture: only soft records the merge)
+ */
+const SOLO_MERGE: Readonly<Record<PracticeEnforcement, readonly string[]>> = {
+  enforced: [
+    "Your default branch is protected, so GitHub will not merge that pull request either until someone other",
+    "than you approves it.",
+  ],
+  soft: [
+    "Until someone else holds one of those roles, that pull request, like this one, can merge only past its red",
+    "check, and a merge past a failing check is recorded for the Policy Owner.",
+  ],
+  unprotectable: [
+    "Until someone else holds one of those roles, that pull request, like this one, can merge only past its red",
+    "check: GitHub cannot block it here, and the check stays red where everyone can see it.",
+  ],
+};
+
+const at = (h: string): string => `@${h.trim().replace(/^@+/, "")}`;
+
+function namedText(checkOwner: string, enforcement: PracticeEnforcement): string[] {
+  return [
+    "The policy's title page is the Policy Owner's to approve. Setup made you the Policy Owner, and you made",
+    `this change, so the check asks your **Check Owner**, ${at(checkOwner)}, to approve it instead. Nothing else is`,
+    `needed: ask ${at(checkOwner)} to review and approve it.`,
+    "",
+    ...STOP_TEXT[enforcement],
+    "",
+    "There is no way to approve it yourself, and no exception for it: a policy its author could approve alone",
+    "would not be governed.",
+    "",
+    "Once the pull request is waiting for that approval, the practice is done. The change merges when",
+    `${at(checkOwner)} approves it.`,
+  ];
+}
+
+function soloText(enforcement: PracticeEnforcement): string[] {
+  return [
+    "The policy's title page is the Policy Owner's to approve. Setup made you the Policy Owner, and you made",
+    "this change, so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,",
+    "so you are the Check Owner as well, and the check says: \"Name a second person as Policy Owner or Check",
+    "Owner\".",
+    "",
+    ...STOP_TEXT[enforcement],
+    "",
+    "Invite a teammate to your GitHub organization and name them Check Owner: put their GitHub handle in",
+    `\`check_owner.github\` in \`${GOVERNANCE_PATH}\`. That file is policy too, so naming them is a pull request of its`,
+    "own, and it needs the same approval.",
+    ...SOLO_MERGE[enforcement],
+    "Then ask them to review and approve this one. There is no way to approve it yourself, and no exception for",
+    "it: a policy its author could approve alone would not be governed.",
+    "",
+    "Once the pull request is waiting for that approval, the practice is done. The change merges when your",
+    "Check Owner approves it.",
+  ];
+}
+
 /** The one task issue on the practice board: what to change, how, and why the pull request will stop. */
-export function practiceTask(orgName: string, enforcement: PracticeEnforcement = "soft"): PracticeTask {
+export function practiceTask(orgName: string, enforcement: PracticeEnforcement = "soft", checkOwner: string | null = null): PracticeTask {
   const title = practicePolicyTitle(orgName);
   return {
     title: "Put our name on the policy",
@@ -128,20 +190,7 @@ export function practiceTask(orgName: string, enforcement: PracticeEnforcement =
       "change. Nobody approves their own work here — not the author, not the Policy Owner, not an administrator.",
       "Seeing gov stop your own change is what this exercise is for.",
       "",
-      "The policy's title page is the Policy Owner's to approve. Setup made you the Policy Owner, and you made",
-      "this change, so the check asks the **Check Owner** to approve it instead. If you are the Check Owner as",
-      "well, or nobody is, the check says: \"Name a second person as Policy Owner or Check Owner\".",
-      "",
-      ...STOP_TEXT[enforcement],
-      "",
-      "If you are the only person in your organization so far, invite a teammate to your GitHub organization",
-      `and name them Check Owner: put their GitHub handle in \`check_owner.github\` in \`${GOVERNANCE_PATH}\`.`,
-      "That file is policy too, so naming them is a pull request of its own. Then ask them to review and",
-      "approve this one. There is no way to approve it yourself, and no exception for it: a policy its author",
-      "could approve alone would not be governed.",
-      "",
-      "Once the pull request is waiting for that approval, the practice is done. The change merges when your",
-      "Check Owner approves it.",
+      ...(checkOwner ? namedText(checkOwner, enforcement) : soloText(enforcement)),
     ].join("\n"),
   };
 }
@@ -176,7 +225,9 @@ export interface PracticeDeps extends ProjectEnv {
  * make another — the walk found 17). Matched by title, case-insensitive, open only; the oldest open one wins. A board
  * list GitHub did not answer creates nothing: a possible duplicate is the defect, a skipped convenience is not.
  */
-export async function ensurePracticeProject(deps: PracticeDeps, orgName: string, enforcement: PracticeEnforcement = "soft"): Promise<PracticeOutcome> {
+export async function ensurePracticeProject(
+  deps: PracticeDeps, orgName: string, enforcement: PracticeEnforcement = "soft", checkOwner: string | null = null,
+): Promise<PracticeOutcome> {
   const none = { boardUrl: null, anchorUrl: null, taskUrl: null, seeded: false } as const;
   const boards = deps.listBoards(deps.owner);
   if (boards === null) return { ...none, unchecked: true };
@@ -194,7 +245,7 @@ export async function ensurePracticeProject(deps: PracticeDeps, orgName: string,
 
   // THE TASK ISSUE, in the governance repo, assigned to the person who adopted, on the board.
   const who = await deps.vcs.identity();
-  const task = practiceTask(orgName, enforcement);
+  const task = practiceTask(orgName, enforcement, checkOwner);
   const issue = who.ok
     ? await deps.tracker.create(deps.govRepo, { title: task.title, body: task.body, assignee: who.value.login })
     : null;
@@ -250,4 +301,14 @@ export function practiceSummary(o: PracticeOutcome): readonly string[] {
       ? "  Seeded:  the project branch exists — run `gov work` and pick it"
       : `  Not seeded yet — run \`gov work\` and pick it, and gov will seed it (or: gov seed ${o.boardUrl})`,
   ];
+}
+
+/**
+ * Q44 A: the second person setup recorded — the Check Owner in policies/governance.yaml when it is not the Policy
+ * Owner; null when one person holds both (or the Check Owner is vacant). Pure over the file's text.
+ */
+export function practiceCheckOwner(governanceText: string | null): string | null {
+  const o = frameworkOwners(parseGovernance(governanceText));
+  const key = (h: string) => h.trim().replace(/^@+/, "").toLowerCase();
+  return o.checkOwner && key(o.checkOwner) && key(o.checkOwner) !== key(o.policyOwner) ? o.checkOwner.trim().replace(/^@+/, "") : null;
 }

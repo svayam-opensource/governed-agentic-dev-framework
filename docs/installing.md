@@ -56,11 +56,13 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
    project: a board, its anchor issue, a project branch, and one task. The task is to put your organization's
    name on the policy's title page. The pull request for that change shows a check waiting for someone other
    than you to approve it. The title page is the Policy Owner's, and you are the Policy Owner and its author,
-   so the check waits for the Check Owner. That wait is the point: nobody approves their own work, so if you
-   are on your own, invite a teammate and name them Check Owner (`check_owner.github` in
+   so the check waits for the Check Owner. That wait is the point: nobody approves their own work. Setup asks
+   who approves your own changes; if you named a teammate, they are the Check Owner and nothing else is
+   needed. If you are on your own, invite a teammate and name them Check Owner (`check_owner.github` in
    `policies/governance.yaml`, in a pull request of its own). Under soft governance, or where GitHub cannot
    protect the repo, nothing technically stops a merge past the check, but the red check is there for
-   everyone to see. Don't merge it yourself. People who join get no practice project; their first project is
+   everyone to see. Don't merge it yourself. Hard governance needs that second person: with nobody named,
+   setup records soft and says how to switch later. People who join get no practice project; their first project is
    one they are assigned to.
 5. It installs an approved AI agent, if you agree, and helps you sign it in.
 6. It opens a first project and launches the agent, which posts its context manifest.

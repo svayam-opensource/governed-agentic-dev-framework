@@ -25,12 +25,13 @@
  * alternative is opening with a GitHub org id, which is not how anyone describes
  * their own organization.
  */
-import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
+import { askPosture, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import type { OrgConfigValues } from "./setup.js";
 
 import {
   nonEmpty, orgSlug as orgSlugRule, githubHandle, optionalEmail, parseOptionalEmail,
-  branchChoice, parseBranchChoice, branchName, type Validator,
+  branchChoice, parseBranchChoice, branchName, secondPerson, parseSecondPerson, SECOND_PERSON_QUESTION, secondPersonDefault,
+  type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
 import { askAgentSelection } from "../cli/agent-selection.js";
@@ -275,9 +276,11 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
     "Who is the Policy Owner — the GitHub handle that approves your policies and holds every role nobody else holds?",
     io.derive(a).policyOwnerGithub, githubHandle);
 
-  a.checkOwnerGithub = await ask(io, 9,
-    "Who is the Check Owner — the GitHub handle that reviews the code of your check actions (policies/actions/)?",
-    io.derive(a).checkOwnerGithub, githubHandle);
+  // Q9 — THE SECOND PERSON (Policy Owner ruling Q44 A, 2026-11-23). Optional: a teammate who approves the Policy
+  // Owner's own changes, named Check Owner. `none` keeps the Policy Owner in the role, as a one-person org is.
+  const second = parseSecondPerson(await ask(io, 9, SECOND_PERSON_QUESTION,
+    secondPersonDefault(io.derive(a)), secondPerson(a.policyOwnerGithub ?? "")));
+  a.checkOwnerGithub = second ?? a.policyOwnerGithub;
 
   // OPTIONAL: the role is the handle; the email is only a contact the policies show. `none` leaves it empty.
   a.policyOwnerEmail = parseOptionalEmail(await ask(io, 10,
@@ -285,8 +288,9 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
     io.derive(a).policyOwnerEmail, optionalEmail));
 
   // Q11 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
-  a.governancePosture = await confirmPosture(
-    parsePostureAnswer(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"], "soft")) ?? "soft", io.prompt);
+  // Q44 A: hard without a second person is not applied — soft is recorded, and the reason said.
+  a.governancePosture = await askPosture(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"], "soft"),
+    second !== null, io.prompt, io.print);
 
   // Q12 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
   //

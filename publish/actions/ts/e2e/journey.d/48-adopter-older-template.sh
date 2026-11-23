@@ -61,8 +61,8 @@ else
 <
 > Q8 - Who is the Policy Owner
 < adopter
-> Q9 - Who is the Check Owner
-< adopter
+> Q9 - Who will approve your own changes
+< none
 > Q10 - What contact email
 < adopter@acme.test
 > Q11 - What governance posture

@@ -124,7 +124,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { advanceSetup, loadSetupState } from "./setup-progress.js";
 import { setupTrailDiagnostic } from "../setup/setup-state.js";
-import { ensurePracticeProject, practiceEnforcement, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
+import { ensurePracticeProject, practiceCheckOwner, practiceEnforcement, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -1485,6 +1485,7 @@ export async function runFirstRunIfNeeded(
       if (!text) return ["  (no workspace resolved yet — skipping the practice project)"];
       const c = loadOrgConfigText(text);
       const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+      const governanceText = fsSync.existsSync(path.join(r.home, GOVERNANCE_PATH)) ? fsSync.readFileSync(path.join(r.home, GOVERNANCE_PATH), "utf8") : null;
       const outcome = await ensurePracticeProject({
         tracker: pickAdapter(builtInProviders, "workTracker", c.adapters.workTracker),
         vcs: pickAdapter(builtInProviders, "vcs", c.adapters.vcs),
@@ -1495,13 +1496,14 @@ export async function runFirstRunIfNeeded(
         // `gov seed` from inside the new workspace — the same call `gov project --seed` makes.
         seed: (boardUrl) => main(["seed", boardUrl, "--gov-home", r.home], now),
       }, c.orgName, practiceEnforcement(
-        readPosture(fsSync.existsSync(path.join(r.home, GOVERNANCE_PATH)) ? fsSync.readFileSync(path.join(r.home, GOVERNANCE_PATH), "utf8") : null).posture,
+        readPosture(governanceText).posture,
         // What GitHub says protects the default branch now — after setup's `gov repo protect apply` under hard (Q42 C).
         ((): ProtectionFacts | null => {
           const out = tryRun("gh", ["api", `repos/${c.githubOrg}/${c.workspaceRepo}/branches/${c.defaultBranch || "main"}/protection`]);
           return out === undefined ? null : parseProtection(out);
         })(),
-      ));
+      // Q44 A: the second person setup named (the Check Owner, when not the Policy Owner) — the task names them.
+      ), practiceCheckOwner(governanceText));
       return ["", `Your practice project — "${PRACTICE_BOARD_TITLE}":`, ...practiceSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as

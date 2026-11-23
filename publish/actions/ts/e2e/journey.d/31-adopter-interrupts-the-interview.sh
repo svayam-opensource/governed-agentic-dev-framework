@@ -26,7 +26,7 @@ STEPS=(
   "Q6 - Default branch to be used for production|-"
   "Q7 - Default branch to be used for development|-"
   "Q8 - Who is the Policy Owner|adopter"
-  "Q9 - Who is the Check Owner|adopter"
+  "Q9 - Who will approve your own changes|none"
   "Q10 - What contact email|adopter@acme.test"
   "Q11 - What governance posture|-"
   "default for your organization|8"

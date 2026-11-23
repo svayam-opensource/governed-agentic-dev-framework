@@ -136,9 +136,9 @@ const INTERVIEW_ANSWERS: Record<string, string> = {
   Q5: "GENEVA", Q6: "1", Q7: "dev",
   // Both roles by GitHub handle, then the contact email (adoption walk #1, 2026-10-07).
   Q8: "@rk", Q10: "rk@acme.io",
-  // The Check Owner (rule-model, 2026-10-06): who reviews the code of the org's check actions. (No effective-date
-  // question since the org-config split retired policy_effective_date.)
-  Q9: "@rk",
+  // The second person (Q44 A, 2026-11-23): optional, and never the Policy Owner's own handle — `none` here. (No
+  // effective-date question since the org-config split retired policy_effective_date.)
+  Q9: "none",
 };
 const interviewAnswer = (q: string): string | undefined => {
   const m = /^Q(\d+) - /.exec(q);

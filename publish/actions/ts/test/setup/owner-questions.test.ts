@@ -43,9 +43,10 @@ describe("gov-work — setup asks both owners by GitHub handle (walk #1)", () =>
     expect(r!.answers.policyOwnerGithub).to.equal("@alice");
   });
 
-  it("Q9 asks the Check Owner in the same form, defaulting to the Policy Owner just named", async () => {
+  // Q44 A: Q9 asks for a second person — optional, Enter is `none` and the Policy Owner stays Check Owner.
+  it("Q9 asks for the second person by GitHub handle, named Check Owner; Enter is none", async () => {
     const { r, asked } = await interview((q) => (/^Q8 /.test(q) ? "@alice" : base(q)));
-    expect(ask(asked, 9)).to.match(/Check Owner/).and.match(/GitHub handle/).and.contain("[@alice]");
+    expect(ask(asked, 9)).to.match(/approve your own changes/).and.match(/Check Owner/).and.match(/GitHub handle/).and.contain("[none]");
     expect(r!.answers.checkOwnerGithub).to.equal("@alice");
   });
 
@@ -89,10 +90,12 @@ describe("gov-work — setup asks both owners by GitHub handle (walk #1)", () =>
     const po = asked.find(([q]) => /Policy Owner GitHub handle/.test(q));
     expect(po, "the Policy Owner's handle is asked").to.not.equal(undefined);
     expect(po![1]).to.equal("@rk");
-    const ck = asked.find(([q]) => /Check Owner GitHub handle/.test(q));
-    expect(ck![1], "the Check Owner defaults to the handle just given").to.equal("@alice");
-    const order = asked.map(([q]) => q).filter((q) => /Policy Owner GitHub handle|Check Owner GitHub handle|email/i.test(q));
-    expect(order.map((q) => (/Policy Owner GitHub/.test(q) ? "po" : /Check Owner/.test(q) ? "ck" : "email"))).to.deep.equal(["po", "ck", "email"]);
+    // Q44 A: the second person is optional — Enter is `none`, and the Policy Owner stays Check Owner.
+    const ck = asked.find(([q]) => /approve your own changes/.test(q));
+    expect(ck![1], "the second person defaults to none").to.equal("none");
+    const order = asked.map(([q]) => q).filter((q) => /Policy Owner GitHub handle|approve your own changes|email/i.test(q));
+    expect(order.map((q) => (/Policy Owner GitHub/.test(q) ? "po" : /your own changes/.test(q) ? "ck" : "email"))).to.deep.equal(["po", "ck", "email"]);
+    expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(/^check_owner:\n {2}github: "@alice"$/m);
     expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(/^policy_owner:\n {2}email: "rk@acme.io"\n {2}github: "@alice"$/m);
   });
 });

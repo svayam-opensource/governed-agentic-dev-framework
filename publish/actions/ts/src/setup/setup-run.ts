@@ -5,7 +5,7 @@
  * testable), derives the full config, writes org-config.yaml, and points origin
  * at the org repo. The pure render/derive live in setup.ts.
  */
-import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
+import { askPosture, hasSecondPerson, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig, renderSetupGovernance, setupNeedsUpgrade, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
@@ -13,7 +13,7 @@ import { defaultWorkRoot } from "../config/org-config.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents, type ApprovedAgent } from "../config/approved-agents.js";
 import { askAgentSelection, namesSentence } from "../cli/agent-selection.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
-import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
+import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, secondPerson, parseSecondPerson, SECOND_PERSON_QUESTION, secondPersonDefault, type Validator } from "./answers.js";
 
 export interface SetupIo {
   readonly fs: Fs;
@@ -244,9 +244,9 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
       deriveOrgConfig(answers, ctx).policyOwnerGithub, githubHandle);
     // The Policy Owner is offered because a one-person org is the common first case — and doctor says so when it is
     // accepted.
-    answers.checkOwnerGithub = known("checkOwnerGithub") ?? await askValid(io,
-      "Check Owner GitHub handle (reviews the code of your check actions in policies/actions/)",
-      deriveOrgConfig(answers, ctx).checkOwnerGithub, githubHandle);
+    // Q44 A: the second person, optional — `none` keeps the Policy Owner as Check Owner.
+    answers.checkOwnerGithub = known("checkOwnerGithub") ?? (parseSecondPerson(await askValid(io, SECOND_PERSON_QUESTION,
+      secondPersonDefault(deriveOrgConfig(answers, ctx)), secondPerson(answers.policyOwnerGithub ?? ""))) ?? answers.policyOwnerGithub);
     // OPTIONAL: a contact the policies show, not the role. `none` leaves it empty. An interviewed answer may be
     // empty on purpose, so it is taken as given rather than through `known` (which reads empty as "not answered").
     answers.policyOwnerEmail = interviewed && io.existing?.policyOwnerEmail !== undefined
@@ -254,8 +254,9 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
       : parseOptionalEmail(await askValid(io, "Policy Owner contact email for your policies (optional — `none` for no email)",
           deriveOrgConfig(answers, ctx).policyOwnerEmail, optionalEmail));
     // W2-Q6: soft unless hard is chosen past the confirmation.
-    answers.governancePosture = known("governancePosture") ?? await confirmPosture(
-      parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
+    // Q44 A: hard without a second person is not applied — soft is recorded, and the reason said.
+    answers.governancePosture = known("governancePosture") ?? await askPosture(await askValid(io, POSTURE_QUESTION, "1", postureRule),
+      hasSecondPerson(answers.policyOwnerGithub ?? "", answers.checkOwnerGithub), io.prompt, io.print);
     // F18: in place, the agents are asked here; the interviewed path asked them at Q12 and records them itself.
     if (!interviewed) {
       chosenAgents = await askAgentsInPlace(io, existingAgents(
