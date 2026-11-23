@@ -72,37 +72,41 @@ jobs:
 
           # ── 1. THE LIST ──────────────────────────────────────────────────────────────────────────────────
           # In order: the variable an organization set, then — in the governance repository, which holds them —
-          # the people who hold a role: the Policy Owner and the Check Owner (policies/governance.yaml) and every
-          # holder in the role list (the `| Role | GitHub handle | Owns |` table in
+          # the people who hold a role or are a role's alternate: the Policy Owner and the Check Owner and their
+          # alternates (policies/governance.yaml) and every holder and alternate in the role list (the `| Role | GitHub handle | Owns |` table in
           # policies/common/authorized-representatives.md). `gov repo protect` computes the same list the same way.
           approvers=""
+          posture=""
 
           if [ -n "${GOV_APPROVERS:-}" ]; then
             approvers="$GOV_APPROVERS"
             source="the GOV_APPROVERS variable"
           elif [ -f policies/governance.yaml ]; then
-            # `github:` under the top-level policy_owner: and check_owner: blocks (or their flow form).
+            # `github:` and `alternate:` under the top-level policy_owner: and check_owner: blocks (or their flow
+            # form). An alternate approves in the role's place when the holder wrote the change (F143 A).
             owners="$(
               awk '
                 /^(policy_owner|check_owner):[[:space:]]*\{/ {
                   line = $0
-                  if (match(line, /github:[[:space:]]*["'"'"']?[^,"'"'"'}[:space:]]*/)) {
-                    v = substr(line, RSTART, RLENGTH); sub(/github:[[:space:]]*["'"'"']?/, "", v); if (v != "") print v
+                  while (match(line, /(github|alternate):[[:space:]]*["'"'"']?[^,"'"'"'}[:space:]]*/)) {
+                    v = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH)
+                    sub(/^(github|alternate):[[:space:]]*["'"'"']?/, "", v); if (v != "") print v
                   }
                   next
                 }
                 /^(policy_owner|check_owner):[[:space:]]*(#.*)?$/ { inblock = 1; next }
                 inblock && /^[^[:space:]]/ { inblock = 0 }
-                inblock && /^[[:space:]]+github:/ {
+                inblock && /^[[:space:]]+(github|alternate):/ {
                   v = $0
-                  sub(/^[[:space:]]+github:[[:space:]]*/, "", v)
+                  sub(/^[[:space:]]+(github|alternate):[[:space:]]*/, "", v)
                   sub(/[[:space:]]*#.*$/, "", v)
                   gsub(/["'"'"']/, "", v)
                   if (v != "") print v
                 }
               ' policies/governance.yaml
             )"
-            # The role list's handle column: rows of the table whose header is Role | GitHub handle | Owns.
+            # The role list's handle column, and its Alternate column when it has one (F143 A, found by its
+            # header): rows of the table whose header is Role | GitHub handle | Owns [| Alternate].
             holders=""
             if [ -f policies/common/authorized-representatives.md ]; then
               holders="$(
@@ -111,9 +115,18 @@ jobs:
                   fenced { next }
                   /^[[:space:]]*\|/ {
                     role = $2; handle = $3; gsub(/[[:space:]`*_]/, "", role); gsub(/[[:space:]`]/, "", handle)
-                    if (tolower(role) == "role" && tolower(handle) ~ /^github/) { intable = 1; next }
+                    if (tolower(role) == "role" && tolower(handle) ~ /^github/) {
+                      intable = 1; altcol = 0
+                      for (i = 5; i <= NF; i++) { h = tolower($i); gsub(/[[:space:]`*_]/, "", h); if (h ~ /^alternate/) { altcol = i; break } }
+                      next
+                    }
                     if (intable && handle ~ /^-+$/) next
-                    if (intable) { if (handle ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/) print handle; next }
+                    if (intable) {
+                      # `vacant` (and none, tbd) is how the list writes an empty role — never a login (role-list.ts).
+                      if (handle ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/ && tolower(handle) !~ /^(vacant|none|tbd)$/) print handle
+                      if (altcol) { alt = $altcol; gsub(/[[:space:]`]/, "", alt); if (alt ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/ && tolower(alt) !~ /^(vacant|none|tbd)$/) print alt }
+                      next
+                    }
                   }
                   { intable = 0 }
                 ' policies/common/authorized-representatives.md
@@ -121,6 +134,10 @@ jobs:
             fi
             approvers="$(printf '%s\n%s\n' "$owners" "$holders")"
             source="policies/governance.yaml and the role list in policies/common/authorized-representatives.md"
+            # SOLO MODE needs the posture (Q45 C): it exists only under soft, which is also the default. Read here
+            # only: from the GOV_APPROVERS variable gov cannot know the posture, so a code repository says nothing new.
+            posture="$(awk '/^governance_posture:/ { v = $0; sub(/^governance_posture:[[:space:]]*/, "", v); sub(/[[:space:]]*#.*$/, "", v); gsub(/["'"'"']/, "", v); print tolower(v); exit }' policies/governance.yaml)"
+            posture="${posture:-soft}"
           fi
 
           # Normalise: commas or whitespace, a leading @ optional, case-insensitive (GitHub logins are).
@@ -158,6 +175,18 @@ jobs:
           # belt and braces — and it is cheap, and it says the rule out loud where the check is read.
           author="$(printf '%s' "${AUTHOR:-}" | tr 'A-Z' 'a-z')"
           approving="$(printf '%s\n' $approving | grep -v "^${author}$" || true)"
+
+          # SOLO MODE (Q45 C). Nobody approves their own work, so this still fails. But under soft posture, when
+          # nobody other than the author holds any role or alternate, it says so in distinct words: a merge past it
+          # is a self-merge with no second person to approve, recorded as such, not a missing review.
+          others="$(printf '%s\n' $approvers | grep -vx "${author}" || true)"
+          if [ -z "${approving// /}" ] && [ -z "${others// /}" ] && [ "$posture" = "soft" ]; then
+            echo "::error::self-merged: no second person — nobody other than the author ($author) holds a role or an"
+            echo "::error::alternate, so nobody can approve this pull request (solo mode). Under soft posture a merge is"
+            echo "::error::recorded as a self-merge, not as a violation. Name a second person — a role holder or an"
+            echo "::error::alternate — by a pull request to policies/governance.yaml or the role list to end solo mode."
+            exit 1
+          fi
 
           if [ -z "${approving// /}" ]; then
             echo "::error::No approving review yet. GOV-FRM-447.2 requires one, from somebody on the list above."

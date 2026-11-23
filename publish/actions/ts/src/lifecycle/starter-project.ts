@@ -103,7 +103,8 @@ const SOLO_MERGE: Readonly<Record<PracticeEnforcement, readonly string[]>> = {
   ],
   soft: [
     "Until someone else holds one of those roles, that pull request, like this one, can merge only past its red",
-    "check, and a merge past a failing check is recorded for the Policy Owner.",
+    "check. While nobody else holds a role, such a merge is recorded as \"self-merged: no second person\" on one",
+    "solo-mode issue, not as a violation.",
   ],
   unprotectable: [
     "Until someone else holds one of those roles, that pull request, like this one, can merge only past its red",
@@ -133,8 +134,9 @@ function soloText(enforcement: PracticeEnforcement): string[] {
   return [
     "The policy's title page is the Policy Owner's to approve. Setup made you the Policy Owner, and you made",
     "this change, so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,",
-    "so you are the Check Owner as well, and the check says: \"Name a second person as Policy Owner or Check",
-    "Owner\".",
+    "so you are the Check Owner as well, and the check says: "
+      // SOLO MODE (Q45 C): under soft posture the check's words are the self-merge's; under hard, as before.
+      + (enforcement === "soft" ? "\"self-merged: no second person\" (solo mode)." : "\"Name a second person as Policy Owner or Check Owner\"."),
     "",
     ...STOP_TEXT[enforcement],
     "",

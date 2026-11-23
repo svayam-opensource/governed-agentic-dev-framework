@@ -20,7 +20,7 @@ import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
 import { lifecycleDiagnostic } from "../intent/lifecycle-policy.js";
 import { lettersDiagnostic } from "../signal/letters.js";
-import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
+import { alternatesDiagnostic, checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic, soloModeDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -267,6 +267,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       policyOwnerDiagnostic(facts.governanceText),
       checkOwnerDiagnostic(facts.governanceText),
       roleListDiagnostic(facts.roleListText),
+      // EVERY ROLE HAS AN ALTERNATE (F143 A), and whether this organization is in solo mode (Q45 C).
+      alternatesDiagnostic(facts.governanceText, facts.roleListText),
+      soloModeDiagnostic(facts.governanceText, facts.roleListText),
       codeownersDiagnostic(facts.governanceText, facts.roleListText, facts.codeownersText),
     ].filter((d): d is Diagnostic => d !== null),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows

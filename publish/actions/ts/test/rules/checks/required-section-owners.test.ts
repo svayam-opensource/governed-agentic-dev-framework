@@ -5,7 +5,7 @@
 // `requiredSectionOwners` is what section-owner-approval (GOV-FRM-455) decides with; a service showing the approvers
 // (gov-licence's practice record) calls the same function, so the two never disagree.
 import { expect } from "chai";
-import { requiredSectionOwners, sectionOwnerApproval, type SectionOwnersFile } from "../../../src/rules/checks/policy-actions.js";
+import { requiredSectionOwners, sectionOwnerApproval, SELF_MERGED_SOLO, soloMode, type SectionOwnersFile } from "../../../src/rules/checks/policy-actions.js";
 import { sectionOwnersRulesFrom } from "../../../src/rules/checks/section-owners-rules.js";
 import type { EventContext, RuleSet } from "../../../src/rules/model/contracts.js";
 
@@ -60,7 +60,7 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
 
     it("the Policy Owner as author with no Check Owner (vacant, or the same person) → a miss: name a second person", () => {
       for (const roles of [{ "Policy Owner": "@polly" }, { "Policy Owner": "@polly", "Check Owner": "polly" }]) {
-        const r = requiredSectionOwners({ ownership, roles }, titlePage, {}, "polly");
+        const r = requiredSectionOwners({ ownership, roles, posture: "hard" }, titlePage, {}, "polly");
         expect(r.owners).to.deep.equal([]);
         expect(r.selfApprovedMiss).to.contain(why).and.contain("Name a second person as Policy Owner or Check Owner");
       }
@@ -69,7 +69,7 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
     it("needs no base text (the whole file is the Policy Owner's), and the check misses the same way", () => {
       const ctx = (author: string): EventContext =>
         ({ resource: "vcs.gov-repo", event: "pull_request", payload: { changed: [{ ...titlePage[0]!, addedLines: [] }], author, approvals: [] } as EventContext["payload"] });
-      const full = { framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ownership, roles: { "Policy Owner": "@polly" } } as unknown as RuleSet;
+      const full = { framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ownership, roles: { "Policy Owner": "@polly" }, posture: "hard" } as unknown as RuleSet;
       const r = sectionOwnerApproval("GOV-FRM-455", {}, ctx("polly"), full);
       expect(r.verdict).to.equal("miss");
       expect(r.findings.join()).to.contain("Name a second person as Policy Owner or Check Owner");
@@ -85,7 +85,7 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
   });
 
   it("the author is the only role holder: no owners, and selfApprovedMiss says so", () => {
-    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "@solo" } }, [edit("x\n", "y\n")], { [DOC]: BASE }, "solo");
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "@solo" }, posture: "hard" }, [edit("x\n", "y\n")], { [DOC]: BASE }, "solo");
     expect(r.owners).to.deep.equal([]);
     expect(r.selfApprovedMiss).to.match(/^GOV-FRM-455: @solo changed .*self-approved\.$/);
   });
@@ -118,6 +118,108 @@ describe("requiredSectionOwners (GOV-FRM-455, ruling D3 A+)", () => {
   });
 });
 
+// POLICY OWNER RULING F143 A (PRJ-121, 2026-11-23): EVERY ROLE HAS AN ALTERNATE. When a role's holder is the author,
+// or the role is vacant, its alternate approves — if named, and not the author. Otherwise the fallback is as before.
+describe("requiredSectionOwners — alternates (F143 A)", () => {
+  const alternates = { "Data Owner": "@dev", "Policy Owner": "@pat", "Engineering Owner": "@eve" };
+  const withAlt = { ownership, roles: ROLES, alternates };
+
+  it("the holder is the author → the role's alternate approves, and the why-line says so", () => {
+    const r = requiredSectionOwners(withAlt, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, "@Dana");
+    expect(r.owners).to.deep.equal([{ handle: "@dev", why: ["`policies/org-policy.md` §4 (Data Owner) — its owner is the author, so its alternate approves"] }]);
+  });
+
+  it("a vacant role → its alternate approves, not the Policy Owner", () => {
+    const r = requiredSectionOwners(withAlt, [edit("Only listed.", "Only listed ones.")], { [DOC]: BASE }, "someone");
+    expect(r.owners).to.deep.equal([{ handle: "@eve", why: ["`policies/org-policy.md` §3.1 (Engineering Owner) — vacant, so its alternate approves"] }]);
+  });
+
+  it("the holder is not the author → the holder approves; the alternate is not asked", () => {
+    const r = requiredSectionOwners(withAlt, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, "someone");
+    expect(r.owners).to.deep.equal([{ handle: "@dana", why: ["`policies/org-policy.md` §4 (Data Owner)"] }]);
+  });
+
+  it("the Policy Owner as author → the Policy Owner's alternate, before the Check Owner", () => {
+    const r = requiredSectionOwners(withAlt, [file("policies/governance.yaml", "x: 1\n")], {}, "polly");
+    expect(r.owners).to.deep.equal([{ handle: "@pat", why: ["`policies/governance.yaml` (governance choices) (Policy Owner) — its owner is the author, so its alternate approves"] }]);
+  });
+
+  it("a vacant role with no alternate reads as the Policy Owner — and takes the Policy Owner's alternate when the Policy Owner is the author", () => {
+    const r = requiredSectionOwners({ ownership, roles: ROLES, alternates: { "Policy Owner": "@pat" } }, [edit("Only listed.", "Only listed ones.")], { [DOC]: BASE }, "polly");
+    expect(r.owners).to.deep.equal([{ handle: "@pat", why: ["`policies/org-policy.md` §3.1 (Engineering Owner — vacant, so the Policy Owner) — its owner is the author, so the Policy Owner's alternate approves"] }]);
+  });
+
+  it("an alternate who is the author does not stand in: the fallback is as before (the Policy Owner)", () => {
+    const r = requiredSectionOwners({ ownership, roles: ROLES, alternates: { "Data Owner": "dana" } }, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, "dana");
+    expect(r.owners).to.deep.equal([{ handle: "@polly", why: ["`policies/org-policy.md` §4 (Data Owner) — its owner is the author, so the Policy Owner approves instead"] }]);
+  });
+
+  it("the author holds the Policy Owner and Check Owner roles: the Check Owner's alternate is the last fallback", () => {
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "@polly", "Check Owner": "@polly" }, alternates: { "Check Owner": "@cora" } },
+      [file("policies/actions/lint/run.sh", "echo")], {}, "polly");
+    expect(r.owners).to.deep.equal([{ handle: "@cora", why: ["`policies/actions/lint/run.sh` (executable action) (Check Owner) — its owner is the author, so its alternate approves"] }]);
+  });
+
+  it("no alternates at all → exactly as before", () => {
+    const r = requiredSectionOwners({ ownership, roles: ROLES, alternates: {} }, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, "@Dana");
+    expect(r.owners).to.deep.equal([{ handle: "@polly", why: ["`policies/org-policy.md` §4 (Data Owner) — its owner is the author, so the Policy Owner approves instead"] }]);
+  });
+});
+
+// POLICY OWNER RULING Q45 C (PRJ-121, 2026-11-23): SOLO MODE. Nobody approves their own work — unchanged. Under soft
+// posture, while nobody but the author holds any role or alternate, the miss says so in words the push reads back.
+describe("requiredSectionOwners — solo mode (Q45 C)", () => {
+  const solo = { ownership, roles: { "Policy Owner": "@solo", "Check Owner": "@solo", "Data Owner": "" } };
+  const change = [edit("x\n", "y\n")];
+
+  it("soft (or no posture): still a miss, with no owners — the finding carries the solo words and solo is set", () => {
+    for (const posture of ["soft", undefined] as const) {
+      const r = requiredSectionOwners({ ...solo, ...(posture ? { posture } : {}) }, change, { [DOC]: BASE }, "solo");
+      expect(r.owners).to.deep.equal([]);
+      expect(r.solo).to.equal(true);
+      expect(r.selfApprovedMiss).to.contain(SELF_MERGED_SOLO).and.contain("solo mode").and.contain("an alternate");
+    }
+  });
+
+  it("hard: nothing changes — the plain self-approved miss, no solo flag", () => {
+    const r = requiredSectionOwners({ ...solo, posture: "hard" }, change, { [DOC]: BASE }, "solo");
+    expect(r.solo).to.equal(undefined);
+    expect(r.selfApprovedMiss).to.not.contain(SELF_MERGED_SOLO);
+    expect(r.selfApprovedMiss).to.match(/self-approved\.$/);
+  });
+
+  it("someone else holds a role that cannot approve this change → a plain miss, not solo mode", () => {
+    const r = requiredSectionOwners({ ...solo, roles: { ...solo.roles, "Data Owner": "@dana" }, posture: "soft" }, change, { [DOC]: BASE }, "solo");
+    expect(r.solo).to.equal(undefined);
+    expect(r.selfApprovedMiss).to.not.contain(SELF_MERGED_SOLO);
+  });
+
+  it("an alternate is a second person: solo mode ends and the alternate approves", () => {
+    const r = requiredSectionOwners({ ...solo, alternates: { "Policy Owner": "@pat" }, posture: "soft" }, change, { [DOC]: BASE }, "solo");
+    expect(r.solo).to.equal(undefined);
+    expect(r.owners.map((o) => o.handle)).to.deep.equal(["@pat"]);
+  });
+
+  it("the check reports the distinct solo outcome: a miss with solo set, under soft only", () => {
+    const ctx: EventContext = { resource: "vcs.gov-repo", event: "pull_request", payload: { changed: change.map((f) => ({ ...f, addedLines: [] })), baseTexts: { [DOC]: BASE }, author: "solo", approvals: [] } as EventContext["payload"] };
+    const full = (posture: "soft" | "hard") => ({ framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ...solo, posture }) as unknown as RuleSet;
+    const soft = sectionOwnerApproval("GOV-FRM-455", {}, ctx, full("soft"));
+    expect(soft).to.deep.include({ verdict: "miss", solo: true });
+    expect(soft.findings[0]).to.contain(SELF_MERGED_SOLO);
+    const hard = sectionOwnerApproval("GOV-FRM-455", {}, ctx, full("hard"));
+    expect(hard.verdict).to.equal("miss");
+    expect(hard.solo).to.equal(undefined);
+    expect(hard.findings[0]).to.not.contain(SELF_MERGED_SOLO);
+  });
+
+  it("soloMode: nobody but the author named anywhere; with no author, at most one person named", () => {
+    expect(soloMode(solo, "Solo")).to.equal(true);
+    expect(soloMode(solo)).to.equal(true);
+    expect(soloMode({ roles: { "Policy Owner": "@solo" }, alternates: { "Data Owner": "@dev" } })).to.equal(false);
+    expect(soloMode({ roles: { "Policy Owner": "@solo" } }, "bob")).to.equal(false);
+  });
+});
+
 describe("sectionOwnersRulesFrom — the rule set's ownership and roles from the gov repo's texts", () => {
   const governance = "governance_posture: soft\npolicy_owner:\n  github: polly\ncheck_owner:\n  github: \"\"\n";
   const roleList = "# Reps\n\n| Role | GitHub handle | Owns |\n|------|---------------|------|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal | vacant | |\n";
@@ -131,6 +233,19 @@ describe("sectionOwnersRulesFrom — the rule set's ownership and roles from the
     expect(r.rules.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }]);
     const owners = requiredSectionOwners(r.rules, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, undefined).owners;
     expect(owners).to.deep.equal([{ handle: "@dana", why: ["`policies/org-policy.md` §4 (Data Owner)"] }]);
+  });
+
+  it("alternates from governance.yaml and the role list's Alternate column, and the posture (F143 A, Q45 C)", () => {
+    const gov = "governance_posture: hard\npolicy_owner:\n  github: polly\n  alternate: \"@pat\"\ncheck_owner:\n  github: chuck\n  alternate: \"\"\n";
+    const list = "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---|\n| Data Owner | @dana | `knowledge/data/` | @dev |\n| Legal | vacant | | |\n";
+    const r = sectionOwnersRulesFrom({ governance: gov, roleList: list, ownership: own });
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.rules.alternates).to.deep.equal({ "Policy Owner": "@pat", "Data Owner": "@dev" });
+    expect(r.rules.posture).to.equal("hard");
+    const old = sectionOwnersRulesFrom({ governance, roleList, ownership: own });
+    expect(old.ok && old.rules.alternates).to.deep.equal({});
+    expect(old.ok && old.rules.posture).to.equal("soft");
   });
 
   it("no ownership.yaml → no rows; an unreadable one is refused, never guessed", () => {

@@ -203,12 +203,12 @@ describe("F142 A / Q44 A — who the practice pull request waits for", () => {
     it(`${e}, nobody named: invite a teammate as Check Owner, and say how that pull request merges`, () => {
       const body = flat(practiceTask("Acme Ltd", e, null).body);
       expect(body).to.contain("asks the **Check Owner** to approve it instead. You named nobody else at setup");
-      expect(body).to.contain("Name a second person as Policy Owner or Check Owner");
+      expect(body).to.contain(e === "soft" ? "the check says: \"self-merged: no second person\" (solo mode)." : "Name a second person as Policy Owner or Check Owner");
       expect(body).to.contain("Invite a teammate to your GitHub organization and name them Check Owner: put their GitHub handle in `check_owner.github` in `policies/governance.yaml`");
       expect(body).to.contain("naming them is a pull request of its own, and it needs the same approval");
       expect(body).to.contain("The change merges when your Check Owner approves it.");
       if (e === "soft") {
-        expect(body).to.contain("can merge only past its red check, and a merge past a failing check is recorded for the Policy Owner");
+        expect(body).to.contain("can merge only past its red check. While nobody else holds a role, such a merge is recorded as \"self-merged: no second person\" on one solo-mode issue, not as a violation.");
       } else if (e === "unprotectable") {
         expect(body).to.contain("can merge only past its red check: GitHub cannot block it here");
         expect(body, "under hard a merge past the check is not recorded — so it is not claimed").to.not.match(/recorded/);

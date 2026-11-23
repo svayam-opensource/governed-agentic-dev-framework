@@ -9,7 +9,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  parseRoleList, resolveRoles, roleHandles, ROLE_LIST_PATH,
+  parseRoleList, resolveRoles, roleAlternates, roleHandles, ROLE_LIST_PATH,
 } from "../../src/config/role-list.js";
 import { substituteTokens, setupTokenValues } from "../../src/setup/create.js";
 
@@ -41,9 +41,9 @@ describe("the org's role list — parseRoleList", () => {
     if (!r.found) return;
     expect(r.problems).to.deep.equal([]);
     expect(r.roles).to.deep.equal([
-      { role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"] },
-      { role: "Legal Owner", holder: "@lex", owns: ["knowledge/legal/", "knowledge/contracts/"] },
-      { role: "Security Lead", holder: "@sec", owns: [] },
+      { role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"], alternate: null },
+      { role: "Legal Owner", holder: "@lex", owns: ["knowledge/legal/", "knowledge/contracts/"], alternate: null },
+      { role: "Security Lead", holder: "@sec", owns: [], alternate: null },
     ]);
   });
 
@@ -134,5 +134,45 @@ describe("the seeded role list", () => {
     expect(r.found && Object.fromEntries(r.roles.map((x) => [x.role, x.holder]))).to.deep.equal({
       "Legal Owner": "@polly", "Infrastructure Owner": "@polly", "System Architecture Owner": "@polly", "Data Architecture Owner": "@polly",
     });
+  });
+});
+
+// POLICY OWNER RULING F143 A (PRJ-121, 2026-11-23): the role table's optional Alternate column.
+describe("the org's role list — the Alternate column (F143 A)", () => {
+  const withAlt = (...rows: string[]) => ["| Role | GitHub handle | Owns | Alternate |", "|---|---|---|---|", ...rows, ""].join("\n");
+
+  it("reads each role's alternate, found by its header; an empty cell is no alternate", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | `knowledge/data/` | @dev |", "| Legal Owner | lex | — | |", "| Infra | vacant | — | `ivy` |"));
+    expect(r.found && r.roles.map((x) => [x.role, x.holder, x.alternate])).to.deep.equal([
+      ["Data Owner", "@dana", "@dev"], ["Legal Owner", "@lex", null], ["Infra", null, "@ivy"],
+    ]);
+    expect(r.found && r.problems).to.deep.equal([]);
+  });
+
+  it("an old table with no Alternate column parses as before, with no alternates", () => {
+    const r = parseRoleList("| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n");
+    expect(r.found && r.roles).to.deep.equal([{ role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"], alternate: null }]);
+  });
+
+  it("an alternate gov cannot use is a problem, read as none", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | — | not a handle! |"));
+    expect(r.found && r.roles[0]!.alternate).to.equal(null);
+    expect(r.found && r.problems.join()).to.contain("Data Owner: the alternate").and.contain("read as none");
+  });
+
+  it("roleAlternates: the two framework roles from governance.yaml, every org role from the column", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | — | @dev |", "| Legal | @lex | — | |"));
+    const roles = r.found ? r.roles : [];
+    expect(roleAlternates({ policyOwnerAlternate: "@pat", checkOwnerAlternate: "" }, roles)).to.deep.equal({ "Policy Owner": "@pat", "Data Owner": "@dev" });
+    expect(roleAlternates({}, [])).to.deep.equal({});
+  });
+
+  it("the seeded role list has the Alternate column, empty in every row", () => {
+    const seeded = fs.readFileSync(path.join(CONTENT, ROLE_LIST_PATH), "utf8");
+    const r = parseRoleList(seeded);
+    expect(r.found).to.equal(true);
+    expect(r.found && r.roles.length).to.be.greaterThan(0);
+    expect(r.found && r.roles.every((x) => x.alternate === null)).to.equal(true);
+    expect(seeded).to.match(/\| Role \| GitHub handle \| Owns \| Alternate \|/);
   });
 });
