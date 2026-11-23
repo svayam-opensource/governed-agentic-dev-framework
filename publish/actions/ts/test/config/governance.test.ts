@@ -45,8 +45,8 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
   it("reads every field of the contract", () => {
     const g = parseGovernance(FULL);
     expect(g.posture.posture).to.equal("hard");
-    expect(g.policyOwner).to.deep.equal({ email: "po@acme.test", github: "@po" });
-    expect(g.checkOwner).to.deep.equal({ github: "checker" });
+    expect(g.policyOwner).to.deep.equal({ email: "po@acme.test", github: "@po", alternate: "" });
+    expect(g.checkOwner).to.deep.equal({ github: "checker", alternate: "" });
     expect(g.authorizedAgents).to.deep.equal({ kind: "agents", agents: [{ id: "claude-code", default: true }, { id: "cursor" }] });
     expect(g.problems).to.deep.equal([]);
   });
@@ -70,8 +70,8 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
     for (const text of [null, "", "# nothing\n"]) {
       const g = parseGovernance(text);
       expect(g.posture).to.deep.equal({ posture: "soft", raw: "", unrecognised: false });
-      expect(g.policyOwner).to.deep.equal({ email: "", github: "" });
-      expect(g.checkOwner).to.deep.equal({ github: "" });
+      expect(g.policyOwner).to.deep.equal({ email: "", github: "", alternate: "" });
+      expect(g.checkOwner).to.deep.equal({ github: "", alternate: "" });
       expect(g.authorizedAgents.kind).to.equal("unset");
       expect(modelSettings(g)).to.deep.equal({ provider: null, model: "", command: "", ciAllowed: false });
     }

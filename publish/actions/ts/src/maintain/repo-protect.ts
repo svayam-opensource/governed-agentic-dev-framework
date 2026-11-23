@@ -44,7 +44,7 @@ import {
   APPROVER_CHECK, isPlanLimited, planWaysOut, protectionChanges, WANTED_APPROVING_REVIEWS,
   type ProtectionChange,
 } from "./protection-check.js";
-import { frameworkOwners, parseGovernance, type PostureChoice } from "../config/governance.js";
+import { frameworkAlternates, frameworkOwners, parseGovernance, type PostureChoice } from "../config/governance.js";
 import { resolveRoles } from "../config/role-list.js";
 import { DEFAULT_RUNNER, runnerFor, withRunsOn, type RunnerChoice } from "../config/ci-runner.js";
 import { WORKFLOW_PATH as GOV_CHECKS_WORKFLOW } from "../rules/checks/render-github.js";
@@ -125,7 +125,7 @@ export const WORKFLOW_DEST = path.posix.join(".github", "workflows", "approver-c
 /**
  * THE ORGANIZATION'S APPROVER LOGINS (org-config split, Policy Owner 2026-10-06) — PURE, over the text of
  * `policies/governance.yaml` (the Policy Owner and the Check Owner) and the role list in
- * `policies/common/authorized-representatives.md` (every role's holder). A vacant role adds nobody: its approvals fall to
+ * `policies/common/authorized-representatives.md` (every role's holder), and every role's alternate. A vacant role adds nobody: its approvals fall to
  * the Policy Owner, who is already on the list.
  *
  * The explicit `authorized_approvers:` list in org-config.yaml is retired: who may approve IS who holds a role, and
@@ -136,8 +136,11 @@ export const WORKFLOW_DEST = path.posix.join(".github", "workflows", "approver-c
  * cannot silently disagree about who may approve.
  */
 export function approverLogins(governanceText: string | null | undefined, roleListText: string | null | undefined): readonly string[] {
-  const owners = frameworkOwners(parseGovernance(governanceText ?? null));
-  const handles = [owners.policyOwner, owners.checkOwner, ...resolveRoles(roleListText).roles.map((r) => r.holder ?? "")]
+  const gov = parseGovernance(governanceText ?? null);
+  const owners = frameworkOwners(gov), alts = frameworkAlternates(gov);
+  // ALTERNATES APPROVE TOO (F143 A): in the role's place when its holder wrote the change, so they are on the list.
+  const handles = [owners.policyOwner, alts.policyOwnerAlternate, owners.checkOwner, alts.checkOwnerAlternate,
+    ...resolveRoles(roleListText).roles.flatMap((r) => [r.holder ?? "", r.alternate ?? ""])]
     .map((h) => h.trim().replace(/^@+/, "")).filter(Boolean);
   return [...new Set(handles)];
 }

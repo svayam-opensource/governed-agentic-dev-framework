@@ -9,8 +9,9 @@
  * policy it configures, routed to the Policy Owner by CODEOWNERS and by the section-owner-approval check.
  *
  *   governance_posture     soft | hard — soft when absent or empty (W2-Q6)
- *   policy_owner           { email, github } — the framework's first built-in role
- *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
+ *   policy_owner           { email, github, alternate } — the framework's first built-in role
+ *   check_owner            { github, alternate } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
+ *                          `alternate` (F143 A): who stands in when the holder is the author or the role is vacant
  *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
  *   models                 which model the org approves for `gov rules propose` (framework §9.3)
  *   ci                     ci.runs_on — the runner every workflow gov writes asks for (config/ci-runner.ts)
@@ -89,8 +90,8 @@ export interface GovernanceConfig {
   /** The file existed (and was read). An absent file is every default — and not the same fact as a chosen default. */
   readonly present: boolean;
   readonly posture: PostureChoice;
-  readonly policyOwner: { readonly email: string; readonly github: string };
-  readonly checkOwner: { readonly github: string };
+  readonly policyOwner: { readonly email: string; readonly github: string; readonly alternate: string };
+  readonly checkOwner: { readonly github: string; readonly alternate: string };
   readonly authorizedAgents: AuthorizedAgents;
   readonly models: {
     readonly propose: { readonly provider: string; readonly model: string };
@@ -149,8 +150,8 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   return {
     present: text !== null && text !== undefined,
     posture: classifyPosture(str(doc.governance_posture)),
-    policyOwner: { email: str(po.email), github: str(po.github) },
-    checkOwner: { github: str(co.github) },
+    policyOwner: { email: str(po.email), github: str(po.github), alternate: str(po.alternate) },
+    checkOwner: { github: str(co.github), alternate: str(co.alternate) },
     // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
     authorizedAgents: readAuthorizedAgents(text ?? null),
     models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
@@ -183,6 +184,11 @@ export function frameworkOwners(g: GovernanceConfig): { policyOwner: string; che
   return { policyOwner: g.policyOwner.github, checkOwner: g.checkOwner.github };
 }
 
+/** The two built-in roles' alternates (F143 A), as written; "" when none is named. */
+export function frameworkAlternates(g: GovernanceConfig): { policyOwnerAlternate: string; checkOwnerAlternate: string } {
+  return { policyOwnerAlternate: g.policyOwner.alternate, checkOwnerAlternate: g.checkOwner.alternate };
+}
+
 /** The content tokens these values fill — they came from org-config.yaml's keys before the split. */
 export function governanceTokens(g: GovernanceConfig): Record<string, string> {
   const out: Record<string, string> = {};
@@ -198,6 +204,7 @@ export function governanceTokens(g: GovernanceConfig): Record<string, string> {
 /* ─────────────────────────────── what a change changed ─────────────────────────────── */
 
 const handle = (h: string): string => (h ? `@${h.replace(/^@/, "")}` : "vacant");
+const alt = (h: string): string => (h ? handle(h) : "none");
 const agentsText = (a: AuthorizedAgents): string =>
   a.kind === "unset" ? "the framework's defaults" : a.kind === "none" ? "none"
     : a.agents.map((x) => (x.default ? `${x.id} (default)` : x.id)).join(", ") || "none";
@@ -220,7 +227,9 @@ export function describeGovernanceChanges(baseText: string | null, headText: str
   pair("Governance posture", posture(b.posture), posture(h.posture));
   pair("Policy Owner", handle(b.policyOwner.github), handle(h.policyOwner.github));
   pair("Policy Owner email", b.policyOwner.email || "none", h.policyOwner.email || "none");
+  pair("Policy Owner's alternate", alt(b.policyOwner.alternate), alt(h.policyOwner.alternate));
   pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
+  pair("Check Owner's alternate", alt(b.checkOwner.alternate), alt(h.checkOwner.alternate));
   pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
   if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
   const runner = (c: RunnerChoice): string => `${runsOnYaml(c.runsOn)}${c.chosen ? "" : " (the default)"}`;
@@ -261,15 +270,19 @@ export function renderGovernance(v: GovernanceValues): string {
 governance_posture: "${v.governancePosture}"
 
 # THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
+# alternate: who approves in the Policy Owner's place when the Policy Owner wrote the change. Every role should
+# have one; the Policy Owner appoints them by pull request. \`gov doctor\` reports a role with none.
 policy_owner:
   email: "${v.policyOwnerEmail}"
   github: "${v.policyOwnerGithub}"
+  alternate: ""
 
 # THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
 # Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
-# two-key review off; \`gov doctor\` says so.
+# two-key review off; \`gov doctor\` says so. alternate: who approves when the Check Owner wrote the change.
 check_owner:
   github: "${v.checkOwnerGithub}"
+  alternate: ""
 
 # WHICH AI AGENTS THIS ORGANIZATION AUTHORIZES, and which gov launches by default. Every id comes from the
 # framework's list (\`gov agent list\`); \`gov agent approve <id>\` raises the pull request that adds one.

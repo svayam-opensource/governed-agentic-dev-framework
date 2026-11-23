@@ -21,8 +21,9 @@
  */
 import type { Diagnostic } from "./doctor.js";
 import { CHECK_OWNER, normalizeHandle, renderCodeowners, codeownersDrift } from "../config/codeowners.js";
-import { ROLE_LIST_PATH, resolveRoles } from "../config/role-list.js";
-import { GOVERNANCE_PATH, frameworkOwners, parseGovernance } from "../config/governance.js";
+import { CHECK_OWNER_ROLE, POLICY_OWNER_ROLE, ROLE_LIST_PATH, resolveRoles, roleAlternates, roleHandles } from "../config/role-list.js";
+import { GOVERNANCE_PATH, frameworkAlternates, frameworkOwners, parseGovernance } from "../config/governance.js";
+import { soloMode } from "../rules/checks/policy-actions.js";
 
 const owners = (governanceText: string | null): { policy: string | null; check: string | null } => {
   const o = frameworkOwners(parseGovernance(governanceText));
@@ -93,6 +94,51 @@ export function roleListDiagnostic(roleListText: string | null | undefined): Dia
     name, status: "ok",
     detail: `${r.roles.length} role(s) from ${ROLE_LIST_PATH}`
       + (vacant.length ? `; vacant, so the Policy Owner holds them: ${vacant.join(", ")}` : "; every role held"),
+  };
+}
+
+/**
+ * EVERY ROLE HAS AN ALTERNATE (Policy Owner ruling F143 A, 2026-11-23): the person who approves in the role's place
+ * when its holder wrote the change, or the role is vacant. A role without one WARNS — advisory, as a vacant Check
+ * Owner does: the role is still approved by somebody (the fallback), just not by a named stand-in.
+ *
+ * `undefined` governance text = nobody looked (no row).
+ */
+export function alternatesDiagnostic(governanceText: string | null | undefined, roleListText: string | null | undefined): Diagnostic | null {
+  if (governanceText === undefined) return null;
+  const gov = parseGovernance(governanceText);
+  const roles = resolveRoles(roleListText ?? null).roles;
+  const alternates = roleAlternates(frameworkAlternates(gov), roles);
+  const all = [POLICY_OWNER_ROLE, CHECK_OWNER_ROLE, ...roles.map((r) => r.role)];
+  const without = all.filter((r) => !alternates[r]);
+  const name = "alternates";
+  if (!without.length) return { name, status: "ok", detail: `every role has an alternate (${all.length} role(s))` };
+  return {
+    name, status: "warn",
+    detail: `no alternate for ${without.join(", ")} — when the holder writes a change (or the role is vacant), it falls to`
+      + ` the Policy Owner, then the Check Owner, instead of a named stand-in. The Policy Owner names one by pull request:`
+      + ` \`policy_owner.alternate\` / \`check_owner.alternate\` in ${GOVERNANCE_PATH}, the Alternate column in ${ROLE_LIST_PATH}.`,
+  };
+}
+
+/**
+ * SOLO MODE (Policy Owner ruling Q45 C, 2026-11-23): at most one person is named in any role or as any alternate. Under
+ * soft posture, a merge nobody else could approve is recorded as a self-merge (evidence, not a violation) while this
+ * lasts. A WARN, never a failure: a one-person organization is a real state, and it should know it is in it.
+ */
+export function soloModeDiagnostic(governanceText: string | null | undefined, roleListText: string | null | undefined): Diagnostic | null {
+  if (governanceText === undefined) return null;
+  const gov = parseGovernance(governanceText);
+  if (!gov.policyOwner.github) return null;   // the policy-owner row already fails; nobody is named at all
+  const roles = resolveRoles(roleListText ?? null).roles;
+  const rules = { roles: roleHandles(frameworkOwners(gov), roles), alternates: roleAlternates(frameworkAlternates(gov), roles) };
+  if (!soloMode(rules)) return null;
+  const hard = gov.posture.posture === "hard";
+  return {
+    name: "solo mode", status: "warn",
+    detail: `nobody but ${normalizeHandle(gov.policyOwner.github) ?? gov.policyOwner.github} holds a role or alternate, so nobody else can approve a change.`
+      + (hard ? " Under hard posture such a change cannot merge." : " Under soft posture a merge with no second approver is recorded as \"self-merged: no second person\", not as a violation.")
+      + ` Name a second person — a Check Owner or an alternate — in ${GOVERNANCE_PATH} to end it.`,
   };
 }
 

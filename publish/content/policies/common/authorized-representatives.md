@@ -18,8 +18,9 @@
 ### 1.1 Every exception has a named approver
 
 An exception is approved only by the role named for its domain in section 1.2, and only by the person who
-holds that role in section 4. While a role has nobody in it, the Policy Owner approves in its place. There is
-no exception to this: an exception approved by anyone else is not approved.
+holds that role in section 4, or by that role's alternate when section 3.1 says the alternate stands in. While a
+role has nobody in it and no alternate, the Policy Owner approves in its place. There is no exception to this: an
+exception approved by anyone else is not approved.
 
 ### 1.2 Which role approves which kind of exception (starter)
 
@@ -67,6 +68,19 @@ it is a question nobody is answering, and an approval nobody can give.
 The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: setup
 will not finish without both, and `gov doctor` reports either one when it falls empty.
 
+### 3.1 Every role has an alternate
+
+Every role, including the Policy Owner and the Check Owner, has a named alternate: a second person who approves
+in the role's place when the holder wrote the change, or when the role has nobody in it. Without one, a change
+the holder makes waits for the Policy Owner, and a change the Policy Owner makes waits for the Check Owner; with
+nobody else named at all, nobody but the author can approve it.
+
+The Policy Owner appoints each alternate by a pull request to this file, in the Alternate column of section 4.
+The alternates of the Policy Owner and the Check Owner are recorded in `policies/governance.yaml`, as
+`policy_owner.alternate` and `check_owner.alternate`. An alternate is never the author's way round the rule in
+section 1.3: an alternate who wrote the change does not approve it. `gov doctor` reports every role that has no
+alternate.
+
 ## 4. The role list
 
 The roles this organization defines, who holds each one, and which folders of `knowledge/` each one owns. This
@@ -74,12 +88,12 @@ is the list gov reads. It routes a change to a `knowledge/` folder to that folde
 `CODEOWNERS` from it), and it names the person behind a role when a policy says, in plain English, that a role
 owns one of its sections.
 
-| Role | GitHub handle | Owns |
-|---|---|---|
-| Legal Owner | <LEGAL_OWNER_GITHUB> | `knowledge/legal/` |
-| Infrastructure Owner | <INFRA_OWNER_GITHUB> | `knowledge/infrastructure/` |
-| System Architecture Owner | <SYSTEM_ARCH_OWNER_GITHUB> | `knowledge/architecture/system/` |
-| Data Architecture Owner | <DATA_ARCH_OWNER_GITHUB> | `knowledge/architecture/data/` |
+| Role | GitHub handle | Owns | Alternate |
+|---|---|---|---|
+| Legal Owner | <LEGAL_OWNER_GITHUB> | `knowledge/legal/` | |
+| Infrastructure Owner | <INFRA_OWNER_GITHUB> | `knowledge/infrastructure/` | |
+| System Architecture Owner | <SYSTEM_ARCH_OWNER_GITHUB> | `knowledge/architecture/system/` | |
+| Data Architecture Owner | <DATA_ARCH_OWNER_GITHUB> | `knowledge/architecture/data/` | |
 
 How to read and change it:
 
@@ -89,8 +103,12 @@ How to read and change it:
   nobody does: the Policy Owner then approves in that role's place (section 3).
 - **Owns** lists the `knowledge/` folders the role approves, separated by commas, or `—` for none. A folder
   nobody owns, and `knowledge/` as a whole, belong to the Policy Owner.
+- **Alternate** is the person who approves in the role's place when the holder wrote the change, or when the
+  role is vacant (section 3.1). Leave it empty until the Policy Owner names someone. An older copy of this table
+  without the column still works: its roles simply have no alternate.
 - The Policy Owner and the Check Owner are not listed here. They are the framework's own two roles, and
-  setup (the first-run flow's adopt step) records who holds them.
+  setup (the first-run flow's adopt step) records who holds them. Their alternates are in
+  `policies/governance.yaml`.
 
 After a change here merges, run `gov upgrade` to regenerate `CODEOWNERS`. `gov doctor` reports a `CODEOWNERS`
 that no longer matches this list.

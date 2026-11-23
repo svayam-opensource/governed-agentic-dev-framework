@@ -79,7 +79,7 @@ never "no hard confirmation for an answer that cannot stand" "Do you still want 
 runs grep -qE '^governance_posture: "?soft"?' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
   && pass "governance.yaml records soft" || fail "governance.yaml does not record soft"
 gh_ran "the practice task says nobody else was named" "so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,"
-gh_ran "and under soft, that both pull requests merge only past a red check, recorded" "check, and a merge past a failing check is recorded for the Policy Owner."
+gh_ran "and under soft, that both pull requests merge only past a red check, recorded as a self-merge" "solo-mode issue, not as a violation."
 
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"

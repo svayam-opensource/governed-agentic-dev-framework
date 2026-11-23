@@ -28,6 +28,8 @@ export interface ActionOutcome {
   readonly findings: readonly string[];
   /** Handles (no `@`) a pull request should request a review from. */
   readonly requestReview?: readonly string[];
+  /** A miss that is solo mode (Q45 C): its finding carries {@link SELF_MERGED_SOLO}. */
+  readonly solo?: true;
 }
 
 const cannot = (findings: string[], requestReview?: string[]): ActionOutcome =>
@@ -104,10 +106,37 @@ export interface RequiredSectionOwners {
   readonly notes: readonly string[];
   /** Set when the author is the only one who could approve: the change cannot be approved by anyone else. */
   readonly selfApprovedMiss?: string;
+  /**
+   * SOLO MODE (Policy Owner ruling Q45 C, 2026-11-23): set with {@link selfApprovedMiss} when, under soft posture,
+   * nobody other than the author holds ANY role or alternate. Still a miss — nobody approves their own work — but
+   * its finding carries {@link SELF_MERGED_SOLO}, so a merge past it is recorded as evidence, not as a violation.
+   */
+  readonly solo?: true;
 }
 
-/** What {@link requiredSectionOwners} needs of the rule set: who owns which section, and who holds each role. */
-export type SectionOwnersRules = Pick<RuleSet, "ownership" | "roles">;
+/**
+ * What {@link requiredSectionOwners} needs of the rule set: who owns which section, who holds each role, each role's
+ * alternate (F143 A), and the posture (Q45 C: solo mode exists only under soft).
+ */
+export type SectionOwnersRules = Pick<RuleSet, "ownership" | "roles"> & Partial<Pick<RuleSet, "alternates" | "posture">>;
+
+/**
+ * THE WORDS A SOLO-MODE FINDING CARRIES (Q45 C). The push that finds a red merge reads them back from the check run's
+ * annotations (gh-actions.ts {@link redMerges}): a failure that says this, and nothing else, is a self-merge to record
+ * as evidence. Exported so the writer and the reader cannot drift.
+ */
+export const SELF_MERGED_SOLO = "self-merged: no second person";
+
+/**
+ * IS THIS SOLO MODE? (Q45 C) — nobody other than `author` is named in any role or as any alternate. A vacant role
+ * names nobody. With no author given, solo means at most one person is named anywhere. Pure.
+ */
+export function soloMode(rules: SectionOwnersRules, author?: string): boolean {
+  const a = author ? handleKey(author) : "";
+  const named = new Set([...Object.values(rules.roles ?? {}), ...Object.values(rules.alternates ?? {})].map(handleKey).filter(Boolean));
+  if (a) named.delete(a);
+  return a ? named.size === 0 : named.size <= 1;
+}
 
 export interface RequiredSectionOwnersOptions {
   /** Globs of the policy documents whose sections are owned. Default `policies/**\/*.md`. */
@@ -144,14 +173,35 @@ export function requiredSectionOwners(
   /** handle key → { shown handle, what it must approve } */
   const need = new Map<string, { handle: string; why: string[] }>();
   const notes: string[] = [];
-  const require = (role: string, why: string) => {
-    let handle = roles[role];
-    let label = role;
-    if (!handle || !handleKey(handle)) { handle = policyOwner; label = `${role} — vacant, so the ${POLICY_OWNER}`; }
+  const alternates = rules.alternates ?? {};
+  const authorKey = author ? handleKey(author) : "";
+  const held = (h: string | undefined): h is string => !!h && !!handleKey(h);
+  /** A role's alternate who can stand in: named, and not the author (F143 A). */
+  const standIn = (role: string): string | undefined => {
+    const a = alternates[role];
+    return held(a) && handleKey(a) !== authorKey ? a : undefined;
+  };
+  const add = (handle: string, line: string) => {
     const key = handleKey(handle);
     const entry = need.get(key) ?? { handle: `@${key}`, why: [] };
-    entry.why.push(`${why} (${label})`);
+    entry.why.push(line);
     need.set(key, entry);
+  };
+  // ROUTING (GOV-FRM-455; alternates, Policy Owner ruling F143 A, 2026-11-23). The role's holder approves — unless
+  // the holder is the author, or the role is vacant: then its ALTERNATE, when one is named who is not the author.
+  // Otherwise as before: a vacant role reads as the Policy Owner (and so takes the Policy Owner's alternate when the
+  // Policy Owner is the author); a holder who is the author is handled after the loop.
+  const require = (role: string, why: string) => {
+    const holder = roles[role];
+    const alt = standIn(role);
+    if (!held(holder)) {
+      if (alt) return add(alt, `${why} (${role}) — vacant, so its alternate approves`);
+      const poAlt = handleKey(policyOwner) === authorKey ? standIn(POLICY_OWNER) : undefined;
+      if (poAlt) return add(poAlt, `${why} (${role} — vacant, so the ${POLICY_OWNER}) — its owner is the author, so the ${POLICY_OWNER}'s alternate approves`);
+      return add(policyOwner, `${why} (${role} — vacant, so the ${POLICY_OWNER})`);
+    }
+    if (authorKey && handleKey(holder) === authorKey && alt) return add(alt, `${why} (${role}) — its owner is the author, so its alternate approves`);
+    return add(holder, `${why} (${role})`);
   };
 
   for (const f of changed) {
@@ -183,20 +233,34 @@ export function requiredSectionOwners(
 
   // THE AUTHOR IS NEVER AN APPROVER (Policy Owner, 2026-10-06). GitHub refuses an author's review of their own PR, so
   // listing them would make the check unpassable. If leaving them off leaves nobody, someone else must still review —
-  // the Policy Owner, or the Check Owner when the author IS the Policy Owner — because nothing merges unreviewed.
-  if (author !== undefined && author !== "" && need.has(handleKey(author))) {
-    const own = need.get(handleKey(author))!;
-    need.delete(handleKey(author));
+  // the Policy Owner, or the Check Owner when the author IS the Policy Owner, each through their alternate when they
+  // are the author themselves (F143 A) — because nothing merges unreviewed.
+  if (authorKey && need.has(authorKey)) {
+    const own = need.get(authorKey)!;
+    need.delete(authorKey);
     if (!need.size) {
-      const fallbacks = [policyOwner, roles[CHECK_OWNER]].filter((h): h is string => !!h && !!handleKey(h) && handleKey(h) !== handleKey(author));
-      if (!fallbacks.length) {
+      const fallbacks: [string | undefined, string][] = [
+        [policyOwner, `the ${POLICY_OWNER}`], [alternates[POLICY_OWNER], `the ${POLICY_OWNER}'s alternate`],
+        [roles[CHECK_OWNER], `the ${CHECK_OWNER}`], [alternates[CHECK_OWNER], `the ${CHECK_OWNER}'s alternate`],
+      ];
+      const next = fallbacks.find(([h]) => held(h) && handleKey(h) !== authorKey);
+      if (!next) {
+        const changed = [...own.why].sort(byWhy).join(", ");
+        // SOLO MODE (Q45 C): under soft posture, with nobody but the author named anywhere, say so in the words the
+        // push reads back. Under hard posture — or with someone else named who simply cannot approve this — as before.
+        if (rules.posture !== "hard" && soloMode(rules, author)) {
+          return {
+            owners: [], notes, solo: true,
+            selfApprovedMiss: `${tag}: ${SELF_MERGED_SOLO} — ${own.handle} changed ${changed}, and no one other than the author holds any role or alternate (solo mode). Under soft posture a merge is recorded as a self-merge, not as a violation. Name a second person as a role holder or an alternate to end solo mode.`,
+          };
+        }
         return {
           owners: [], notes,
-          selfApprovedMiss: `${tag}: ${own.handle} changed ${[...own.why].sort(byWhy).join(", ")} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner; until then this change is self-approved.`,
+          selfApprovedMiss: `${tag}: ${own.handle} changed ${changed} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner, or as an alternate; until then this change is self-approved.`,
         };
       }
-      const key = handleKey(fallbacks[0]);
-      need.set(key, { handle: `@${key}`, why: own.why.map((w) => `${w} — its owner is the author, so the ${key === handleKey(policyOwner) ? POLICY_OWNER : CHECK_OWNER} approves instead`) });
+      const key = handleKey(next[0]!);
+      need.set(key, { handle: `@${key}`, why: own.why.map((w) => `${w} — its owner is the author, so ${next[1]} approves instead`) });
     }
   }
 
@@ -214,7 +278,7 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
   const required = requiredSectionOwners(rules, changed, payloadTextMap(ctx, "baseTexts"), payloadString(ctx, "author"), {
     docs: asList(params.docs), ignore: asList(params.ignore), tag,
   });
-  if (required.selfApprovedMiss) return { verdict: "miss", findings: [required.selfApprovedMiss] };
+  if (required.selfApprovedMiss) return { verdict: "miss", findings: [required.selfApprovedMiss], ...(required.solo ? { solo: true as const } : {}) };
 
   const need = new Map(required.owners.map((o) => [handleKey(o.handle), o]));
   const requestReview = [...need.keys()];

@@ -207,6 +207,18 @@ The framework's two roles must always have a named holder. Setup will not finish
 that work. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
 vacancy falls to the Policy Owner until someone is named.
 
+### 2.5 Every role has an alternate
+
+Every role, the framework's two included, should have an **alternate**: a second person who approves in the
+role's place when the holder wrote the change, or while the role is vacant (§7.2). The Policy Owner's and the
+Check Owner's alternates are `policy_owner.alternate` and `check_owner.alternate` in
+`policies/governance.yaml`. Every other role's is the Alternate column of the role table in
+`policies/common/authorized-representatives.md`. A role table written before the column existed still works;
+its roles have no alternate.
+
+The Policy Owner appoints an alternate by pull request, like any holder. An agent never appoints anybody.
+`gov doctor` lists every role that has no alternate, as advice rather than a failure.
+
 *Rules for this chapter: rule map, filter `framework-specification.md §2`.*
 
 ---
@@ -303,6 +315,16 @@ each section's owner to review, and requires every one of them to approve. There
   `policies/policy-document.yaml`: the policy's title, who approved it, the chapter introductions and the
   glossary.
 - An executable action under `policies/actions/` needs the Check Owner (§2.2).
+
+**Nobody approves their own change.** When the person who must approve is the author, or the role has
+nobody in it, the role's **alternate** approves instead (§2.5), as long as one is named and is not the author.
+Without an alternate, a vacant role falls to the Policy Owner, and a change whose only approver is its author
+falls to the Policy Owner, then to the Check Owner. The request for review says which: for example, "its owner
+is the author, so its alternate approves". When nobody but the author holds any role or alternate, nobody can
+approve the change; §11.1 says what happens to it then.
+
+The approval check on the platform (§7.3) counts every role holder and every alternate as an authorized
+representative.
 
 **Knowledge is approved folder by folder.** gov generates `CODEOWNERS` from your role list:
 
@@ -739,6 +761,17 @@ failed rule with what it found, and says it merged with those checks failing. A 
 however many times the push is checked. Where `hard` has protected the branch this cannot happen, because the
 checks are required. But a private repository on GitHub Free cannot be protected, so under `hard` there the
 merge can still go ahead, and it is recorded the same way.
+
+**Solo mode.** While nobody other than one person holds any role or is any role's alternate, nobody can
+approve that person's changes, and the rule that nobody approves their own work does not bend. Under `soft`,
+the approval checks still fail on such a change, but they say why in distinct words: *self-merged: no second
+person*. When the change merges, the push records it honestly as a self-merge. It is **evidence, not a
+violation**: no violation record is opened for it. Instead, one open issue labelled `gov-solo-mode` stands as
+the notice that the organization is in solo mode, and each self-merge is an entry on it, naming the pull
+request. Any other gov check that failed on the same pull request still opens a violation record as usual.
+The notice closes by itself on the first push after a second person holds a role or an alternate, and
+`gov doctor` reports solo mode while it lasts. Under `hard` nothing changes: a change nobody else can approve
+cannot merge, and if it merges anyway it is a violation.
 
 Under `hard`, no gov command writes to a protected branch. `gov seed` creates the project branch and nothing
 else. Closing a project leaves the governance pull request for a person to merge.

@@ -8,10 +8,11 @@
  * read the way the check reads them: roles as store-io's loader builds them (the Policy Owner and Check Owner from
  * governance.yaml, a vacant Check Owner reading as the Policy Owner, every other role from the role list), and
  * ownership as {@link loadCheckRuleSet} does (absent → every section is the Policy Owner's; unreadable → refused,
- * never guessed). Pure.
+ * never guessed). Each role's alternate too (F143 A), and the posture, which decides whether a change nobody else
+ * can approve is solo mode (Q45 C) or a plain miss. Pure.
  */
-import { frameworkOwners, parseGovernance, GOVERNANCE_PATH } from "../../config/governance.js";
-import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
+import { frameworkAlternates, frameworkOwners, parseGovernance, GOVERNANCE_PATH } from "../../config/governance.js";
+import { resolveRoles, roleAlternates, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
 import { OWNERSHIP_PATH, parseOwnership } from "./ownership.js";
 import type { SectionOwnersRules } from "./policy-actions.js";
 
@@ -34,6 +35,10 @@ export function sectionOwnersRulesFrom(texts: SectionOwnersRuleTexts): SectionOw
     if ("error" in parsed) return { ok: false, reason: `${OWNERSHIP_PATH} ${parsed.error}` };
     ownership = parsed;
   }
-  const roles = roleHandles(frameworkOwners(parseGovernance(texts.governance)), resolveRoles(texts.roleList).roles);
-  return { ok: true, rules: { ownership, roles } };
+  const gov = parseGovernance(texts.governance);
+  const roleList = resolveRoles(texts.roleList).roles;
+  const roles = roleHandles(frameworkOwners(gov), roleList);
+  const alternates = roleAlternates(frameworkAlternates(gov), roleList);
+  const posture = gov.posture.posture === "hard" ? "hard" : "soft";
+  return { ok: true, rules: { ownership, roles, alternates, posture } };
 }

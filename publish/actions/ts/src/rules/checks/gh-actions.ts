@@ -8,7 +8,8 @@
  *
  *                  ON THE SAME BINDING, under soft posture: {@link redMerges} — a PR that merged while one of gov's own
  *                  checks on it was red (Policy Owner, 2026-10-07). GOV-FRM-040 passes there (the PR did merge), so the
- *                  push is where the merge is caught; check-verb.ts opens the record (violation.ts).
+ *                  push is where the merge is caught; check-verb.ts opens the record (violation.ts). A red check
+ *                  that was solo mode (Q45 C) is told apart by its annotations, and recorded as a self-merge instead.
  *
  * The logic is pure over an injected {@link GithubPorts}; {@link githubPullsForCommit} is the production port,
  * calling GitHub's "list pull requests associated with a commit" (`GET /repos/{repo}/commits/{sha}/pulls`) through
@@ -16,6 +17,7 @@
  */
 import type { EventContext } from "../model/contracts.js";
 import { asList, branchInScope, payloadString, payloadStrings } from "./payload.js";
+import { SELF_MERGED_SOLO } from "./policy-actions.js";
 
 /** One pull request a commit belongs to. `mergedAt` null = not merged. `base` = the branch it targets. */
 export interface PullRef {
@@ -107,6 +109,8 @@ export function githubPullsForCommit(gh: (args: readonly string[]) => string | n
 
 /** One check run on a commit. `summary` is the run's output title, or "" when it gave none. */
 export interface CheckRunRef {
+  /** GitHub's id for the run — what its annotations are read by. Absent when GitHub did not say. */
+  readonly id?: number;
   readonly name: string;
   /** `success`, `failure`, … — null while the run has not concluded. */
   readonly conclusion: string | null;
@@ -117,9 +121,18 @@ export interface RedMergePorts {
   pullsForCommit(sha: string): readonly PullRef[] | null;
   /** The check runs on a commit, or null when GitHub could not be asked. */
   checkRunsForCommit(sha: string): readonly CheckRunRef[] | null;
+  /**
+   * The failure-level annotation messages of one check run (Q45 C: how a solo-mode miss is told from any other), or
+   * null when GitHub could not be asked. Absent → no failure is read as solo mode.
+   */
+  failureAnnotations?(checkRunId: number): readonly string[] | null;
 }
 
-export interface FailedGovCheck { readonly rule: string; readonly event: string; readonly summary: string }
+/**
+ * One gov check that was red on a merged PR's head. `solo`: every failure it reported was solo mode (Q45 C) —
+ * {@link SELF_MERGED_SOLO}, nobody but the author to approve — so the merge is a self-merge, recorded as evidence.
+ */
+export interface FailedGovCheck { readonly rule: string; readonly event: string; readonly summary: string; readonly solo?: true }
 /** A pull request merged into the pushed branch while gov's checks on its head had failed. */
 export interface RedMerge { readonly pr: number; readonly headSha: string; readonly failed: readonly FailedGovCheck[] }
 
@@ -159,11 +172,41 @@ export function redMerges(input: GhActionInput, ports: RedMergePorts): { merges:
     const failed: FailedGovCheck[] = [];
     for (const r of runs) {
       const id = govCheckRunOf(r.name);
-      if (id && r.conclusion === "failure" && !failed.some((f) => f.rule === id.rule && f.event === id.event)) failed.push({ ...id, summary: r.summary });
+      if (id && r.conclusion === "failure" && !failed.some((f) => f.rule === id.rule && f.event === id.event)) {
+        failed.push({ ...id, summary: r.summary, ...(soloRun(r, ports) ? { solo: true as const } : {}) });
+      }
     }
     if (failed.length) merges.push({ pr: p.number, headSha: p.headSha, failed });
   }
   return { merges, notes };
+}
+
+/**
+ * WAS THIS RED RUN SOLO MODE? (Q45 C) — its failure annotations, every one of them, carry {@link SELF_MERGED_SOLO}.
+ * A run whose annotations cannot be read, or that failed for anything else as well, is not: when gov cannot tell, the
+ * merge is recorded as a violation, the record that asks a person to look.
+ */
+function soloRun(r: CheckRunRef, ports: RedMergePorts): boolean {
+  if (r.id === undefined || !ports.failureAnnotations) return false;
+  const messages = ports.failureAnnotations(r.id);
+  return !!messages && messages.length > 0 && messages.every((m) => m.includes(SELF_MERGED_SOLO));
+}
+
+/**
+ * The production port for {@link RedMergePorts.failureAnnotations}: `gh api repos/<repo>/check-runs/<id>/annotations`,
+ * the failure-level messages. Null on failure or an unexpected shape.
+ */
+export function githubFailureAnnotations(gh: (args: readonly string[]) => string | null, repo: string): (checkRunId: number) => readonly string[] | null {
+  return (id) => {
+    const out = gh(["api", `repos/${repo}/check-runs/${id}/annotations?per_page=100`]);
+    if (out === null) return null;
+    let doc: unknown;
+    try { doc = JSON.parse(out); } catch { return null; /* not the answer asked for: the caller reads it as not solo */ }
+    if (!Array.isArray(doc)) return null;
+    return doc
+      .filter((a: { annotation_level?: unknown }) => a?.annotation_level === "failure")
+      .map((a: { message?: unknown }) => (typeof a.message === "string" ? a.message : ""));
+  };
 }
 
 /** The production port: `gh api repos/<repo>/commits/<sha>/check-runs`. Null on failure or an unexpected shape. */
@@ -175,7 +218,8 @@ export function githubCheckRunsForCommit(gh: (args: readonly string[]) => string
     try { doc = JSON.parse(out); } catch { return null; /* not the answer asked for: the caller reports it */ }
     const runs = (doc as { check_runs?: unknown })?.check_runs;
     if (!Array.isArray(runs)) return null;
-    return runs.map((r: { name?: unknown; conclusion?: unknown; output?: { title?: unknown } }) => ({
+    return runs.map((r: { id?: unknown; name?: unknown; conclusion?: unknown; output?: { title?: unknown } }) => ({
+      ...(typeof r.id === "number" ? { id: r.id } : {}),
       name: typeof r.name === "string" ? r.name : "",
       conclusion: typeof r.conclusion === "string" ? r.conclusion : null,
       summary: typeof r.output?.title === "string" ? r.output.title : "",

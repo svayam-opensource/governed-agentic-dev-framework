@@ -34,10 +34,10 @@ import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
 import { createCheckRunner } from "../rules/checks/runner.js";
-import { githubCheckRunsForCommit, githubCommitFacts, githubPullsForCommit, isSetupCommit, redMerges } from "../rules/checks/gh-actions.js";
+import { githubCheckRunsForCommit, githubCommitFacts, githubFailureAnnotations, githubPullsForCommit, isSetupCommit, redMerges } from "../rules/checks/gh-actions.js";
 import { buildPayload } from "../rules/checks/event-payload.js";
-import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
-import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
+import { githubOpenRedMergeRecord, githubSoloModePorts, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
+import { closeSoloBanner, recordRedMerges, recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { githubActionsRenderer, GOV_APP_SECRETS, pinnedGovPackage, WORKFLOW_PATH } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
@@ -343,12 +343,17 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     const found = redMerges({ ruleId: id, params: landed.with ?? {}, ctx }, {
       pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
       checkRunsForCommit: githubCheckRunsForCommit((a) => deps.gh(a), repository),
+      failureAnnotations: githubFailureAnnotations((a) => deps.gh(a), repository),
     });
+    // SOLO MODE (Q45 C): a red check that was solo mode is a self-merge, recorded on the one solo-mode issue; and once
+    // a second person is named, that issue closes — checked on every push, from the rules the push just merged.
+    const solo = githubSoloModePorts(deps.gh, repository);
     const recorded = recordRedMerges(found.merges, rules, {
       openIssue: (issue) => githubViolationPorts(deps.gh, repository).openIssue(issue),
       findOpenRecord: githubOpenRedMergeRecord(deps.gh, repository),
+      solo,
     }, runUrl);
-    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines);
+    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines, ...closeSoloBanner(rules, solo));
   }
   const say = (): string[] => (row ? humanGateMessage(row, verdict).split("\n") : [`${id} — ${verdict.verdict}`, ...verdict.findings.map((f) => `  - ${f}`)]);
 
