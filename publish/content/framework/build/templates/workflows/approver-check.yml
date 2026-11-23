@@ -83,7 +83,8 @@ jobs:
             source="the GOV_APPROVERS variable"
           elif [ -f policies/governance.yaml ]; then
             # `github:` and `alternate:` under the top-level policy_owner: and check_owner: blocks (or their flow
-            # form). An alternate approves in the role's place when the holder wrote the change (F143 A).
+            # form). An alternate approves in the role's place when the holder wrote the change (F143 A), or while
+            # the role is vacant (Q46 A) — so a vacant Policy Owner's alternate keeps this list from being empty.
             owners="$(
               awk '
                 /^(policy_owner|check_owner):[[:space:]]*\{/ {

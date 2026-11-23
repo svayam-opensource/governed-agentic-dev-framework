@@ -109,8 +109,10 @@ describe("the org's role list — resolveRoles (no fallback since the org-config
     expect(roleHandles({ policyOwner: "@polly", checkOwner: "chuck" }, r.roles)).to.deep.equal({
       "Policy Owner": "@polly", "Check Owner": "chuck", "Data Owner": "@dana", "Legal Owner": "",
     });
-    expect(roleHandles({ policyOwner: "@polly" }, [])["Check Owner"], "vacant Check Owner → the Policy Owner").to.equal("@polly");
-    expect(roleHandles({}, []), "no Policy Owner → no framework roles at all").to.deep.equal({});
+    // Q46 A: a vacant framework role is present and empty, like an org role — the check routes it (alternate, else
+    // the Policy Owner), so it must be able to tell vacancy from holding.
+    expect(roleHandles({ policyOwner: "@polly" }, [])["Check Owner"], "vacant Check Owner → empty").to.equal("");
+    expect(roleHandles({}, []), "no holders → both framework roles, vacant").to.deep.equal({ "Policy Owner": "", "Check Owner": "" });
   });
 });
 

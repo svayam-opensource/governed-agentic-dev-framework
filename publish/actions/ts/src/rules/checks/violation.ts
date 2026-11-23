@@ -18,7 +18,7 @@
 import type { RuleRow } from "../model/rule-row.js";
 import type { CheckVerdict, EventContext, RuleSet } from "../model/contracts.js";
 import { handleKey } from "./payload.js";
-import { POLICY_OWNER, SELF_MERGED_SOLO, soloMode } from "./policy-actions.js";
+import { actingPolicyOwner, POLICY_OWNER, SELF_MERGED_SOLO, soloMode } from "./policy-actions.js";
 import type { RedMerge } from "./gh-actions.js";
 
 export const VIOLATION_LABEL = "gov-violation";
@@ -79,7 +79,7 @@ const undoLine = (undo: string | null, state: UndoState | "pending"): string => 
 
 function issueFor(input: ViolationInput, undo: string | null, state: UndoState | "pending"): ViolationIssue {
   const { row, ctx, verdict, rules, runUrl } = input;
-  const owner = rules.roles?.[POLICY_OWNER];
+  const owner = actingPolicyOwner(rules);   // a vacant Policy Owner's alternate (Q46 A)
   const assignee = owner ? handleKey(owner) : "";
   const prefix = `gov-violation: ${row.id} `;
   const body = [
@@ -147,7 +147,7 @@ export const redMergeMarker = (pr: number): string => `<!-- gov-red-merge pr=${p
 
 /** The record for one red merge. Pure. */
 export function redMergeIssue(m: RedMerge, rules: RuleSet, runUrl?: string): ViolationIssue {
-  const owner = rules.roles?.[POLICY_OWNER];
+  const owner = actingPolicyOwner(rules);   // a vacant Policy Owner's alternate (Q46 A)
   const assignee = owner ? handleKey(owner) : "";
   const ids = [...new Set(m.failed.map((f) => f.rule))];
   let title = `gov-violation: PR #${m.pr} merged with failing gov checks (${ids.join(", ")})`;
@@ -244,7 +244,7 @@ export interface SoloModePorts {
 
 /** The banner. Pure. */
 export function soloBannerIssue(rules: RuleSet): ViolationIssue {
-  const owner = rules.roles?.[POLICY_OWNER];
+  const owner = actingPolicyOwner(rules);   // a vacant Policy Owner's alternate (Q46 A)
   const assignee = owner ? handleKey(owner) : "";
   const body = [
     `This organization is in **solo mode**: nobody other than ${assignee ? `@${assignee}` : "one person"} holds a role or is a role's alternate, so nobody else can approve a change. Nobody approves their own work, so every change is still checked and still fails that check — but under soft posture a merge past it is recorded honestly, as **${SELF_MERGED_SOLO}**, and not as a violation.`,

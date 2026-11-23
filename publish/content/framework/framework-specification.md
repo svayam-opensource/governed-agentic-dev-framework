@@ -203,8 +203,8 @@ The framework asks only that the answers be **written down, with names**, in
 ### 2.4 When a role falls vacant
 
 The framework's two roles must always have a named holder. Setup will not finish without both.
-`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, the Policy Owner does
-that work. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
+`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, its alternate does
+that work, or the Policy Owner when it has none. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
 vacancy falls to the Policy Owner until someone is named.
 
 ### 2.5 Every role has an alternate
@@ -215,6 +215,12 @@ Check Owner's alternates are `policy_owner.alternate` and `check_owner.alternate
 `policies/governance.yaml`. Every other role's is the Alternate column of the role table in
 `policies/common/authorized-representatives.md`. A role table written before the column existed still works;
 its roles have no alternate.
+
+An alternate also stands in while its role is vacant, and that includes the framework's two roles. While
+the Policy Owner role is vacant, its alternate acts as the Policy Owner for approvals: it approves changes to
+who owns what and to `policies/governance.yaml`, and it takes every vacant role that has no alternate of its
+own. The role still needs a holder, and `gov doctor` keeps reporting it until it has one. With no alternate,
+a vacant role behaves as before.
 
 The Policy Owner appoints an alternate by pull request, like any holder. An agent never appoints anybody.
 `gov doctor` lists every role that has no alternate, as advice rather than a failure.
@@ -318,8 +324,9 @@ each section's owner to review, and requires every one of them to approve. There
 
 **Nobody approves their own change.** When the person who must approve is the author, or the role has
 nobody in it, the role's **alternate** approves instead (§2.5), as long as one is named and is not the author.
-Without an alternate, a vacant role falls to the Policy Owner, and a change whose only approver is its author
-falls to the Policy Owner, then to the Check Owner. The request for review says which: for example, "its owner
+Without an alternate, a vacant role falls to the Policy Owner (or, while the Policy Owner role is vacant, to
+its alternate), and a change whose only approver is its author falls to the Policy Owner, then to the Check
+Owner. The request for review says which: for example, "its owner
 is the author, so its alternate approves". When nobody but the author holds any role or alternate, nobody can
 approve the change; §11.1 says what happens to it then.
 

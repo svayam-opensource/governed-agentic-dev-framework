@@ -23,7 +23,7 @@ import type { Diagnostic } from "./doctor.js";
 import { CHECK_OWNER, normalizeHandle, renderCodeowners, codeownersDrift } from "../config/codeowners.js";
 import { CHECK_OWNER_ROLE, POLICY_OWNER_ROLE, ROLE_LIST_PATH, resolveRoles, roleAlternates, roleHandles } from "../config/role-list.js";
 import { GOVERNANCE_PATH, frameworkAlternates, frameworkOwners, parseGovernance } from "../config/governance.js";
-import { soloMode } from "../rules/checks/policy-actions.js";
+import { actingPolicyOwner, soloMode } from "../rules/checks/policy-actions.js";
 
 const owners = (governanceText: string | null): { policy: string | null; check: string | null } => {
   const o = frameworkOwners(parseGovernance(governanceText));
@@ -39,9 +39,12 @@ export function checkOwnerDiagnostic(governanceText: string | null | undefined):
   const { policy, check } = owners(governanceText);
   const name = "check owner";
   if (check === null) {
+    // Q46 A: a vacant Check Owner's alternate approves the code in its place; with none, the Policy Owner does.
+    const alt = normalizeHandle(frameworkAlternates(parseGovernance(governanceText)).checkOwnerAlternate);
     return {
       name, status: "warn",
-      detail: `vacant — \`${CHECK_OWNER.key}\` is empty in ${GOVERNANCE_PATH}, so the Policy Owner${policy ? ` (${policy})` : ""} also approves the code of`
+      detail: `vacant — \`${CHECK_OWNER.key}\` is empty in ${GOVERNANCE_PATH}, so `
+        + (alt ? `its alternate (${alt}) approves the code of` : `the Policy Owner${policy ? ` (${policy})` : ""} also approves the code of`)
         + ` the org's check actions (policies/actions/, GOV-FRM-033). Name a reviewer of code there and re-run \`gov upgrade\`.`,
     };
   }
@@ -61,11 +64,18 @@ export function policyOwnerDiagnostic(governanceText: string | null | undefined)
   if (governanceText === undefined) return null;
   const { policy } = owners(governanceText);
   if (policy === null) {
+    // Q46 A: while the role is vacant its alternate acts as the Policy Owner for approvals — but the role still needs
+    // a holder: CODEOWNERS cannot be generated without one. Still a failure, worded for what does and does not work.
+    const alt = governanceText === null ? null : normalizeHandle(frameworkAlternates(parseGovernance(governanceText)).policyOwnerAlternate);
     return {
       name: "policy owner", status: "fail",
       detail: (governanceText === null ? `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves the governance choices there from org-config.yaml. ` : "")
-        + "vacant — `policy_owner.github` is empty, so no policy change has an approver, no vacant role has anyone to"
-        + ` fall to, and CODEOWNERS cannot be generated (GOV-FRM-033). Name the Policy Owner in ${GOVERNANCE_PATH}.`,
+        + (alt
+          ? `vacant — \`policy_owner.github\` is empty. Its alternate (${alt}) approves in its place, and holds every vacant role,`
+            + " but CODEOWNERS cannot be generated without a holder (GOV-FRM-033)."
+          : "vacant — `policy_owner.github` is empty, so no policy change has an approver, no vacant role has anyone to"
+            + " fall to, and CODEOWNERS cannot be generated (GOV-FRM-033).")
+        + ` Name the Policy Owner in ${GOVERNANCE_PATH}.`,
     };
   }
   return { name: "policy owner", status: "ok", detail: `${policy} approves the rules, and holds every vacant role` };
@@ -129,14 +139,15 @@ export function alternatesDiagnostic(governanceText: string | null | undefined, 
 export function soloModeDiagnostic(governanceText: string | null | undefined, roleListText: string | null | undefined): Diagnostic | null {
   if (governanceText === undefined) return null;
   const gov = parseGovernance(governanceText);
-  if (!gov.policyOwner.github) return null;   // the policy-owner row already fails; nobody is named at all
   const roles = resolveRoles(roleListText ?? null).roles;
   const rules = { roles: roleHandles(frameworkOwners(gov), roles), alternates: roleAlternates(frameworkAlternates(gov), roles) };
+  const acting = actingPolicyOwner(rules);   // a vacant Policy Owner's alternate acts for it (Q46 A)
+  if (!acting) return null;   // the policy-owner row already fails; nobody is named at all
   if (!soloMode(rules)) return null;
   const hard = gov.posture.posture === "hard";
   return {
     name: "solo mode", status: "warn",
-    detail: `nobody but ${normalizeHandle(gov.policyOwner.github) ?? gov.policyOwner.github} holds a role or alternate, so nobody else can approve a change.`
+    detail: `nobody but ${normalizeHandle(acting) ?? acting} holds a role or alternate, so nobody else can approve a change.`
       + (hard ? " Under hard posture such a change cannot merge." : " Under soft posture a merge with no second approver is recorded as \"self-merged: no second person\", not as a violation.")
       + ` Name a second person — a Check Owner or an alternate — in ${GOVERNANCE_PATH} to end it.`,
   };

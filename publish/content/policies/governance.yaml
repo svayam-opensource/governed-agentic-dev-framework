@@ -20,7 +20,7 @@ policy_owner:
   alternate: ""
 
 # THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
-# Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
+# Left empty, the role is vacant and its alternate (else the Policy Owner) approves that code. One person in both roles turns the
 # two-key review off; `gov doctor` says so. alternate: who approves when the Check Owner wrote the change.
 check_owner:
   github: ""

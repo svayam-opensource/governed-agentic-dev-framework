@@ -164,8 +164,13 @@ export function requiredSectionOwners(
 ): RequiredSectionOwners {
   const tag = options.tag ?? "GOV-FRM-455";
   const roles = rules.roles ?? {};
-  const policyOwner = roles[POLICY_OWNER];
-  if (!policyOwner || !handleKey(policyOwner)) return { owners: [], notes: [`${tag}: the Policy Owner has no handle, so nobody could be asked to approve.`] };
+  // A VACANT POLICY OWNER (Policy Owner ruling Q46 A, 2026-11-23): its alternate acts as the Policy Owner for routing —
+  // the fallback for every vacant role, and the approver of ownership and governance changes. With neither, nobody.
+  const policyOwner = actingPolicyOwner(rules);
+  if (!policyOwner) return { owners: [], notes: [`${tag}: the Policy Owner has no handle (and no alternate), so nobody could be asked to approve.`] };
+  const poVacant = !roles[POLICY_OWNER] || !handleKey(roles[POLICY_OWNER]!);
+  /** What a vacant role says it fell to. */
+  const fellTo = poVacant ? `the ${POLICY_OWNER}'s alternate, the ${POLICY_OWNER} being vacant` : `the ${POLICY_OWNER}`;
 
   const docs = options.docs?.length ? [...options.docs] : ["policies/**/*.md"];
   const ignore = [...MACHINE_WRITTEN_POLICY_PATHS, ...(options.ignore ?? [])];
@@ -195,10 +200,11 @@ export function requiredSectionOwners(
     const holder = roles[role];
     const alt = standIn(role);
     if (!held(holder)) {
-      if (alt) return add(alt, `${why} (${role}) — vacant, so its alternate approves`);
-      const poAlt = handleKey(policyOwner) === authorKey ? standIn(POLICY_OWNER) : undefined;
+      // The Policy Owner vacant: `policyOwner` IS its alternate (even one who is the author — the fallback after the loop).
+      if (alt || (role === POLICY_OWNER && poVacant)) return add(alt ?? policyOwner, `${why} (${role}) — vacant, so its alternate approves`);
+      const poAlt = !poVacant && handleKey(policyOwner) === authorKey ? standIn(POLICY_OWNER) : undefined;
       if (poAlt) return add(poAlt, `${why} (${role} — vacant, so the ${POLICY_OWNER}) — its owner is the author, so the ${POLICY_OWNER}'s alternate approves`);
-      return add(policyOwner, `${why} (${role} — vacant, so the ${POLICY_OWNER})`);
+      return add(policyOwner, `${why} (${role} — vacant, so ${fellTo})`);
     }
     if (authorKey && handleKey(holder) === authorKey && alt) return add(alt, `${why} (${role}) — its owner is the author, so its alternate approves`);
     return add(holder, `${why} (${role})`);
@@ -240,7 +246,7 @@ export function requiredSectionOwners(
     need.delete(authorKey);
     if (!need.size) {
       const fallbacks: [string | undefined, string][] = [
-        [policyOwner, `the ${POLICY_OWNER}`], [alternates[POLICY_OWNER], `the ${POLICY_OWNER}'s alternate`],
+        [policyOwner, poVacant ? `the ${POLICY_OWNER}'s alternate` : `the ${POLICY_OWNER}`], [alternates[POLICY_OWNER], `the ${POLICY_OWNER}'s alternate`],
         [roles[CHECK_OWNER], `the ${CHECK_OWNER}`], [alternates[CHECK_OWNER], `the ${CHECK_OWNER}'s alternate`],
       ];
       const next = fallbacks.find(([h]) => held(h) && handleKey(h) !== authorKey);
@@ -268,10 +274,21 @@ export function requiredSectionOwners(
   return { owners, notes };
 }
 
+/**
+ * WHO ACTS AS THE POLICY OWNER (Q46 A): its holder, or — while the role is vacant — its alternate. Undefined when
+ * neither is named: then nobody can be asked to approve anything. Pure.
+ */
+export function actingPolicyOwner(rules: Pick<RuleSet, "roles" | "alternates">): string | undefined {
+  const named = (h: string | undefined): h is string => !!h && !!handleKey(h);
+  const holder = rules.roles?.[POLICY_OWNER];
+  if (named(holder)) return holder;
+  const alt = rules.alternates?.[POLICY_OWNER];
+  return named(alt) ? alt : undefined;
+}
+
 export function sectionOwnerApproval(tag: string, params: Readonly<Record<string, unknown>>, ctx: EventContext, rules: RuleSet | undefined): ActionOutcome {
   if (!rules) return cannot([`${tag}: the rule set (ownership and roles) was not given, so nothing was checked.`]);
-  const policyOwner = (rules.roles ?? {})[POLICY_OWNER];
-  if (!policyOwner || !handleKey(policyOwner)) return cannot([`${tag}: the Policy Owner has no handle, so nobody could be asked to approve.`]);
+  if (!actingPolicyOwner(rules)) return cannot([`${tag}: the Policy Owner has no handle (and no alternate), so nobody could be asked to approve.`]);
   const changed = ctx.payload.changed;
   if (!Array.isArray(changed)) return cannot([`${tag}: the event carried no changeset, so nothing was checked.`]);
 
