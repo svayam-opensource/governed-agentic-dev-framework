@@ -398,7 +398,7 @@ describe("gov check run", () => {
       calls.push([repo, ...args]);
       const k = args.join(" ");
       if (k === `merge-base ${BASE} ${HEAD}`) return `${MB}\n`;
-      if (k === `show -s --format=%cs ${HEAD}`) return "2026-09-30\n";
+      if (k === `show -s --format=%ct ${HEAD}`) return "1790769600\n";   // 2026-09-30T12:00Z
       if (args[0] === "diff" && args[1] === "--name-status") return "M\tREADME.md";
       if (args[0] === "diff") return "+touched outside policies/";
       if (args[0] === "rev-parse") return args.includes("origin/main") ? "abc" : null;
