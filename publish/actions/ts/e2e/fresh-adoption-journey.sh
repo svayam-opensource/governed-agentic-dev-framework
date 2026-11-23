@@ -289,6 +289,11 @@ case "$VERDICT" in
     ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change: \"$REASON\"" ;;
   success) die "approver-check PASSED on PR #$PR_NUM with nobody's approval — the stop the home page promises did not happen" ;;
   *)
+    # What Actions did with the PR, before the teardown deletes the repository and the answer with it.
+    echo "  the repository's workflow runs (workflow, event, status, conclusion, head):"
+    gh api "repos/$E2E_ORG/$REPO/actions/runs?per_page=20" --jq '.workflow_runs[] | "    \(.name)  \(.event)  \(.status)  \(.conclusion)  \(.head_branch)@\(.head_sha[0:7])"' 2>&1 | head -20 || true
+    echo "  check runs on the PR's head ${SHA:0:7}:"
+    gh api "repos/$E2E_ORG/$REPO/commits/$SHA/check-runs" --jq '.check_runs[] | "    \(.name)  \(.status)  \(.conclusion)"' 2>&1 | head -20 || true
     case "$LAST" in *" queued "*|*" queued") die "approver-check is still QUEUED after ${STOP_DEADLINE}s — is a runner carrying $RUNS_ON online in $E2E_ORG?" ;; esac
     die "approver-check did not complete on PR #$PR_NUM within ${STOP_DEADLINE}s (last: ${LAST:-no check run})" ;;
 esac
