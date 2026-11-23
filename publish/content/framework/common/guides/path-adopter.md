@@ -58,10 +58,13 @@ templates in `policies/reference/lifecycles/ai-sdlc/`. It is yours — change it
 First-run setup made you a practice project, **Make the policy ours**. Its one task puts your organization's
 name on the policy's title page, in `policies/policy-document.yaml`. Run `gov work`, pick the project, and let
 your agent follow the task. The pull request it ends in shows a check waiting for someone other than you to
-approve it — that is the framework working, not a fault. Under hard governance on a plan that allows branch
-protection, GitHub will not merge it until then. Otherwise nothing technically stops a merge past the check,
-but the check stays red where everyone can see it, so don't merge it yourself. If nobody else is in your
-organization yet, invite a teammate to approve it; there is no way to approve your own change.
+approve it — that is the framework working, not a fault. The title page is the Policy Owner's to approve, and
+you are the Policy Owner and the author, so the check waits for the **Check Owner**. Under hard governance on a
+plan that allows branch protection, GitHub will not merge it until then. Otherwise nothing technically stops a
+merge past the check, but the check stays red where everyone can see it, so don't merge it yourself. If nobody
+else is in your organization yet, invite a teammate and name them Check Owner: their GitHub handle goes in
+`check_owner.github` in [`policies/governance.yaml`](../../../policies/governance.yaml), in a pull request of its
+own. There is no way to approve your own change.
 
 - [How the framework works, chapter 7: how a change is approved and lands](../../framework-specification.md#7-how-a-change-is-approved-and-lands)
 

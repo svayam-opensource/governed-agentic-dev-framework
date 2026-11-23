@@ -292,10 +292,13 @@ Approval follows what the change touches.
 **Policy is approved section by section.** Your policy documents say, in plain English, who owns each
 section, for example *"Section 4 is owned by the Data Owner."* gov reads those sentences into
 `policies/ownership.yaml`. When a pull request changes a policy, gov works out which sections changed, asks
-each section's owner to review, and requires every one of them to approve. There are three guard rails:
+each section's owner to review, and requires every one of them to approve. There are four guard rails:
 
 - A section that names no owner belongs to the Policy Owner.
 - A change to who owns what always needs the Policy Owner. Nobody can hand a section to themselves.
+- A change to the policy's title page needs the Policy Owner. The title page is
+  `policies/policy-document.yaml`: the policy's title, who approved it, the chapter introductions and the
+  glossary.
 - An executable action under `policies/actions/` needs the Check Owner (§2.2).
 
 **Knowledge is approved folder by folder.** gov generates `CODEOWNERS` from your role list:

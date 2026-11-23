@@ -5,8 +5,9 @@
  *
  *   forbid-forced-push       GOV-FRM-466: no one force-pushes a branch others work on (default `BRNCH-*`).
  *   section-owner-approval   GOV-FRM-086c: a policy change merges only when the owner of every changed section
- *                            approves; unowned sections, ownership changes and policies/governance.yaml need the
- *                            Policy Owner; executable
+ *                            approves; unowned sections, ownership changes, policies/governance.yaml and the
+ *                            policy's title page (policies/policy-document.yaml, F142 A) need the Policy Owner;
+ *                            executable
  *                            actions (`policies/actions/**`) need the Check Owner. An ownership change is a row
  *                            added, removed, or re-pointed (doc, section, role) — a row's sha refreshed alone is
  *                            not one: the granting section's owner already approves that prose (ownership.ts).
@@ -20,6 +21,7 @@ import { asList, branchInScope, handleKey, payloadBoolean, payloadString, payloa
 import { changedSections, compareSections } from "./sections.js";
 import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "./ownership.js";
 import { GOVERNANCE_PATH } from "../../config/governance.js";
+import { POLICY_DOCUMENT_PATHS } from "../model/policy-document.js";
 
 export interface ActionOutcome {
   readonly verdict: "pass" | "miss" | "cannot-tell";
@@ -118,7 +120,8 @@ export interface RequiredSectionOwnersOptions {
 
 /**
  * WHO MUST APPROVE A POLICY CHANGE (GOV-FRM-455; Policy Owner ruling D3 A+, 2026-11-23) — the owner of every changed
- * section, the Policy Owner for unowned sections, ownership changes and governance.yaml, the Check Owner for
+ * section, the Policy Owner for unowned sections, ownership changes, governance.yaml and the policy's title page
+ * (policies/policy-document.yaml, ruling F142 A), the Check Owner for
  * executable actions; never the author. Pure: the one place this is decided, so the check and a service showing the
  * approvers (gov-licence's practice record) cannot disagree. {@link sectionOwnerApproval} compares the result with
  * the approvals.
@@ -164,6 +167,9 @@ export function requiredSectionOwners(
     // THE GOVERNANCE CHOICES (org-config split): posture, the two owners, agents, publication, models. Any change
     // needs the Policy Owner — it is how anyone would otherwise make themselves an approver.
     if (f.path === GOVERNANCE_PATH) { require(POLICY_OWNER, `\`${f.path}\` (governance choices)`); continue; }
+    // THE POLICY'S TITLE PAGE (Policy Owner ruling F142 A, 2026-11-23): its title, approved_by, the chapter
+    // introductions and the glossary are the organization's word on the whole policy, owned by no one section.
+    if (f.path === POLICY_DOCUMENT_PATHS.org) { require(POLICY_OWNER, `\`${f.path}\` (the policy's title page)`); continue; }
     if (matchesAny(f.path, ["policies/actions/**"])) { require(CHECK_OWNER, `\`${f.path}\` (executable action)`); continue; }
     if (!matchesAny(f.path, docs)) continue;
     if (!baseTexts || !(f.path in baseTexts)) { notes.push(`${tag}: \`${f.path}\` at the base was not given, so its changed sections are unknown.`); continue; }

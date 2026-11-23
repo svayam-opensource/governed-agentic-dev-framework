@@ -164,7 +164,7 @@
 
 # W2-Q7
 - id: GOV-FRM-083
-  source: { doc: framework/framework-specification.md, section: "7.2", sha: "cc53f99" }
+  source: { doc: framework/framework-specification.md, section: "7.2", sha: "2cd05f4" }
   expectation: "gov generates CODEOWNERS so that every folder of knowledge/ and policies/ routes to a named owner, falling back to the Policy Owner, and policies/actions/ routes to the Check Owner."
   statement: "Every area of the organization's knowledge and policy must have a named owner who reviews changes to it. Where none is named, the Policy Owner is the owner, and the Check Owner reviews the automated checks."
   chapter: 2
@@ -560,7 +560,7 @@
 
 # W2-Q8
 - id: GOV-FRM-455
-  source: { doc: framework/framework-specification.md, section: "7.2", sha: "cc53f99" }
+  source: { doc: framework/framework-specification.md, section: "7.2", sha: "2cd05f4" }
   expectation: "The owner of every changed policy section approves a policy pull request before it merges; the Policy Owner approves unowned sections and ownership changes, and the Check Owner approves executable actions."
   statement: "A policy change must be approved, before it takes effect, by the owner of each section it changes. The Policy Owner approves sections without an owner and changes to ownership, and the Check Owner approves automated checks."
   chapter: 2

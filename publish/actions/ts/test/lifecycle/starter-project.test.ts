@@ -182,3 +182,18 @@ describe("F136 — the practice project is reused, not re-created (walk #5)", ()
     expect(practiceSummary(r).join("\n")).to.match(/could not check/i);
   });
 });
+
+// POLICY OWNER RULING F142 A (2026-11-23): the title page is the Policy Owner's; the adopter is the Policy Owner and the
+// author, so the pull request waits for the Check Owner — the teammate is named Check Owner in governance.yaml.
+describe("F142 A — the practice pull request waits for the Check Owner", () => {
+  for (const e of ["enforced", "soft", "unprotectable"] as const) {
+    it(`${e}: says the Check Owner approves, and how a teammate is named Check Owner`, () => {
+      const body = practiceTask("Acme Ltd", e).body;
+      expect(body).to.match(/title page is the Policy Owner's to approve/);
+      expect(body).to.match(/asks the \*\*Check Owner\*\* to approve it instead/);
+      expect(body).to.contain("Name a second person as Policy Owner or Check Owner");
+      expect(body).to.match(/name them Check Owner: put their GitHub handle in `check_owner\.github` in `policies\/governance\.yaml`/);
+      expect(body).to.match(/Check Owner approves it\.$/);
+    });
+  }
+});

@@ -14,7 +14,9 @@
  * practice project is an ordinary project and every verb treats it as one. The task issue tells the agent to make
  * the change with `gov rules propose`, and says ahead of time that the pull request will stop and wait for someone
  * else's approval — that stop is what the exercise shows. There is no way round it for a solo organization; the
- * issue says to invite a teammate (Q38 B+).
+ * issue says to invite a teammate (Q38 B+). The title page is the Policy Owner's (ruling F142 A), and the adopter is
+ * the Policy Owner and the author, so the check asks the Check Owner: the teammate is named Check Owner in
+ * policies/governance.yaml.
  *
  * It replaced the "Create it? [y/N]" starter project (#186), which made a board and a plain issue — no anchor, no
  * project branch — and only when asked. Joiners never get it: their first project is one they are assigned to.
@@ -24,7 +26,7 @@ import { createGovProject, type ProjectEnv } from "../project/create.js";
 import { boardListsAnchor } from "../project/board-wait.js";
 import { DEFAULT_ANCHOR_LABEL } from "./anchor.js";
 import { log } from "../log.js";
-import type { GovernancePosture } from "../config/governance.js";
+import { GOVERNANCE_PATH, type GovernancePosture } from "../config/governance.js";
 import type { ProtectionFacts } from "./branch-protection.js";
 
 /** The board's title — and so the project id's slug, `make-the-policy-ours`. */
@@ -126,14 +128,20 @@ export function practiceTask(orgName: string, enforcement: PracticeEnforcement =
       "change. Nobody approves their own work here — not the author, not the Policy Owner, not an administrator.",
       "Seeing gov stop your own change is what this exercise is for.",
       "",
+      "The policy's title page is the Policy Owner's to approve. Setup made you the Policy Owner, and you made",
+      "this change, so the check asks the **Check Owner** to approve it instead. If you are the Check Owner as",
+      "well, or nobody is, the check says: \"Name a second person as Policy Owner or Check Owner\".",
+      "",
       ...STOP_TEXT[enforcement],
       "",
-      "If you are the only person in your organization so far, invite a teammate and ask them to review and",
-      "approve it. There is no way to approve it yourself, and no exception for it: a policy its author could",
-      "approve alone would not be governed.",
+      "If you are the only person in your organization so far, invite a teammate to your GitHub organization",
+      `and name them Check Owner: put their GitHub handle in \`check_owner.github\` in \`${GOVERNANCE_PATH}\`.`,
+      "That file is policy too, so naming them is a pull request of its own. Then ask them to review and",
+      "approve this one. There is no way to approve it yourself, and no exception for it: a policy its author",
+      "could approve alone would not be governed.",
       "",
       "Once the pull request is waiting for that approval, the practice is done. The change merges when your",
-      "teammate approves it.",
+      "Check Owner approves it.",
     ].join("\n"),
   };
 }
