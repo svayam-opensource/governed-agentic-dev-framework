@@ -548,6 +548,7 @@ jobs:
           # ask for its runner. svayam-e2e-3's runner carries [self-hosted, Linux, X64, svayam-e2e-3].
           E2E_RUNS_ON: ${{ vars.FRESH_ADOPT_RUNS_ON || '[self-hosted, svayam-e2e-3]' }}
           E2E_LEDGER: ${{ runner.temp }}/fresh-ledger.env
+          E2E_ARTIFACTS: ${{ runner.temp }}/fresh-artifacts
         run: |
           if [ "$RUN" != true ]; then echo "fresh-adoption journey not run — the guard step says why"; exit 0; fi
           sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq expect >/dev/null
@@ -564,6 +565,14 @@ jobs:
         run: |
           if [ "$RUN" != true ]; then echo "fresh-adoption journey not run — nothing to tear down"; exit 0; fi
           bash publish/actions/ts/e2e/fresh-adoption-journey.sh teardown
+      # always(), not failure(): a step skipped on a green run would break green-streak.sh's "no step skipped".
+      - name: Fresh adoption — the first-run transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-adoption-transcript
+          path: ${{ runner.temp }}/fresh-artifacts
+          if-no-files-found: ignore
 
   # THE INSTALL-SIGNUP JOURNEY (PRJ-121 intent 02 addendum, IS-E6; spec addendum-install-signup §9, §10).
   #

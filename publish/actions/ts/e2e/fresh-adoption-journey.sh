@@ -175,6 +175,8 @@ T0=$(now)
 DRIVE_RC=0; expect "$HERE/pty/drive.exp" "$TRANSCRIPT" "$CONV" -- gov 2>"$RUN_HOME/drive.err" || DRIVE_RC=$?
 T1=$(now)
 PLAIN="$RUN_HOME/setup.txt"; perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g; s/\r//g' "$TRANSCRIPT" >"$PLAIN"
+# The transcript outlives the run's HOME: the workflow uploads E2E_ARTIFACTS, so a failure can be read afterwards.
+if [ -n "${E2E_ARTIFACTS:-}" ]; then mkdir -p "$E2E_ARTIFACTS"; cp "$PLAIN" "$E2E_ARTIFACTS/setup-transcript.txt" 2>/dev/null || true; fi
 if [ "$DRIVE_RC" -ne 0 ]; then
   sed 's/^/    /' "$RUN_HOME/drive.err"; echo "  --- the last of the interview ---"; tail -40 "$PLAIN" | sed 's/^/    /'
   die "the first-run interview did not finish (drive.exp exited $DRIVE_RC)"
@@ -184,8 +186,20 @@ grep -qF "Your practice project" "$PLAIN" || { tail -40 "$PLAIN" | sed 's/^/    
 gh api "repos/$E2E_ORG/$REPO" --silent 2>/dev/null && ok "setup created $E2E_ORG/$REPO" || die "setup did not create $E2E_ORG/$REPO"
 gh api "repos/$E2E_ORG/$REPO/contents/.github/workflows/approver-check.yml" --silent 2>/dev/null \
   && ok "the setup commit carries the approval check" || die "the default branch has no .github/workflows/approver-check.yml"
-PROJ_NUM="$(org_projects | awk -F'\t' -v t="$PRACTICE_TITLE" '$2 == t && $4 == "false" { print $1 }' | head -1)"
-[ -n "$PROJ_NUM" ] && ok "practice board #$PROJ_NUM \"$PRACTICE_TITLE\"" || die "no open \"$PRACTICE_TITLE\" board in $E2E_ORG after setup"
+# Polled: GitHub's project list can lag a board just made. On a miss, what the org holds and what setup SAID about it.
+PROJ_NUM=""; BOARDS=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  BOARDS="$(org_projects 2>&1 || true)"
+  PROJ_NUM="$(printf '%s\n' "$BOARDS" | awk -F'\t' -v t="$PRACTICE_TITLE" '$2 == t && $4 == "false" { print $1 }' | head -1)"
+  [ -n "$PROJ_NUM" ] && break
+  sleep 5
+done
+if [ -z "$PROJ_NUM" ]; then
+  echo "  the org's projects (number, title, created, closed):"; printf '%s\n' "${BOARDS:-<none>}" | sed 's/^/    /'
+  echo "  what setup said about the practice project:"; sed -n '/practice project/,/^$/p' "$PLAIN" | head -20 | sed 's/^/    /'
+  die "no open \"$PRACTICE_TITLE\" board in $E2E_ORG after setup (polled 60s)"
+fi
+ok "practice board #$PROJ_NUM \"$PRACTICE_TITLE\""
 ledger PROJ_NUM
 ANCHOR="$(gh api "repos/$E2E_ORG/$REPO/issues?state=open&labels=anchor,practice" --jq '.[0].html_url // empty' 2>/dev/null || true)"
 [ -n "$ANCHOR" ] && ok "anchor labelled anchor + practice: $ANCHOR" || die "no open issue labelled anchor,practice in $E2E_ORG/$REPO"
