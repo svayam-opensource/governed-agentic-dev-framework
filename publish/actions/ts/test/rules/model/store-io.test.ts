@@ -134,7 +134,7 @@ describe("rule model — W1 store reader", () => {
     files[RULE_STORE_PATHS.orgConfig] = `${ORG_CONFIG}policy_owner_github: "@stale"\ndata_arch_owner_github: "@dana"\n`;
     files[RULE_STORE_PATHS.governance] = 'policy_owner:\n  github: "@polly"\n';
     const r = loadRuleStores(fakeGit(files), "/repo", "main");
-    expect(r.ok && r.set.roles).to.deep.equal({ "Policy Owner": "@polly", "Check Owner": "@polly" });
+    expect(r.ok && r.set.roles).to.deep.equal({ "Policy Owner": "@polly", "Check Owner": "" });
   });
 
   it("an org with no rules yet is an EMPTY org store, not a failure — and its version defaults to 0.0.0", () => {

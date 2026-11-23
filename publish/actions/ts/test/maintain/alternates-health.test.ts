@@ -5,7 +5,7 @@
 // alternate is reported, advisory (warn), the way a vacant Check Owner is. Solo mode — nobody but one person named in
 // any role or alternate — is reported too, saying what it means under the posture.
 import { expect } from "chai";
-import { alternatesDiagnostic, soloModeDiagnostic } from "../../src/maintain/roles-health.js";
+import { alternatesDiagnostic, checkOwnerDiagnostic, policyOwnerDiagnostic, soloModeDiagnostic } from "../../src/maintain/roles-health.js";
 
 const gov = (o: { posture?: string; po?: string; poAlt?: string; co?: string; coAlt?: string } = {}) =>
   `governance_posture: "${o.posture ?? "soft"}"\npolicy_owner:\n  github: "${o.po ?? "polly"}"\n  alternate: "${o.poAlt ?? ""}"\ncheck_owner:\n  github: "${o.co ?? ""}"\n  alternate: "${o.coAlt ?? ""}"\n`;
@@ -46,5 +46,24 @@ describe("gov doctor — solo mode (Q45 C)", () => {
   });
   it("no Policy Owner → no row (the policy-owner row fails already)", () => {
     expect(soloModeDiagnostic(gov({ po: "" }), null)).to.equal(null);
+  });
+});
+
+// POLICY OWNER RULING Q46 A (2026-11-23): a vacant framework role's alternate stands in; doctor says so.
+describe("gov doctor — a vacant framework role with an alternate (Q46 A)", () => {
+  it("a vacant Check Owner names its alternate as the one who approves the code", () => {
+    const d = checkOwnerDiagnostic(gov({ coAlt: "cora" }))!;
+    expect(d.status).to.equal("warn");
+    expect(d.detail).to.contain("its alternate (@cora) approves the code of").and.not.contain("Policy Owner (");
+    expect(checkOwnerDiagnostic(gov())!.detail).to.contain("the Policy Owner (@polly) also approves");
+  });
+  it("a vacant Policy Owner with an alternate still fails (no CODEOWNERS), but says the alternate approves", () => {
+    const d = policyOwnerDiagnostic(gov({ po: "", poAlt: "pat" }))!;
+    expect(d.status).to.equal("fail");
+    expect(d.detail).to.contain("Its alternate (@pat) approves in its place").and.contain("CODEOWNERS cannot be generated");
+    expect(policyOwnerDiagnostic(gov({ po: "" }))!.detail).to.contain("no policy change has an approver");
+  });
+  it("solo mode with a vacant Policy Owner whose alternate is the only person named", () => {
+    expect(soloModeDiagnostic(gov({ po: "", poAlt: "pat" }), null)!.detail).to.contain("nobody but @pat");
   });
 });

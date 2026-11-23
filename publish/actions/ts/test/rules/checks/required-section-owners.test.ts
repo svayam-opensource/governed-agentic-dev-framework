@@ -5,7 +5,7 @@
 // `requiredSectionOwners` is what section-owner-approval (GOV-FRM-455) decides with; a service showing the approvers
 // (gov-licence's practice record) calls the same function, so the two never disagree.
 import { expect } from "chai";
-import { requiredSectionOwners, sectionOwnerApproval, SELF_MERGED_SOLO, soloMode, type SectionOwnersFile } from "../../../src/rules/checks/policy-actions.js";
+import { actingPolicyOwner, requiredSectionOwners, sectionOwnerApproval, SELF_MERGED_SOLO, soloMode, type SectionOwnersFile } from "../../../src/rules/checks/policy-actions.js";
 import { sectionOwnersRulesFrom } from "../../../src/rules/checks/section-owners-rules.js";
 import type { EventContext, RuleSet } from "../../../src/rules/model/contracts.js";
 
@@ -166,6 +166,67 @@ describe("requiredSectionOwners — alternates (F143 A)", () => {
   });
 });
 
+// POLICY OWNER RULING Q46 A (PRJ-121, 2026-11-23): a vacant Policy Owner or Check Owner is stood in for by its alternate,
+// the same as the org's own roles. With no alternate, as before.
+describe("requiredSectionOwners — the framework roles vacant (Q46 A)", () => {
+  const action = [file("policies/actions/lint/run.sh", "echo")];
+  const gov = [file("policies/governance.yaml", "x: 1\n")];
+
+  it("a vacant Check Owner with an alternate → the alternate approves the action, not the Policy Owner", () => {
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "@polly", "Check Owner": "" }, alternates: { "Check Owner": "@cora" } }, action, {}, "dana");
+    expect(r.owners).to.deep.equal([{ handle: "@cora", why: ["`policies/actions/lint/run.sh` (executable action) (Check Owner) — vacant, so its alternate approves"] }]);
+  });
+
+  it("a vacant Check Owner with no alternate → the Policy Owner, as before", () => {
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "@polly", "Check Owner": "" } }, action, {}, "dana");
+    expect(r.owners).to.deep.equal([{ handle: "@polly", why: ["`policies/actions/lint/run.sh` (executable action) (Check Owner — vacant, so the Policy Owner)"] }]);
+  });
+
+  const vacantPo = { ownership, roles: { "Policy Owner": "", "Check Owner": "@chuck", "Data Owner": "@dana", "Engineering Owner": "" }, alternates: { "Policy Owner": "@pat" } };
+
+  it("a vacant Policy Owner with an alternate: no 'no handle' stop — the alternate approves governance and ownership changes", () => {
+    const r = requiredSectionOwners(vacantPo, gov, {}, "dana");
+    expect(r.notes).to.deep.equal([]);
+    expect(r.owners).to.deep.equal([{ handle: "@pat", why: ["`policies/governance.yaml` (governance choices) (Policy Owner) — vacant, so its alternate approves"] }]);
+  });
+
+  it("…and is the fallback for a vacant org role, and for an unowned section", () => {
+    const r = requiredSectionOwners(vacantPo, [edit("Only listed.", "Only listed ones."), edit("x\n", "y\n")], { [DOC]: BASE }, "dana");
+    expect(r.owners.map((o) => o.handle)).to.deep.equal(["@pat"]);
+    expect(r.owners[0]!.why).to.deep.equal([
+      "`policies/org-policy.md` §3.1 (Engineering Owner — vacant, so the Policy Owner's alternate, the Policy Owner being vacant)",
+      "`policies/org-policy.md` §6 (Policy Owner) — vacant, so its alternate approves",
+    ]);
+  });
+
+  it("…and when the alternate is the author, the Check Owner approves instead", () => {
+    const r = requiredSectionOwners(vacantPo, gov, {}, "pat");
+    expect(r.owners).to.deep.equal([{ handle: "@chuck", why: ["`policies/governance.yaml` (governance choices) (Policy Owner) — vacant, so its alternate approves — its owner is the author, so the Check Owner approves instead"] }]);
+  });
+
+  it("a vacant Policy Owner and no alternate → still 'no handle', as before", () => {
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "", "Check Owner": "@chuck" } }, gov, {}, "dana");
+    expect(r.owners).to.deep.equal([]);
+    expect(r.notes.join()).to.contain("Policy Owner has no handle");
+  });
+
+  it("the check runs with the alternate as acting Policy Owner, and a violation record goes to them", () => {
+    const ctx: EventContext = { resource: "vcs.gov-repo", event: "pull_request", payload: { changed: gov.map((f) => ({ ...f, addedLines: [] })), baseTexts: {}, author: "dana", approvals: [] } as EventContext["payload"] };
+    const full = { framework: [], org: [], orgScope: "SVM", orgVersion: "1.0.0", catalog: { actions: [] }, ...vacantPo } as unknown as RuleSet;
+    expect(sectionOwnerApproval("GOV-FRM-455", {}, ctx, full).requestReview).to.deep.equal(["pat"]);
+    expect(actingPolicyOwner(vacantPo)).to.equal("@pat");
+    expect(actingPolicyOwner({ roles: { "Policy Owner": "@polly" }, alternates: { "Policy Owner": "@pat" } })).to.equal("@polly");
+    expect(actingPolicyOwner({ roles: { "Policy Owner": "" } })).to.equal(undefined);
+  });
+
+  it("solo mode stays right: a vacant Policy Owner's alternate who is the only person named, as author → solo", () => {
+    const r = requiredSectionOwners({ ownership, roles: { "Policy Owner": "", "Check Owner": "" }, alternates: { "Policy Owner": "@pat" }, posture: "soft" }, gov, {}, "pat");
+    expect(r.solo).to.equal(true);
+    expect(r.selfApprovedMiss).to.contain(SELF_MERGED_SOLO);
+    expect(soloMode({ roles: { "Policy Owner": "", "Check Owner": "" }, alternates: { "Policy Owner": "@pat" } }, "dana")).to.equal(false);
+  });
+});
+
 // POLICY OWNER RULING Q45 C (PRJ-121, 2026-11-23): SOLO MODE. Nobody approves their own work — unchanged. Under soft
 // posture, while nobody but the author holds any role or alternate, the miss says so in words the push reads back.
 describe("requiredSectionOwners — solo mode (Q45 C)", () => {
@@ -225,11 +286,11 @@ describe("sectionOwnersRulesFrom — the rule set's ownership and roles from the
   const roleList = "# Reps\n\n| Role | GitHub handle | Owns |\n|------|---------------|------|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal | vacant | |\n";
   const own = '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "0000004" }\n';
 
-  it("roles as the check loads them: a vacant Check Owner reads as the Policy Owner, a vacant org role as empty", () => {
+  it("roles as the check loads them: a vacant role — the Check Owner too (Q46 A) — as empty; the check routes it", () => {
     const r = sectionOwnersRulesFrom({ governance, roleList, ownership: own });
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
-    expect(r.rules.roles).to.deep.equal({ "Policy Owner": "polly", "Check Owner": "polly", "Data Owner": "@dana", Legal: "" });
+    expect(r.rules.roles).to.deep.equal({ "Policy Owner": "polly", "Check Owner": "", "Data Owner": "@dana", Legal: "" });
     expect(r.rules.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }]);
     const owners = requiredSectionOwners(r.rules, [edit("Keep it safe.", "Keep.")], { [DOC]: BASE }, undefined).owners;
     expect(owners).to.deep.equal([{ handle: "@dana", why: ["`policies/org-policy.md` §4 (Data Owner)"] }]);

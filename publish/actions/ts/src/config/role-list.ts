@@ -216,16 +216,17 @@ export function resolveRoles(roleListText: string | null | undefined): ResolvedR
 }
 
 /**
- * Role → handle, the shape `RuleSet.roles` carries. The Policy Owner and Check Owner ALWAYS come from governance.yaml
- * (a vacant Check Owner reads as the Policy Owner, GOV-FRM-033); every org role is present by name, a vacant one as
- * `""` — so a check routes it to the Policy Owner, and propose still knows the role exists.
+ * Role → handle, the shape `RuleSet.roles` carries. The Policy Owner and Check Owner ALWAYS come from governance.yaml;
+ * every role is present by name, a vacant one as `""` — the framework's two included (Policy Owner ruling Q46 A,
+ * 2026-11-23), so a check can tell vacancy from holding and route a vacant role to its alternate. With no alternate,
+ * a vacant Check Owner (or org role) still falls to the Policy Owner (GOV-FRM-033) — the check does that, not this —
+ * and propose still knows the role exists.
  */
 export function roleHandles(owners: { readonly policyOwner?: string | null; readonly checkOwner?: string | null }, roles: readonly RoleHolder[]): Record<string, string> {
-  const policyOwner = (owners.policyOwner ?? "").trim();
-  const checkOwner = (owners.checkOwner ?? "").trim() || policyOwner;
-  const out: Record<string, string> = {};
-  if (policyOwner) out[POLICY_OWNER_ROLE] = policyOwner;
-  if (checkOwner) out[CHECK_OWNER_ROLE] = checkOwner;
+  const out: Record<string, string> = {
+    [POLICY_OWNER_ROLE]: (owners.policyOwner ?? "").trim(),
+    [CHECK_OWNER_ROLE]: (owners.checkOwner ?? "").trim(),
+  };
   for (const r of roles) if (!(r.role in out)) out[r.role] = r.holder ?? "";
   return out;
 }

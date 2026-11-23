@@ -69,7 +69,7 @@
 
 # framework half (W2-Q5); the org half is seeded in authorized-representatives.md
 - id: GOV-FRM-033
-  source: { doc: framework/framework-specification.md, section: "2.4", sha: "b7dbb53" }
+  source: { doc: framework/framework-specification.md, section: "2.4", sha: "f1ba88f" }
   expectation: "Setup refuses to finish until the Policy Owner and the Check Owner each have a named holder, and gov doctor reports either role when it is vacant."
   statement: "This policy must always have a Policy Owner and a Check Owner assigned."
   chapter: 2
@@ -164,7 +164,7 @@
 
 # W2-Q7
 - id: GOV-FRM-083
-  source: { doc: framework/framework-specification.md, section: "7.2", sha: "fb48c36" }
+  source: { doc: framework/framework-specification.md, section: "7.2", sha: "c990848" }
   expectation: "gov generates CODEOWNERS so that every folder of knowledge/ and policies/ routes to a named owner, falling back to the Policy Owner, and policies/actions/ routes to the Check Owner."
   statement: "Every area of the organization's knowledge and policy must have a named owner who reviews changes to it. Where none is named, the Policy Owner is the owner, and the Check Owner reviews the automated checks."
   chapter: 2
@@ -560,7 +560,7 @@
 
 # W2-Q8
 - id: GOV-FRM-455
-  source: { doc: framework/framework-specification.md, section: "7.2", sha: "fb48c36" }
+  source: { doc: framework/framework-specification.md, section: "7.2", sha: "c990848" }
   expectation: "The owner of every changed policy section approves a policy pull request before it merges; the Policy Owner approves unowned sections and ownership changes, and the Check Owner approves executable actions."
   statement: "A policy change must be approved, before it takes effect, by the owner of each section it changes. The Policy Owner approves sections without an owner and changes to ownership, and the Check Owner approves automated checks."
   chapter: 2

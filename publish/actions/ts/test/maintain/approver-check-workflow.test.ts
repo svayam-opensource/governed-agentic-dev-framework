@@ -72,6 +72,17 @@ describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)",
     expect(r.code, r.out).to.equal(0);
   });
 
+  it("Q46 A: a vacant Policy Owner's alternate is an authorized representative — the list is not empty, and they approve", () => {
+    const r = run({ governance: gov("soft", "", "pat", "chuck") }, "chuck", ["pat"]);
+    expect(r.code, r.out).to.equal(0);
+    expect(r.out).to.contain("approved by pat");
+  });
+
+  it("Q46 A: a vacant Check Owner's alternate approves", () => {
+    const r = run({ governance: gov("hard", "polly").replace('check_owner:\n  github: ""\n  alternate: ""', 'check_owner:\n  github: ""\n  alternate: "cora"') }, "polly", ["cora"]);
+    expect(r.code, r.out).to.equal(0);
+  });
+
   it("SOFT, nobody but the author holds a role or alternate: still fails, saying self-merged: no second person", () => {
     const r = run({ governance: gov("soft", "solo"), roles: "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---|\n| Data Owner | vacant | — | |\n" }, "solo", []);
     expect(r.code).to.equal(1);
