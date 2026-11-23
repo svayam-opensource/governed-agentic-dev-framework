@@ -492,7 +492,10 @@ Reading your policy and suggesting rows is done by a language model, so your pol
 sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
 `models:`. gov can use a Claude model from Anthropic, a Gemini model from Google, or a command-line program you
 name that reads the request and prints the reply. You also decide there whether the pull request check may
-use it. Until you approve one, propose refuses and tells you where to do it. When the check does use it, gov
+use it. A change that rewords no section, such as an edit to the title page, needs no model: propose then
+writes only the new version number, the copy of the previous version and the changelog entry. When a section
+does need reading and no model is approved, propose refuses, names that section, and tells you where to
+approve one. When the check does use it, gov
 pushes its suggestion to the pull request with the repository's own token. GitHub does not re-run checks after
 such a push, so gov asks you to re-run them.
 

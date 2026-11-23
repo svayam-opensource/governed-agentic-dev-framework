@@ -31,6 +31,7 @@ import type { SectionReview } from "../policy-pr/reviewed.js";
 import type { ModelPort } from "./model-port.js";
 import type { ProposedRow, ProposalQuestion } from "./parse.js";
 import { interviewSection, type InterviewChannel, type QA, type SectionOutcome } from "./interview.js";
+import { ModelRefused } from "./providers/index.js";
 
 const PGM = "gov-work:rules:propose";
 
@@ -102,13 +103,27 @@ interface Work {
   readonly outcome: SectionOutcome | "removed";
 }
 
+/** What a refusal adds: each section the model was needed for, and why — so the person knows what asked for it. */
+function needsModelLines(plan: readonly { doc: string; section: string; read: { why: string } | null }[]): string[] {
+  const reads = plan.filter((p) => p.read !== null);
+  return [
+    `  The model is needed because ${reads.length === 1 ? "this section's" : "these sections'"} rule rows must be drafted from the text:`,
+    ...reads.map((p) => `    ${p.doc} §${p.section} — ${p.read!.why}`),
+    "  A change that rewords no numbered section (the title page in policies/policy-document.yaml, for one) needs no",
+    "  model: gov rules propose then writes only the version, the snapshot and the changelog.",
+  ];
+}
+
 export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
   const { set } = deps;
   const orgInForce = openRows(set.org);
   const fwInForce = openRows(set.framework);
   const roles = set.roles ? Object.keys(set.roles) : undefined;
-  const work: Work[] = [];
-
+  // FIRST, WHAT NEEDS READING — decided before any model is asked, so a refusal can name it (Q65 A, 2026-11-24).
+  // Nothing to read (a title-page edit, a removed section) → the model is never asked, and the deterministic
+  // writers alone finish the change.
+  type Plan = { doc: string; section: string; sha: string; rows: readonly RuleRow[]; read: { text: string; why: string } | null };
+  const plan: Plan[] = [];
   for (const d of deps.docs) {
     const head = d.head === null ? [] : policySections(d.head).filter((s) => s.section !== "");
     const baseShas = d.base === null ? null : sectionShas(d.base);
@@ -117,19 +132,33 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
     for (const s of head) {
       const rows = rowsOf(s.section);
       const stale = rows.some((r) => r.source.sha !== s.sha);
-      const changed = baseShas === null || baseShas.get(s.section) !== s.sha;
+      const isNew = baseShas === null || !baseShas.has(s.section);
+      const changed = isNew || baseShas.get(s.section) !== s.sha;
       // One run per section sha (Q16): rows that already carry this sha were settled by an earlier run.
       if (rows.length > 0 ? !stale : !(changed || deps.all)) continue;
-      const outcome = await interviewSection(
-        { doc: d.doc, section: s.section, sha: s.sha, text: s.text, rows, catalog: set.catalog, frameworkRules: fwInForce, roles, scope: set.orgScope },
-        { model: deps.model, channel: deps.channel, maxRounds: deps.maxRounds },
-      );
-      work.push({ doc: d.doc, section: s.section, sha: s.sha, rows, outcome });
+      const why = rows.length > 0 ? "its rule rows are behind its text" : isNew ? "new, with no rule rows yet" : changed ? "reworded, with no rule rows yet" : "no rule rows yet (--all)";
+      plan.push({ doc: d.doc, section: s.section, sha: s.sha, rows, read: { text: s.text, why } });
     }
 
     const present = new Set(head.map((s) => s.section));
     const gone = [...new Set(orgInForce.filter((r) => r.source.doc === d.doc && !present.has(r.source.section)).map((r) => r.source.section))];
-    for (const section of gone) work.push({ doc: d.doc, section, sha: "", rows: rowsOf(section), outcome: "removed" });
+    for (const section of gone) plan.push({ doc: d.doc, section, sha: "", rows: rowsOf(section), read: null });
+  }
+
+  const work: Work[] = [];
+  for (const p of plan) {
+    if (p.read === null) { work.push({ doc: p.doc, section: p.section, sha: p.sha, rows: p.rows, outcome: "removed" }); continue; }
+    let outcome: SectionOutcome;
+    try {
+      outcome = await interviewSection(
+        { doc: p.doc, section: p.section, sha: p.sha, text: p.read.text, rows: p.rows, catalog: set.catalog, frameworkRules: fwInForce, roles, scope: set.orgScope },
+        { model: deps.model, channel: deps.channel, maxRounds: deps.maxRounds },
+      );
+    } catch (e) {
+      if (e instanceof ModelRefused) throw new ModelRefused([...e.lines, ...needsModelLines(plan)]);
+      throw e;
+    }
+    work.push({ doc: p.doc, section: p.section, sha: p.sha, rows: p.rows, outcome });
   }
 
   const blocked: OpenSection[] = [], failed: OpenSection[] = [];
