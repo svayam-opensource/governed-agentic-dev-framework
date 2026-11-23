@@ -277,8 +277,16 @@ done
 T3=$(now)
 case "$VERDICT" in
   failure)
-    MSG="$(gh api "repos/$E2E_ORG/$REPO/check-runs/${LAST%% *}/annotations" --jq '[.[] | select(.annotation_level == "failure") | .message][0] // ""' 2>/dev/null | head -1 || true)"
-    ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change${MSG:+: \"$MSG\"}" ;;
+    # FAILED FOR THE RIGHT REASON, or it is not the stop. The first green run (2026-11-24) "stopped" on exit 127 — a
+    # command missing on the runner — which a red check alone cannot tell from gov waiting for an approval.
+    MSGS="$(gh api "repos/$E2E_ORG/$REPO/check-runs/${LAST%% *}/annotations" --jq '[.[] | select(.annotation_level == "failure") | .message] | join("\n")' 2>/dev/null || true)"
+    REASON="$(printf '%s\n' "$MSGS" | grep -m1 -E 'No approving review yet|self-merged: no second person|Name a second person|none of them is on' || true)"
+    if [ -z "$REASON" ]; then
+      echo "  approver-check's failure annotations:"; printf '%s\n' "${MSGS:-<none>}" | sed 's/^/    /'
+      case "$MSGS" in *"exit code 127"*) die "approver-check failed with exit 127 — a command it needs (gh) is missing on the runner $RUNS_ON, not gov waiting for an approval. Install the GitHub CLI on that runner's PATH and restart its service" ;; esac
+      die "approver-check failed on PR #$PR_NUM, but not because it waits for someone else's approval"
+    fi
+    ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change: \"$REASON\"" ;;
   success) die "approver-check PASSED on PR #$PR_NUM with nobody's approval — the stop the home page promises did not happen" ;;
   *)
     case "$LAST" in *" queued "*|*" queued") die "approver-check is still QUEUED after ${STOP_DEADLINE}s — is a runner carrying $RUNS_ON online in $E2E_ORG?" ;; esac
