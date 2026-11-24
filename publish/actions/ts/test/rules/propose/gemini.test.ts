@@ -151,24 +151,24 @@ describe("rules propose — the gemini adapter (generateContent over fetch)", ()
 describe("rules propose — choosing gemini", () => {
   const deps = { ci: false, anthropicKey: () => null, geminiKey: () => KEY, runCommand: () => "" };
   it("gemini with a model and a key → a Gemini model", () => {
-    const c = chooseModel({ provider: "gemini", model: "gemini-org", command: "", ciAllowed: false }, deps);
+    const c = chooseModel({ provider: "gemini", model: "gemini-org", command: "" }, deps);
     expect(c.ok).to.equal(true);
     expect(c.ok ? c.describe : "").to.contain("gemini-org").and.contain("Gemini");
   });
   it("gemini with no key → refuses, naming GEMINI_API_KEY in plain words", () => {
-    const c = chooseModel({ provider: "gemini", model: "m", command: "", ciAllowed: false }, { ...deps, geminiKey: () => null });
+    const c = chooseModel({ provider: "gemini", model: "m", command: "" }, { ...deps, geminiKey: () => null });
     expect(c.ok).to.equal(false);
     const text = c.ok ? "" : c.lines.join(" ");
     expect(text).to.contain(GEMINI_KEY_ENV).and.contain("Gemini");
     expect(GEMINI_KEY_ENV).to.equal("GEMINI_API_KEY");
   });
   it("gemini with no model → refuses, naming the provider", () => {
-    const c = chooseModel({ provider: "gemini", model: "", command: "", ciAllowed: false }, deps);
+    const c = chooseModel({ provider: "gemini", model: "", command: "" }, deps);
     expect(c.ok ? "" : c.lines.join(" ")).to.contain("`gemini`").and.contain("models.propose.model");
   });
   it("the anthropic key is never asked for when gemini is chosen", () => {
     let asked = 0;
-    chooseModel({ provider: "gemini", model: "m", command: "", ciAllowed: false }, { ...deps, anthropicKey: () => { asked++; return "x"; } });
+    chooseModel({ provider: "gemini", model: "m", command: "" }, { ...deps, anthropicKey: () => { asked++; return "x"; } });
     expect(asked).to.equal(0);
   });
 });

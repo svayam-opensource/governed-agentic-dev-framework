@@ -335,9 +335,11 @@ function adaptersRows(text: string): Diagnostic[] {
 function governanceRow(text: string | null): Diagnostic {
   if (text === null) return { name: "governance", status: "warn", detail: `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves your governance choices there from org-config.yaml` };
   const g = parseGovernance(text);
+  // A note (a setting gov no longer uses) is said, never warned: the file is still read as written.
+  const notes = g.notes.length ? `; ${g.notes.join("; ")}` : "";
   return g.problems.length
-    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}` }
-    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read` };
+    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}${notes}` }
+    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read${notes}` };
 }
 
 const MARK: Record<DiagnosticStatus, string> = { ok: "\u2713", warn: "!", fail: "\u2717" };

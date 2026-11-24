@@ -246,7 +246,6 @@ models:
     provider: "$PROVIDER"
     model: "$MODEL"
   command: "$COMMAND"
-  ci_allowed: true
 ci:
   runs_on: $RUNS_ON
 YAML
@@ -262,7 +261,7 @@ JSON
 SH
 ( cd "$G" && x gov setup --non-interactive >"$ROOT/setup.log" 2>&1 ) || { tail -15 "$ROOT/setup.log"; die "gov setup failed"; }
 ( cd "$G" && x gov upgrade --apply --from "$CONTENT_DIR" --gov-home . >"$ROOT/upgrade.log" 2>&1 ) || { tail -15 "$ROOT/upgrade.log"; die "gov upgrade failed"; }
-expect "governance.yaml kept the CI model setting through setup + upgrade" grep -q 'ci_allowed: true' "$G/policies/governance.yaml"
+expect "governance.yaml kept the approved model through setup + upgrade" grep -qF "provider: \"$PROVIDER\"" "$G/policies/governance.yaml"
 expect "governance.yaml kept the org's runner through setup + upgrade" grep -qF "runs_on: $RUNS_ON" "$G/policies/governance.yaml"
 expect "gov-validate.yml asks for the org's runner $RUNS_ON" grep -qF "runs-on: $RUNS_ON" "$G/.github/workflows/gov-validate.yml"
 expect "upgrade installed the framework rules" test -f "$G/framework/rules/rules.yaml"

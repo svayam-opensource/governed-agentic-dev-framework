@@ -246,6 +246,12 @@ describe("policies/governance.yaml — the governance row", () => {
     expect(row("governance_posture: soft\n")!.status).to.equal("ok");
     expect(row(undefined)).to.equal(undefined);
   });
+  it("Q68 A: a retired models.ci_allowed is no warning — one note that it can be deleted", () => {
+    const r = row("governance_posture: soft\nmodels:\n  propose: { provider: anthropic, model: m }\n  ci_allowed: true\n")!;
+    expect(r.status).to.equal("ok");
+    expect(r.detail).to.contain("models.ci_allowed is no longer used — you can delete it");
+    expect(row("governance_posture: soft\n")!.detail).to.not.contain("ci_allowed");
+  });
 });
 
 // PRJ-121, 2026-09-27 — GOV-FRM-447 was UNVERIFIED: nothing in src/ mentioned branch protection. It is the

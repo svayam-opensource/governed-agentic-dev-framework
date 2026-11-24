@@ -96,13 +96,20 @@ export interface GovernanceConfig {
   readonly models: {
     readonly propose: { readonly provider: string; readonly model: string };
     readonly command: string;
-    readonly ciAllowed: boolean;
   };
   /** `ci.runs_on`: the runner gov's workflows ask for. Absent or unusable → `ubuntu-latest`, `chosen: false`. */
   readonly ci: RunnerChoice;
   /** What gov could not use: bad YAML, a key it does not read, a provider it does not know. Never fatal. */
   readonly problems: readonly string[];
+  /** Not wrong, worth one line in `gov doctor`: a setting gov no longer uses that the org may delete. */
+  readonly notes: readonly string[];
 }
+
+/**
+ * `models.ci_allowed` (Q68 A, 2026-11-24): since F154 the policy pull request check never uses a model, so the
+ * setting decides nothing. An org's file may still hold it — gov ignores it (never an error) and says once it can go.
+ */
+export const CI_ALLOWED_RETIRED_NOTE = "models.ci_allowed is no longer used — you can delete it";
 
 const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v)).trim();
@@ -134,10 +141,8 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   if (provider && !(PROVIDERS as readonly string[]).includes(provider)) {
     problems.push(`models.propose.provider: "${provider}" is not one gov can call (${PROVIDERS.join(" · ")}) — no model is approved`);
   }
-  const ciRaw = models.ci_allowed;
-  if (ciRaw !== undefined && ciRaw !== null && typeof ciRaw !== "boolean") {
-    problems.push("models.ci_allowed: expected true or false — read as false");
-  }
+  const notes: string[] = [];
+  if (Object.prototype.hasOwnProperty.call(models, "ci_allowed")) notes.push(CI_ALLOWED_RETIRED_NOTE);
   let ci: RunnerChoice = DEFAULT_RUNNER;
   if (doc.ci !== undefined && doc.ci !== null) {
     if (!isMap(doc.ci)) problems.push(`ci: expected a mapping with ${RUNS_ON_KEY.split(".")[1]} (for example \`ci: { runs_on: [self-hosted, linux] }\`) — gov is using ${runsOnYaml(DEFAULT_RUNNER.runsOn)}`);
@@ -154,9 +159,10 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
     checkOwner: { github: str(co.github), alternate: str(co.alternate) },
     // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
     authorizedAgents: readAuthorizedAgents(text ?? null),
-    models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
+    models: { propose: { provider, model: str(propose.model) }, command: str(models.command) },
     ci,
     problems,
+    notes,
   };
 }
 
@@ -171,12 +177,12 @@ function defaultRead(abs: string): string | null {
 
 /**
  * THE MODEL SETTINGS `gov rules propose` READS (framework §9.3). `provider` is null when no model is approved — an
- * empty provider, or one gov cannot call. `ciAllowed` is true only when the file says exactly `true`.
+ * empty provider, or one gov cannot call.
  */
-export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string; ciAllowed: boolean } {
+export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string } {
   const p = g.models.propose.provider;
   const provider = (PROVIDERS as readonly string[]).includes(p) ? (p as ModelProvider) : null;
-  return { provider, model: g.models.propose.model, command: g.models.command, ciAllowed: g.models.ciAllowed };
+  return { provider, model: g.models.propose.model, command: g.models.command };
 }
 
 /** The framework's two built-in roles' handles, as written (CODEOWNERS and the role checks normalise them). */
@@ -209,9 +215,8 @@ const agentsText = (a: AuthorizedAgents): string =>
   a.kind === "unset" ? "the framework's defaults" : a.kind === "none" ? "none"
     : a.agents.map((x) => (x.default ? `${x.id} (default)` : x.id)).join(", ") || "none";
 const modelText = (g: GovernanceConfig): string => {
-  const { provider, model, command, ciAllowed } = modelSettings(g);
-  const which = provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
-  return `${which}; CI ${ciAllowed ? "may" : "may not"} use it`;
+  const { provider, model, command } = modelSettings(g);
+  return provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
 };
 
 /**
@@ -295,13 +300,12 @@ authorized_agents:
 #   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
 #   propose.model      the model id, for the anthropic and gemini providers.
 #   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
-#   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
+# The policy pull request check never uses a model: propose runs at your terminal, with your key.
 models:
   propose:
     provider: ""
     model: ""
   command: ""
-  ci_allowed: false
 
 # HOW FAR \`gov autorun\` MAY GO IN ONE RUN (see the user guide running-the-lifecycle.md). Ceilings, not suggestions:
 #   item_minutes   wall-clock minutes one item's agent may run before it is stopped (\`--max-minutes\` may only lower it)

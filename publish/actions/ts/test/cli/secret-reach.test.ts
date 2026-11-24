@@ -7,7 +7,7 @@
  */
 import { expect } from "chai";
 import {
-  checkSecretNeeds, keyNameFor, readPlan, readReach, readVisibility, secretReach, writeSecrets,
+  checkSecretNeeds, readPlan, readReach, readVisibility, secretReach, writeSecrets,
   type PlanFact, type RepoFact,
 } from "../../src/cli/secret-reach.js";
 import type { GhOutcome, GhRun } from "../../src/cli/app-verb.js";
@@ -169,15 +169,5 @@ describe("checkSecretNeeds — which repo will NOT receive a secret it needs, wi
   it("org secrets unreadable (null) is cannot-tell for an org-reached repo", () => {
     const r = checkSecretNeeds(fakeGh(routes()), "acme", [{ repo: "acme/site", name: "X", fix: "f" }], null);
     expect(r.unsure).to.have.length(1);
-  });
-});
-
-describe("keyNameFor — the approved model's key, needed by the gov repo only when CI may use it", () => {
-  it("anthropic / gemini name their key when ci_allowed; command or not allowed → none", () => {
-    expect(keyNameFor({ provider: "anthropic", model: "m", command: "", ciAllowed: true })).to.equal("ANTHROPIC_API_KEY");
-    expect(keyNameFor({ provider: "gemini", model: "m", command: "", ciAllowed: true })).to.equal("GEMINI_API_KEY");
-    expect(keyNameFor({ provider: "gemini", model: "m", command: "", ciAllowed: false })).to.equal(null);
-    expect(keyNameFor({ provider: "command", model: "", command: "x", ciAllowed: true })).to.equal(null);
-    expect(keyNameFor({ provider: null, model: "", command: "", ciAllowed: true })).to.equal(null);
   });
 });

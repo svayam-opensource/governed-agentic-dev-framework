@@ -508,7 +508,8 @@ sends it only to a model your organization has approved. You approve one in `pol
 name that reads the request and prints the reply. A change that rewords no section, such as an edit to the title
 page, needs no model: propose then writes only the new version number, the copy of the previous version and the
 changelog entry. When a section does need reading and no model is approved, propose refuses, names that section,
-and tells you where to approve one. The pull request check never uses a model.
+and tells you where to approve one. The pull request check never uses a model. An older `governance.yaml` may
+still have a `ci_allowed` line under `models:`; gov ignores it, and `gov doctor` says you can delete it.
 
 ### 9.4 Stricter, never laxer
 
@@ -825,8 +826,8 @@ The rule map (§9.7) is honest about this: a rule held up only by a cue, or by n
 ### 11.4 Where the secrets live, and why the plan matters
 
 Some checks need a secret: a code repository's check needs the GitHub App's two credentials to read the rules
-(§9.5), and the governance repository needs your approved model's key when CI may propose rules (§9.3). A
-secret can be stored once for the whole organization, or separately on each repository.
+(§9.5). The governance repository needs no model key, because the pull request check never uses a model
+(§9.3). A secret can be stored once for the whole organization, or separately on each repository.
 
 **On the GitHub Free plan, an organization secret never reaches a private repository.** The workflow still
 runs, but the secret arrives empty, and GitHub gives no warning. Organization secrets reach a repository only
