@@ -466,6 +466,13 @@ moment earlier still counts as today's.
 - who approved it
 - the pull request that made the change
 
+You write all of this yourself, in your own commit, with `gov rules propose`, before the pull request opens.
+Only the pull request's number has to wait until the pull request exists. Until then the changelog entry says
+"_not yet open_" and the new rows carry no number. `gov close` adds the number, in your name, as soon as it
+opens the pull request. If you open the pull request another way, run `gov rules propose` again: it finds the
+open pull request and adds the number, without asking the model anything. Then commit and push. The policy
+pull request check never passes an entry that does not name its pull request.
+
 ### 9.3 How a section becomes rules
 
 When a policy section changes, `gov rules propose` reads it and suggests rows for it. It looks at each
@@ -488,17 +495,18 @@ revised, retired or kept. A section the pull request removed is listed with the 
 section again after it was reviewed means it must be reviewed again. Changing only spacing or line breaks is not
 a change.
 
-You can run it yourself, which is the normal way. It also runs on a policy pull request when the rows are out
-of date. gov issues every new id itself; a language model never does. A commit made by a bot never counts as
-an approval.
+You run it yourself, before you open the pull request. On the pull request, gov only checks. When the rows are
+out of date, a changed section has not been reviewed, or the version, the copy, the stamps or the changelog entry
+are missing, the check fails and tells you to run `gov rules propose` on your branch, then commit and push. gov
+never pushes a commit to your pull request. In a private repository, GitHub holds every check on a commit pushed
+by a bot until someone approves the run, so a bot's commit would hide the checks you need to see. gov issues
+every new id itself; a language model never does. A commit made by a bot never counts as an approval.
 
 Reading your policy and suggesting rows is done by a language model, so your policy text is sent to it. gov
 sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
 `models:`. gov can use a Claude model from Anthropic, a Gemini model from Google, or a command-line program you
-name that reads the request and prints the reply. You also decide there whether the pull request check may
-use it. Until you approve one, propose refuses and tells you where to do it. When the check does use it, gov
-pushes its suggestion to the pull request with the repository's own token. GitHub does not re-run checks after
-such a push, so gov asks you to re-run them.
+name that reads the request and prints the reply. Until you approve one, propose refuses and tells you where to
+do it. The pull request check never uses a model.
 
 ### 9.4 Stricter, never laxer
 

@@ -11,8 +11,10 @@
 # Assertions:
 #   (a) a PR touching only workflows/config: GOV-FRM-455, 467 and 468 pass
 #   (b) a direct push to the default branch: GOV-FRM-040 opens a gov-violation issue assigned to the Policy Owner
-#   (c) a policy prose PR: GOV-FRM-467 reports the section unreviewed; GOV-FRM-468 runs propose (stub model)
-#   (d) the bot's follow-up run waits for approval (action_required); approved through the API, GOV-FRM-467 passes
+#   (c) a policy prose PR: GOV-FRM-467 reports the section unreviewed; GOV-FRM-468 fails naming the local fix and
+#       pushes NOTHING (F154 A: the check only checks — the PR's head does not move)
+#   (d) the author runs `gov rules propose` locally (stub model), commits and pushes: no run of that commit waits
+#       for approval (it is the author's, not a bot's), and GOV-FRM-467 and GOV-FRM-468 pass on it
 #   (e) merging a PR with a red gov check under soft posture opens a gov-violation record naming the PR
 #   (f) the code repo's check reads the gov repo's rules through the App (SKIPPED, never failed, without the App)
 #   (g) an org `bash` check action (policies/actions/) fails a PR — run from the default branch, not the PR's copy
@@ -372,28 +374,13 @@ expect "(c) GOV-FRM-467 failed on the prose change (got: ${res%% *})" test "${re
 expect_annotation "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
 expect_annotation "(c) the unreviewed finding sits on policies/build/policy.md" "^failure policies/build/policy\.md:[0-9]+ .*§2\.2 .*was added or changed" "$R_GOV" "${res#* }"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-468 · pull_request")"
-# WHAT THE PROPOSER SAID, always — passed or not. A pass can mean "committed", "nothing to commit" or "nothing stale",
-# and only its finding tells them apart (run 39028432190: passed, and the PR's head never moved).
+# WHAT THE CHECK SAID, always — passed or not.
 [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
-BOT_PUSHED=1
-if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ] && [ "${res%% *}" = failure ]; then
-  # The real model may ask instead of answering: 468 then fails, and says why on its check run.
-  expect_annotation "(c) GOV-FRM-468 ran propose with the real model (questions asked)" "question\(s\) are open" "$R_GOV" "${res#* }"
-  BOT_PUSHED=0
-else
-  expect "(c) GOV-FRM-468 passed (got: ${res%% *})" test "${res%% *}" = success
-  # WHAT IT DID, from the repository: the bot's commit on the PR, its rows, and the changelog's "Sections reviewed".
-  SHA_D="$(poll bash -c "s=\$(gh pr view $PR_C --repo $R_GOV --json headRefOid --jq .headRefOid); [ \"\$s\" != $SHA_C ] && echo \$s")"
-  expect "(c) GOV-FRM-468 committed to PR #$PR_C — the head moved past $SHA_C (${SHA_D:-none})" test -n "$SHA_D"
-  CHANGELOG_D="$(file_at "$R_GOV" policies/CHANGELOG.md "$SHA_D" '**Sections reviewed**
-- policies/build/policy.md §2.2 (dry0sha) → GOV-RME-001 added')"
-  expect "(c) the bot's commit lists policies/build/policy.md §2.2 under Sections reviewed" \
-    grep -Eq '^- policies/build/policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
-  if [ "$REAL_MODEL" != "1" ]; then
-    RULES_D="$(file_at "$R_GOV" policies/rules/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
-    expect "(c) the bot's commit adds the stub model's row to policies/rules/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
-  fi
-fi
+expect "(c) GOV-FRM-468 failed on the unproposed prose change (got: ${res%% *})" test "${res%% *}" = failure
+expect_annotation "(c) GOV-FRM-468 names the local fix: run gov rules propose on this branch" 'run `gov rules propose` on this branch' "$R_GOV" "${res#* }"
+# F154 A: the check never writes — the PR's head is still the author's commit (a bot's would wait for approval).
+HEAD_NOW="$(head_of "$R_GOV" "$PR_C")"; [ "$DRY" = 1 ] && HEAD_NOW="$SHA_C"
+expect "(c) gov pushed nothing to PR #$PR_C — its head is still $SHA_C (got: $HEAD_NOW)" test "$HEAD_NOW" = "$SHA_C"
 
 # (b), now that its run has had the time (c) took.
 res="$(wait_check "$R_GOV" "$SHA_B" "GOV-FRM-040 · push")"
@@ -401,29 +388,50 @@ expect "(b) GOV-FRM-040 · push ran on the direct push (got: ${res%% *})" test "
 V_B="$(poll violations "$R_GOV" '^gov-violation: GOV-FRM-040 ')"
 expect "(b) gov-violation issue opened, assigned to the Policy Owner @$LOGIN (#${V_B:-none})" test -n "$V_B"
 
-# ── (d) the bot's follow-up run waits for approval ───────────────────────────────────────────────────────────────
-if [ "$BOT_PUSHED" = 1 ]; then
-  step "(d) bot's follow-up run — approve through the API, GOV-FRM-467 passes"
-  # Wait for the runs to EXIST, then pick those waiting for approval (status or conclusion action_required).
+# ── (d) the author proposes locally, commits and pushes — the checks run on the author's commit ───────────────
+# F154 A: `gov rules propose` writes everything (rows, version, snapshot, stamps, the changelog entry) in the AUTHOR's
+# commit; it finds the open PR itself (`--pr` here, to be explicit). No bot commit → nothing waits for approval.
+step "(d) author's gov rules propose + push — no approval wait, GOV-FRM-467 and GOV-FRM-468 pass"
+PROPOSED=1
+if ! ( cd "$G" && x gov rules propose --pr "$PR_C" </dev/null >"$ROOT/propose-d.log" 2>&1 ); then
+  tail -15 "$ROOT/propose-d.log"
+  if [ "$REAL_MODEL" = "1" ]; then PROPOSED=0; else die "(d) gov rules propose failed with the stub model"; fi
+fi
+if [ "$PROPOSED" = 1 ]; then
+  x git -C "$G" add -A policies && x git -C "$G" commit -qm "gov rules propose (rule-model journey (d))" || die "(d) commit failed"
+  if [ "$DRY" = 1 ]; then printf '  + git -C %s push -q -u origin e2e/policy\n' "$G" >&3
+  else push_retry "$G" e2e/policy || die "(d) could not push the author's commit"; fi
+  SHA_D="$(poll bash -c "s=\$(gh pr view $PR_C --repo $R_GOV --json headRefOid --jq .headRefOid); [ \"\$s\" != $SHA_C ] && echo \$s")"
+  expect "(d) the author's commit is PR #$PR_C's head (${SHA_D:-none})" test -n "$SHA_D"
+  AUTHOR_D="$(xo "$LOGIN" gh api "repos/$R_GOV/commits/$SHA_D" --jq '.author.login // empty')"
+  expect "(d) the head commit is the author's, $LOGIN — not a bot's (got: ${AUTHOR_D:-none})" test "$AUTHOR_D" = "$LOGIN"
+  CHANGELOG_D="$(file_at "$R_GOV" policies/CHANGELOG.md "$SHA_D" "| #$PR_C | @$LOGIN | _pending_ |
+**Sections reviewed**
+- policies/build/policy.md §2.2 (dry0sha) → GOV-RME-001 added")"
+  expect "(d) the author's commit lists policies/build/policy.md §2.2 under Sections reviewed" \
+    grep -Eq '^- policies/build/policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
+  expect "(d) the changelog entry names PR #$PR_C" grep -qF "| #$PR_C | " <<<"$CHANGELOG_D"
+  if [ "$REAL_MODEL" != "1" ]; then
+    RULES_D="$(file_at "$R_GOV" policies/rules/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
+    expect "(d) the author's commit adds the stub model's row to policies/rules/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
+  fi
+  # NOTHING WAITS FOR APPROVAL: the runs of the author's commit start on their own (a bot's commit would sit at
+  # action_required — F154). No POST /actions/runs/{id}/approve: the journey no longer needs one.
   ALL="$(poll gh api "repos/$R_GOV/actions/runs?head_sha=$SHA_D" --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion)"')"
-  [ "$DRY" = 1 ] && ALL="1 action_required action_required"
   sleep "$([ "$DRY" = 1 ] && echo 0 || echo 15)"   # sibling workflows of the same push register within seconds
   [ "$DRY" = 1 ] || ALL="$(gh api "repos/$R_GOV/actions/runs?head_sha=$SHA_D" --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion)"' 2>/dev/null || echo "$ALL")"
-  RUNS="$(awk '$2 == "action_required" || $3 == "action_required" { print $1 }' <<<"$ALL")"
-  if [ -n "$RUNS" ]; then
-    ok "(d) follow-up run(s) show action_required: $(tr "\n" " " <<<"$RUNS")"
-    for id in $RUNS; do x gh api -X POST "repos/$R_GOV/actions/runs/$id/approve" >/dev/null || die "could not approve run $id"; done
-    ok "(d) approved through POST /actions/runs/{id}/approve"
-  else
-    note "(d) no run waited for approval at $SHA_D — GitHub started it directly, or not at all; waiting for GOV-FRM-467 either way"
-  fi
-  res="$(wait_check "$R_GOV" "$SHA_D" "GOV-FRM-467 · pull_request")"
-  # WHAT THE GATE SAID on a failure, before teardown deletes the repo (F151: a stamp-date failure was invisible).
-  [ "${res%% *}" = success ] || [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
-  expect "(d) GOV-FRM-467 passes on the bot's commit (got: ${res%% *})" test "${res%% *}" = success
+  [ "$DRY" = 1 ] && ALL="1 completed success"
+  WAITING="$(awk '$2 == "action_required" || $3 == "action_required" { print $1 }' <<<"$ALL")"
+  expect "(d) no run of the author's commit waits for approval (action_required: ${WAITING:-none})" test -z "$WAITING"
+  for id in GOV-FRM-467 GOV-FRM-468; do
+    res="$(wait_check "$R_GOV" "$SHA_D" "$id · pull_request")"
+    # WHAT THE CHECK SAID on a failure, before teardown deletes the repo (F151: a stamp-date failure was invisible).
+    [ "${res%% *}" = success ] || [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
+    expect "(d) $id passes on the author's commit (got: ${res%% *})" test "${res%% *}" = success
+  done
   HEAD_E="$SHA_D"
 else
-  skip "(d) — the real model asked questions, so the bot pushed nothing to approve"
+  skip "(d) — the real model asked questions, which a journey cannot answer at a terminal"
   HEAD_E="$SHA_C"
 fi
 

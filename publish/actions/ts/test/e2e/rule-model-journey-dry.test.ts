@@ -52,20 +52,23 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
   it("lists every assertion, (a) through (g)", () => {
     for (const a of ["(a) GOV-FRM-455", "(a) GOV-FRM-467", "(a) GOV-FRM-468", "(b) gov-violation issue", "(c) GOV-FRM-467 names the section unreviewed",
       "(c) the unreviewed finding sits on policies/build/policy.md",
-      "(c) GOV-FRM-468 passed", "(c) GOV-FRM-468 committed to PR", "(c) the bot's commit lists policies/build/policy.md §2.2 under Sections reviewed",
-      "(c) the bot's commit adds the stub model's row to policies/rules/rules.yaml", "(d) GOV-FRM-467 passes", "(e) gov-violation record", "(f) the code repo judged",
+      "(c) GOV-FRM-468 failed on the unproposed prose change", "(c) GOV-FRM-468 names the local fix", "(c) gov pushed nothing to PR",
+      "(d) the author's commit is PR", "(d) the head commit is the author's", "(d) the author's commit lists policies/build/policy.md §2.2 under Sections reviewed",
+      "(d) the changelog entry names PR", "(d) the author's commit adds the stub model's row to policies/rules/rules.yaml",
+      "(d) no run of the author's commit waits for approval", "(d) GOV-FRM-467 passes", "(d) GOV-FRM-468 passes", "(e) gov-violation record", "(f) the code repo judged",
       "(g) the org catalog lists bash/no-marker", "(g) gov-checks.yml has a job for GOV-RME-900", "(g) GOV-RME-900 failed PR",
       "(g) the finding is the default branch's action's, naming marker.txt"]) {
       expect(out, a).to.include(`would assert: ${a}`);
     }
   });
 
-  it("prints the calls that matter: ephemeral repos, the tarball, the stub model, the approval, teardown", () => {
+  it("prints the calls that matter: ephemeral repos, the tarball, the author's local propose, teardown — and no run approval (F154 A)", () => {
     expect(out).to.match(/\+ gh repo create \S+\/rmj-dry-gov --private/);
     expect(out).to.match(/\+ gh repo create \S+\/rmj-dry-app --private/);
     expect(out).to.include("+ gov upgrade --apply --from ");
     expect(out).to.include("+ gov check install --gov-package ./.gov-ci/gov.tgz --gov-home .");
-    expect(out).to.match(/\+ gh api -X POST repos\/\S+\/actions\/runs\/\S+\/approve/);
+    expect(out).to.match(/\+ gov rules propose --pr \S+/);
+    expect(out, "no bot commit, so nothing to approve").to.not.match(/actions\/runs\/\S+\/approve/);
     expect(out).to.match(/\+ gh repo delete \S+\/rmj-dry-gov --yes/);
     expect(out).to.match(/\+ gh repo delete \S+\/rmj-dry-app --yes/);
   });

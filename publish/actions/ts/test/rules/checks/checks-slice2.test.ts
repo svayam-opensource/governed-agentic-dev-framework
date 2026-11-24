@@ -561,35 +561,28 @@ ${steps("GOV-FRM-086", "vcs.gov-repo", "pull_request", true)}  GOV-FRM-466_push:
       issues: write
 ${steps("GOV-FRM-466", "vcs.gov-repo", "push", true)}`;
 
-// Policy Owner, 2026-10-06 (option B): the App stays read-only; the propose job alone writes, with the built-in token.
-describe("the propose job's permissions", () => {
-  it("only the rules-propose job gets contents: write and pull-requests: write; every other job reads", () => {
+// F154 A (Policy Owner, 2026-11-24): the policy check only checks — the propose job reads like every other job. A
+// bot's commit on a private repository's pull request held every workflow at "waiting for approval to run".
+describe("the propose job's permissions (F154 A: it never writes)", () => {
+  it("no job gets contents: write — the rules-propose job reads the repository, and needs no pull-requests access", () => {
     const [f] = renderWorkflow([
       { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
       { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
     ]);
     const jobs = f!.text.split(/\n {2}(?=\S)/);
     const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
-    expect(propose).to.contain("contents: write").and.contain("pull-requests: write");
-    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("contents: write");
+    expect(propose).to.contain("contents: read").and.not.contain("pull-requests:");
+    for (const j of jobs) expect(j).to.not.contain("contents: write");
   });
-  // Policy Owner, 2026-10-07: the model keys reach the job that calls the model, and no other job.
-  it("only the rules-propose job's gov step gets the model keys, ANTHROPIC_API_KEY and GEMINI_API_KEY", () => {
+  it("no job gets the model keys: the check never calls a model", () => {
     const [f] = renderWorkflow([
       { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
       { id: "GOV-FRM-086", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/section-owner-approval", on_miss: "fail" } },
       { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
     ]);
-    const jobs = f!.text.split(/\n {2}(?=\S)/);
-    const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
-    expect(propose).to.contain([
-      "        env:",
-      "          GH_TOKEN: ${{ github.token }}",
-      "          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
-      "          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}",
-      "        run: gov check run GOV-FRM-468",
-    ].join("\n"));
-    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("API_KEY");
+    expect(f!.text).to.not.contain("API_KEY");
+    const propose = f!.text.split(/\n {2}(?=\S)/).find((j) => j.includes("GOV-FRM-468"))!;
+    expect(propose).to.contain("run: gov check run GOV-FRM-468").and.not.contain("GH_TOKEN");
   });
 });
 

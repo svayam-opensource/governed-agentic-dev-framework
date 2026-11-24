@@ -7,11 +7,15 @@
  *   ownership → policies/ownership.yaml   (deterministic: sorted, one flow mapping per row, header kept)
  *   then      planPolicyPr → bumpVersion → writeSnapshot → stampRows → writeChangelogEntry
  *
- * ONE IMPLEMENTATION, TWO TRIGGERS: `gov rules propose` at a terminal and the `gov-builtin/rules-propose` action on
- * a policy pull request both call this. Every step skips when its work is already done, so a second run writes
- * nothing. The changelog entry is built from the TREES (what the change adds, revises and retires against the
- * base, and the Q&A those rows carry) — never from one run's memory, so a run that found nothing new to ask
- * still writes the entry an earlier run could not (it had no pull request number yet).
+ * EVERYTHING IS WRITTEN BY THE AUTHOR, BEFORE THE PULL REQUEST OPENS (F154 A): `gov rules propose` writes the
+ * rows, the version, the snapshot, the stamps and the whole changelog entry — "Sections reviewed" included. The
+ * one thing it cannot know yet is the pull request's number: the rows' stamps then carry none and the entry's
+ * Pull request cell reads `_not yet open_`. The run that knows the number — `gov close`, the moment it opens the
+ * pull request, or `gov rules propose` again (it finds the open pull request itself) — fills it in, in the
+ * author's own commit. CI never writes: a commit pushed by a bot holds every workflow of a private repository at
+ * "waiting for approval to run". Every step skips when its work is already done, so a second run writes nothing.
+ * The changelog entry is built from the TREES (what the change adds, revises and retires against the base, and
+ * the Q&A those rows carry) plus the entry an earlier run wrote — never from one run's memory alone.
  *
  * Pure over the injected trees.
  */
@@ -74,7 +78,10 @@ export function writeProposal(head: TreeWriter, r: { readonly rows: readonly Rul
 export interface FinishInput {
   readonly base: TreeReader;
   readonly head: TreeWriter;
-  /** The pull request. Absent → version and snapshot only; stamps and the changelog wait for it. */
+  /**
+   * The pull request. Absent → everything is written all the same, with no number in the stamps and `_not yet
+   * open_` in the entry — unless the entry this branch already wrote names one, which is kept.
+   */
   readonly pr?: number;
   /** YYYY-MM-DD the rows are stamped with — the date of the commit that will carry them. */
   readonly today: string;
@@ -112,12 +119,8 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   const bump = w.bumpVersion(plan.required);
   say(bump);
   say(w.writeSnapshot(plan.baseVersion));
-  if (i.pr === undefined) {
-    lines.push("  no pull request yet: the rows' stamps and the CHANGELOG entry need its number. Open it, then run",
-      "  `gov rules propose --pr <n>` (no model is asked again — the rows are settled), or let the policy PR check do it.");
-    return { ok: true, lines, wrote: [...touched], plan, version: bump.version };
-  }
-  say(w.stampRows(bump.version, i.today, i.pr));
+  const pr = i.pr ?? numberedBefore(i.base, tracking, bump.version);
+  say(w.stampRows(bump.version, i.today, pr));
 
   // What the change does, read back from the trees after stamping.
   const after = planPolicyPr(i.base, tracking);
@@ -134,8 +137,28 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   for (const r of rules) for (const x of open.get(r.id)?.qa ?? []) if (!qa.some((y) => y.q === x.q && y.a === x.a)) qa.push({ q: x.q, a: x.a });
   const governance = "unreadable" in after ? plan.governance : after.governance;
   const reviewed = sectionsReviewed(i.base, tracking, bump.version, rows, changes, i.reviewed ?? []);
-  say(w.writeChangelogEntry({ version: bump.version, date: i.today, pr: i.pr, author: i.author, approver: null, rules, qa, ...(governance.length ? { governance } : {}), ...(reviewed.length ? { reviewed } : {}) }));
+  say(w.writeChangelogEntry({ version: bump.version, date: i.today, ...(pr !== undefined ? { pr } : {}), author: i.author, approver: null, rules, qa, ...(governance.length ? { governance } : {}), ...(reviewed.length ? { reviewed } : {}) }));
+  if (pr === undefined) {
+    lines.push("  no pull request yet: the CHANGELOG entry and the rows' stamps name it once it is open. `gov close` writes",
+      "  the number as it opens the pull request; opened another way, run `gov rules propose` again (no model is asked",
+      "  again — the rows are settled), commit and push.");
+  }
   return { ok: true, lines, wrote: [...touched], plan, version: bump.version };
+}
+
+/**
+ * The pull request number the entry THIS branch wrote for `version` already names — so a run that cannot find the
+ * pull request (offline, no `gh`) keeps the number an earlier run wrote instead of taking it out again. An entry
+ * the base already has is another pull request's, never this one's.
+ */
+function numberedBefore(base: TreeReader, head: TreeReader, version: string): number | undefined {
+  const text = head.read(POLICY_PR_PATHS.changelog);
+  const entry = text === null ? null : changelogEntry(text, version);
+  if (entry === null) return undefined;
+  const was = base.read(POLICY_PR_PATHS.changelog);
+  if (was !== null && changelogEntry(was, version) !== null) return undefined;
+  const m = /^\| #(\d+) \| /m.exec(entry);
+  return m ? Number(m[1]) : undefined;
 }
 
 /**
