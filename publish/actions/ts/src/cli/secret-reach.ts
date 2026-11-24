@@ -5,8 +5,8 @@
  * Free + private"; Policy Owner ruling 2026-10-07: per-repo secrets plus detection).
  *
  * SANDBOX FINDING (svayam-e2e, 2026-10-07). On GitHub's FREE plan an ORGANIZATION secret is not given to a PRIVATE
- * repository: the job sees an empty value, and nothing warns. So the org's GitHub App secrets (`GOV_APP_*`) and an
- * org-level model key silently never arrive in a private repo on Free.
+ * repository: the job sees an empty value, and nothing warns. So the org's GitHub App secrets (`GOV_APP_*`) silently
+ * never arrive in a private repo on Free.
  *
  * THE RULE, in one pure function ({@link secretReach}): an org secret reaches a repository when the plan is paid
  * (team or enterprise) OR the repository is public. Otherwise the repository needs repository secrets. A plan gov
@@ -15,9 +15,6 @@
  * Writers and readers go through an injected `gh` (a value only ever on STDIN — never an argument, never printed).
  */
 import type { GhOutcome, GhRun } from "./app-verb.js";
-import type { ModelSettings } from "../rules/propose/model-settings.js";
-import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
-import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
 
 export type PlanFact = { readonly known: true; readonly name: string } | { readonly known: false; readonly why: string };
 export type Visibility = "public" | "private" | "internal";
@@ -165,10 +162,3 @@ export function checkSecretNeeds(gh: GhRun, org: string, needs: readonly SecretN
   return out;
 }
 
-/** The secret the approved model needs in the governance repo — only when CI may use the model. Pure. */
-export function keyNameFor(s: ModelSettings): string | null {
-  if (!s.ciAllowed) return null;
-  if (s.provider === "anthropic") return ANTHROPIC_KEY_ENV;
-  if (s.provider === "gemini") return GEMINI_KEY_ENV;
-  return null;
-}

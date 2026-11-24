@@ -387,7 +387,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     where: "GOVERNED — run by an owner of the GitHub organization, once per organization (rotate: when a repo is added or a key leaks)",
     args: [
       { name: "setup", what: "create the App gov-<org_slug> with GitHub's App-manifest flow: open the printed local page in a browser on this machine, confirm on GitHub, and gov stores the App's client id and private key as GOV_APP_CLIENT_ID and GOV_APP_PRIVATE_KEY wherever they reach — organization secrets where the plan is paid or the repo public, repository secrets on each private repo of the governance repo and the project's code repos on the Free plan — then prints the install URL" },
-      { name: "check", what: "verify the App exists, is installed on the org, can read the governance repo's default branch, and that its secrets — and the approved model's key, when models.ci_allowed is true — reach every repository that needs them. Each failure names the repo and the fix" },
+      { name: "check", what: "verify the App exists, is installed on the org, can read the governance repo's default branch, and that its secrets reach every repository that needs them. Each failure names the repo and the fix" },
       { name: "rotate", what: "put a NEW private key on every repository that needs it (a repo added later, or a key that leaked). GitHub has no API that makes a key: without a key gov prints the App's page to generate one; then it reads the key, sets the secrets, and names the old key to delete there" },
     ],
     flags: [

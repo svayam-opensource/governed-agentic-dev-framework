@@ -44,14 +44,14 @@ function fakeFetch(replies: { status: number; body: unknown; retryAfter?: string
 const ok = (text: string, stop = "end_turn") => ({ status: 200, body: { content: [{ type: "text", text }], stop_reason: stop } });
 
 describe("rules propose — the org's model setting (policies/governance.yaml)", () => {
-  it("reads models.propose, models.command and models.ci_allowed", () => {
+  it("reads models.propose and models.command; the retired models.ci_allowed is ignored (Q68 A)", () => {
     expect(readModelSettings("models:\n  propose: { provider: anthropic, model: m-1 }\n  command: \"x -p\"\n  ci_allowed: true\n"))
-      .to.deep.equal({ provider: "anthropic", model: "m-1", command: "x -p", ciAllowed: true });
+      .to.deep.equal({ provider: "anthropic", model: "m-1", command: "x -p" });
   });
-  it("absent, unparseable, or an unknown provider → no model approved; ci_allowed only when literally true", () => {
+  it("absent, unparseable, or an unknown provider → no model approved", () => {
     expect(readModelSettings(null)).to.deep.equal(NO_MODEL);
     expect(readModelSettings("models: [")).to.deep.equal(NO_MODEL);
-    expect(readModelSettings("models:\n  propose: { provider: openai, model: x }\n  ci_allowed: \"yes\"\n")).to.include({ provider: null, ciAllowed: false });
+    expect(readModelSettings("models:\n  propose: { provider: openai, model: x }\n  ci_allowed: \"yes\"\n")).to.include({ provider: null });
   });
 });
 
@@ -64,15 +64,11 @@ describe("rules propose — choosing the model", () => {
     expect(text).to.contain("has not approved a language model").and.contain("policies/governance.yaml").and.contain("§9.3");
     expect(c.ok ? null : c.lines).to.equal(NO_APPROVED_MODEL);
   });
-  it("in CI without ci_allowed → refuses: run it locally", () => {
-    const c = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: false }, { ...deps, ci: true });
-    expect(c.ok ? "" : c.lines.join(" ")).to.contain("run gov rules propose locally");
-  });
   it("anthropic with no model, or no key; command with no command → refuses, saying which", () => {
-    expect(chooseModel({ provider: "anthropic", model: "", command: "", ciAllowed: false }, deps).ok).to.equal(false);
-    const nokey = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: false }, { ...deps, anthropicKey: () => null });
+    expect(chooseModel({ provider: "anthropic", model: "", command: "" }, deps).ok).to.equal(false);
+    const nokey = chooseModel({ provider: "anthropic", model: "m", command: "" }, { ...deps, anthropicKey: () => null });
     expect(nokey.ok ? "" : nokey.lines.join(" ")).to.contain("ANTHROPIC_API_KEY");
-    expect(chooseModel({ provider: "command", model: "", command: "", ciAllowed: false }, deps).ok).to.equal(false);
+    expect(chooseModel({ provider: "command", model: "", command: "" }, deps).ok).to.equal(false);
   });
   it("a lazy model never asks for a model it is never used for — a run with nothing stale needs none", async () => {
     let chosen = 0;

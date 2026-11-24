@@ -707,7 +707,7 @@
 
 # P3 wave 2 (P1 "Propose trigger"): the proposer, run on a policy pull request
 - id: GOV-FRM-468
-  source: { doc: framework/framework-specification.md, section: "9.3", sha: "7b15851" }
+  source: { doc: framework/framework-specification.md, section: "9.3", sha: "9b2fdb5" }
   expectation: "On a policy pull request gov only checks: when its rows are out of date, a section it added or changed has not been reviewed, or its version, snapshot, stamps or changelog are missing, the check fails and names the local fix (gov rules propose); gov never writes to the pull request, issues every new id itself, and never counts its own work as an approval."
   statement: "gov must only check a policy change on its pull request, never write to it: when the rules are out of date, a changed section is unreviewed or the change's paperwork is missing, it must fail and say what the author runs; it must issue every new rule id itself and must never count its own work as an approval."
   chapter: 7

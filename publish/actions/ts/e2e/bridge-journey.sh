@@ -234,7 +234,6 @@ models:
     provider: "command"
     model: ""
   command: "bash .gov-ci/stub-model.sh"
-  ci_allowed: true
 YAML
   mv "$ROOT/gov.yaml" "$C/policies/governance.yaml"
 fi

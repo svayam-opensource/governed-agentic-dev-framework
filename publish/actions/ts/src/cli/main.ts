@@ -66,9 +66,8 @@ import { createKeychain } from "../security/keychain.js";
 import { ensureCheckModule, evidenceDoctorRow, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
 import { discoverModule } from "../check-seam/loader.js";
 import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
-import { keyNameFor } from "./secret-reach.js";
 import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
-import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
+import { rulesPropose, PROPOSE_USAGE } from "./rules-propose.js";
 import { proposeOnPullRequest } from "./rules-propose-ci.js";
 import { terminalChannel } from "../rules/propose/interview.js";
 import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
@@ -2119,7 +2118,7 @@ export async function runApp(argv: readonly string[]): Promise<number> {
   }, {
     home, githubOrg: config.githubOrg, orgSlugLower: config.orgSlugLower,
     workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch,
-  }, parsed.positionals[0] === "check" ? { codeRepos: codeRepos(), modelKey: approvedModelKey(home, config.defaultBranch) } : undefined);
+  }, parsed.positionals[0] === "check" ? { codeRepos: codeRepos() } : undefined);
   for (const line of res.lines) process.stdout.write(`${line}\n`);
   return res.code;
 }
@@ -2140,12 +2139,6 @@ function appCodeRepos(fs: ReturnType<typeof createNodeFs>, home: string, config:
     }
     return checkScopeDeps(fs, config, pgm, timeoutMs).linkedRepos(n);
   };
-}
-
-/** The secret the org's approved model needs in the governance repo — from the DEFAULT branch, only when CI may use it. */
-function approvedModelKey(home: string, defaultBranch: string): string | null {
-  const git = (repo: string, args: readonly string[]): string | null => tryRun("git", ["-C", repo, ...args]) ?? null;
-  return keyNameFor(settingsAt(git, home, defaultRef(git, home, defaultBranch || "main")));
 }
 
 /**
@@ -2820,7 +2813,6 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             workspaceRepo: doctorCfg.workspaceRepo, defaultBranch: doctorCfg.defaultBranch,
           }, readGithubApp(doctorCfgText), {
             codeRepos: appCodeRepos(fs, home, doctorCfg, undefined, "gov-work:cli:doctor", 15_000)(),
-            modelKey: approvedModelKey(home, doctorCfg.defaultBranch),
           })
         : { verdict: "cannot-tell" as const, summary: "gh is not signed in, so GitHub could not be asked", lines: [] }
       : undefined;

@@ -4,7 +4,7 @@
  * THE ORG'S MODEL SETTING → A {@link ModelPort}, OR A REFUSAL THAT SAYS WHAT TO DO (P3 wave 2).
  *
  * No setting, no model: gov sends policy text only to a model the organization has approved, and the approval is
- * a line in `policies/governance.yaml` that the Policy Owner merges. CI may use it only when `ci_allowed` says so.
+ * a line in `policies/governance.yaml` that the Policy Owner merges. The policy pull request check never uses one (F154).
  */
 import type { ModelPort } from "../model-port.js";
 import { GOVERNANCE_PATH, type ModelSettings } from "../model-settings.js";
@@ -39,20 +39,15 @@ const freePlanLine = (name: string, repo: string | undefined): string =>
 /** Framework specification §9.3, said in plain words. */
 export const NO_APPROVED_MODEL = [
   "gov rules propose: your organization has not approved a language model for proposing rules.",
-  "  gov sends your policy text only to a model your organization has approved (framework specification §9.3:",
-  "  the organization declares the model it allows, and CI may use only one it has also allowed for CI).",
+  "  gov sends your policy text only to a model your organization has approved (framework specification §9.3).",
   `  Approve one in ${GOVERNANCE_PATH}, under \`models:\` — the Policy Owner merges that change:`,
   "    models:",
   "      propose: { provider: anthropic, model: <model id> }   # or provider: gemini, or provider: command",
   "      command: \"<a CLI that reads the prompt on stdin>\"     # for provider: command",
-  "      ci_allowed: false                                      # true lets CI propose on a policy pull request",
 ];
 
 export function chooseModel(s: ModelSettings, deps: ModelChoiceDeps): ModelChoice {
   if (s.provider === null) return { ok: false, lines: NO_APPROVED_MODEL };
-  if (deps.ci && !s.ciAllowed) {
-    return { ok: false, lines: [`gov rules propose: ${GOVERNANCE_PATH} does not allow a model in CI (models.ci_allowed is not true) — run gov rules propose locally.`] };
-  }
   if (s.provider === "command") {
     if (!s.command) return { ok: false, lines: [`gov rules propose: ${GOVERNANCE_PATH} chooses provider \`command\` but sets no models.command to run.`] };
     return { ok: true, model: commandModel({ command: s.command, run: deps.runCommand }), describe: `the approved command \`${s.command}\`` };

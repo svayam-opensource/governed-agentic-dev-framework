@@ -437,8 +437,6 @@ export interface AppCheckResult {
 export interface SecretScope {
   /** The project's linked code repositories (bare names), which need the App's secrets. */
   readonly codeRepos?: LinkedRepos;
-  /** The approved model's key, which the governance repo needs when `models.ci_allowed` is true; null = none needed. */
-  readonly modelKey?: string | null;
 }
 
 interface Installation {
@@ -533,13 +531,11 @@ export function appCheck(gh: GhRun, cfg: AppConfig, recorded: AppIdentity | null
   let orgNeeded = true;
   const needs: SecretNeed[] = [];
   if (scope) {
-    const govFull = full;
     const { repos, unknown } = appSecretRepos({ ...(scope.codeRepos ? { codeRepos: () => scope.codeRepos! } : {}) }, cfg);
     if (unknown) note(`the code repositories' App secrets — ${unknown}`);
     for (const repo of repos) {
       for (const name of [GOV_APP_SECRETS.clientId, GOV_APP_SECRETS.privateKey]) needs.push({ repo, name, fix: "gov app rotate (a new key onto every repo that needs it)" });
     }
-    if (scope.modelKey) needs.push({ repo: govFull, name: scope.modelKey, fix: `gh secret set ${scope.modelKey} -R ${govFull}` });
     const { reaches } = readReach(gh, org, repos);
     orgNeeded = reaches.some((r) => r.reach !== "repo-required");
   }

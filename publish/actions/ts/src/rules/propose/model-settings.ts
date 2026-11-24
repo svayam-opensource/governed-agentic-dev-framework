@@ -8,10 +8,9 @@
  *   models:
  *     propose: { provider: anthropic, model: <the model the org approved> }   # or provider: gemini · command
  *     command: "<a CLI that reads a prompt on stdin and writes the reply on stdout>"
- *     ci_allowed: false                                                        # may CI run it on a policy PR?
  *
- * Read from the DEFAULT branch by both triggers: a branch that turns `ci_allowed` on, or swaps the model, has
- * proposed that change, not made it.
+ * Read from the DEFAULT branch: a branch that swaps the model has proposed that change, not made it. Only
+ * `gov rules propose` at a person's terminal uses it — the policy pull request check never calls a model (F154).
  *
  * Pure.
  */
@@ -25,10 +24,9 @@ export interface ModelSettings {
   readonly provider: "anthropic" | "gemini" | "command" | null;
   readonly model: string;
   readonly command: string;
-  readonly ciAllowed: boolean;
 }
 
-export const NO_MODEL: ModelSettings = { provider: null, model: "", command: "", ciAllowed: false };
+export const NO_MODEL: ModelSettings = { provider: null, model: "", command: "" };
 
 /**
  * `models:` from the text of `policies/governance.yaml`, through the ONE governance reader (src/config/governance.ts).
