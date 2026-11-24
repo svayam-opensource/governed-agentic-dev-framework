@@ -2233,15 +2233,13 @@ export async function runRulesPropose(argv: readonly string[]): Promise<number> 
     }, {
       home: at.home, defaultBranch: at.config.defaultBranch, all: flagBool(parsed.flags, "all"),
       ...(prFlag !== undefined ? { pr: Number(prFlag) } : {}),
-      today: localDate(new Date()),
+      today: new Date().toISOString().slice(0, 10),   // one clock, UTC (Q66 A): the gate reads the commit's UTC day
       author: ensureLogin(runContext()) ?? "unknown",
     });
     for (const line of r.lines) process.stdout.write(`${line}\n`);
     return r.code;
   } finally { rl.close(); }
 }
-
-const localDate = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /**
  * What `gov check install --all` and `gov check status` read beyond one repository: the project's linked code repos

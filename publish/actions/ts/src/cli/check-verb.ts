@@ -386,8 +386,9 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
 /**
  * The policy PR gate's inputs (GOV-FRM-467, W5) for a pull request in `repo`: the tree at the MERGE-BASE (what the
  * pull request changes, as the changeset in event-payload.ts reads it — not what the base branch moved on to since)
- * and at the head, the PR number from the event, and the HEAD COMMIT's committer date as "today" — deterministic,
- * so a re-run judges the same inputs the same way, never by the day it happened to run. Null when this is not a pull
+ * and at the head, the PR number from the event, and the HEAD COMMIT's committer date — its UTC day, {@link
+ * commitDayUtc} — as "today": deterministic, so a re-run judges the same inputs the same way, never by the day it
+ * happened to run. Null when this is not a pull
  * request or any of those cannot be established; the gate then reports `cannot-tell`, never a pass.
  */
 export function policyPrFromEvent(git: GitRead, repo: string, eventName: string, event: unknown): PolicyPrInput | null {
@@ -397,9 +398,23 @@ export function policyPrFromEvent(git: GitRead, repo: string, eventName: string,
   const base = o(pr.base).sha, head = o(pr.head).sha, number = pr.number;
   if (typeof base !== "string" || typeof head !== "string" || !base || !head || typeof number !== "number") return null;
   const mb = git(repo, ["merge-base", base, head])?.trim();
-  const today = git(repo, ["show", "-s", "--format=%cs", head])?.trim();
-  if (!mb || !today || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  const today = commitDayUtc(git, repo, head);
+  if (!mb || !today) return null;
   return { base: gitTree(git, repo, mb), head: gitTree(git, repo, head), pr: number, today };
+}
+
+/**
+ * The UTC calendar day (`YYYY-MM-DD`) of commit `sha`'s committer time — ONE CLOCK, UTC (Q66 A, F151): `gov rules
+ * propose` stamps rows with the UTC date, so the gate's "today" is the UTC date too. Never `%cs`, which is the day in
+ * the committer's own timezone: a committer at +0530 just after local midnight is still on the previous UTC day, and
+ * a row stamped with the UTC date then read as "earlier than today". Computed from the epoch seconds (`%ct`), with no
+ * dependence on the runner's TZ. Null when the date cannot be read.
+ */
+export function commitDayUtc(git: GitRead, repo: string, sha: string): string | null {
+  const ct = git(repo, ["show", "-s", "--format=%ct", sha])?.trim();
+  if (!ct || !/^\d+$/.test(ct)) return null;
+  const d = new Date(Number(ct) * 1000);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 /**

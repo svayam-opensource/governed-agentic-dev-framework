@@ -168,6 +168,47 @@ describe("WorkTrackerPort — GitHub adapter (fake gh)", () => {
     expect((await g.port.close(A)).ok).to.equal(false);
   });
 
+  describe("close(): GitHub's close race (F152)", () => {
+    const RACE = err("GraphQL: Could not close the issue. (closeIssue)");
+    const tracker = (routes: Record<string, GhReply | (() => GhReply)>) => {
+      const f = fakeGh(routes);
+      const pauses: number[] = [];
+      return { ...f, pauses, port: createGithubWorkTracker({ gh: f.gh, sleep: (ms) => { pauses.push(ms); } }) };
+    };
+    const closes = (calls: string[][]) => calls.filter((c) => has(c, "issue", "close")).length;
+
+    it("fails once, then succeeds: ok, after one 2 s pause", async () => {
+      let n = 0;
+      const t = tracker({ "issue close": () => (++n === 1 ? RACE : ok("")) });
+      expect(await t.port.close(A)).to.deep.equal({ ok: true, value: undefined });
+      expect(closes(t.calls)).to.equal(2);
+      expect(t.pauses).to.deep.equal([2000]);
+    });
+
+    it("always fails but the issue is closed: ok — the outcome asked for", async () => {
+      const t = tracker({ "issue close": RACE, "issue view": ok({ state: "CLOSED" }) });
+      expect(await t.port.close(A)).to.deep.equal({ ok: true, value: undefined });
+      expect(closes(t.calls)).to.equal(4);
+      expect(t.pauses).to.deep.equal([2000, 4000, 8000]);
+      expect(has(t.calls.at(-1)!, "issue", "view", A.url, "state")).to.equal(true);
+    });
+
+    it("always fails and the issue is still open: a failure naming the issue and GitHub's words", async () => {
+      const t = tracker({ "issue close": RACE, "issue view": ok({ state: "OPEN" }) });
+      const r = await t.port.close(A);
+      expect(r.ok).to.equal(false);
+      if (!r.ok) { expect(r.reason).to.contain(A.url); expect(r.reason).to.contain("Could not close the issue"); }
+      expect(closes(t.calls)).to.equal(4);
+    });
+
+    it("any other refusal is not retried, and still read back before it is reported", async () => {
+      const t = tracker({ "issue close": err("gh: Resource not accessible by integration (HTTP 403)"), "issue view": ok({ state: "OPEN" }) });
+      expect((await t.port.close(A)).ok).to.equal(false);
+      expect(closes(t.calls)).to.equal(1);
+      expect(t.pauses).to.deep.equal([]);
+    });
+  });
+
   it("link(relates | moved-to): a marker comment on the first item", async () => {
     for (const kind of ["relates", "moved-to"] as const) {
       const f = fakeGh({ "issue comment": ok("") });

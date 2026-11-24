@@ -18,6 +18,11 @@ import { createIdIssuer } from "../../../src/rules/model/store-io.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import type { RuleSet } from "../../../src/rules/model/contracts.js";
+import { commitDayUtc } from "../../../src/cli/check-verb.js";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const DOC = "policies/org-policy.md";
 const TODAY = "2026-10-06";
@@ -533,6 +538,51 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
         "GOV-SVM-001 ends at 1.5.0 · 2026-10-06 · #?; a row this change closes ends at 1.5.0 · 2026-10-06 · #91",
       ]);
     });
+  });
+});
+
+// ONE CLOCK, UTC (Q66 A, F151). `gov rules propose` stamps the UTC date; the gate's "today" is the head commit's
+// committer date as a UTC day — never `%cs`, the day in the committer's own timezone. Real git, real commits.
+describe("(i) stamps against the head commit's UTC day — a committer east of UTC just after local midnight", () => {
+  let dir = "";
+  const commitAt = (date: string): string => {
+    const env = { ...process.env, GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date };
+    const g = (...a: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { env, encoding: "utf8", stdio: "pipe" });
+    g("commit", "-q", "--allow-empty", "-m", date);
+    return g("rev-parse", "HEAD").trim();
+  };
+  const realGit = (repo: string, args: readonly string[]): string | null => {
+    try { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+  };
+  const stampFindings = (today: string) => {
+    const { base, head } = goodPr();   // every row stamped 1.5.0 · TODAY (2026-10-06, the UTC date) · #91
+    return judgePolicyPr({ base, head, pr: PR, today }).findings.filter((x) => x.check === "stamp");
+  };
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-utc-day-"));
+    execFileSync("git", ["init", "-q", dir], { stdio: "pipe" });
+  });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("+0530 at 00:30 local is the previous UTC day: a row stamped with the UTC date PASSES", () => {
+    const sha = commitAt("2026-10-07T00:30:00+05:30");   // = 2026-10-06T19:00Z
+    expect(realGit(dir, ["show", "-s", "--format=%cs", sha])?.trim(), "the committer's own day — what F151 read").to.equal("2026-10-07");
+    const today = commitDayUtc(realGit, dir, sha);
+    expect(today).to.equal(TODAY);
+    expect(stampFindings(today!)).to.deep.equal([]);
+  });
+
+  it("the converse still FAILS: a row stamped earlier than the commit's UTC day", () => {
+    const sha = commitAt("2026-10-07T06:00:00+05:30");   // = 2026-10-07T00:30Z
+    const today = commitDayUtc(realGit, dir, sha);
+    expect(today).to.equal("2026-10-07");
+    expect(stampFindings(today!).map((x) => x.message)).to.include(
+      "GOV-SVM-001 starts at 1.5.0 · 2026-10-06 · #91; a row this change opens starts at 1.5.0 · 2026-10-07 · #91 (or on a later date)");
+  });
+
+  it("no readable committer time → null (the gate then says cannot-tell)", () => {
+    expect(commitDayUtc(() => null, dir, "HEAD")).to.equal(null);
+    expect(commitDayUtc(() => "not-a-time\n", dir, "HEAD")).to.equal(null);
   });
 });
 
