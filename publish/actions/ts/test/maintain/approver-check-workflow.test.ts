@@ -188,7 +188,7 @@ describe("approver-check — no jq on the runner (F153 A)", function () {
     const ref = spawnSync("jq", ["-r", PRE_F153_FILTER, FIXTURE], { encoding: "utf8" });
     expect(ref.status, ref.stderr).to.equal(0);
     const author = "polly";
-    const expected = ref.stdout.split("\n").filter((l) => l && l !== author);
+    const expected = ref.stdout.split(/\r?\n/).filter((l) => l && l !== author);
     // withdrawn (dana), dismissed (chuck), commented-after (cora counts), equal times (dev), pending (erin counts)
     expect(expected).to.deep.equal(["cora", "dev", "erin", "pat"]);
     const r = runWith({ governance: gov("soft", "polly") }, author, reviews, expected.join(" "));
