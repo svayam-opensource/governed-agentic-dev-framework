@@ -56,7 +56,9 @@ function runWith(files: { governance: string; roles?: string }, author: string, 
     fs.writeFileSync(path.join(dir, "policies", "governance.yaml"), files.governance);
     if (files.roles) fs.writeFileSync(path.join(dir, "policies", "common", "authorized-representatives.md"), files.roles);
     ghStub(dir, reviews);
-    const r = spawnSync("bash", ["-c", SCRIPT], {
+    // From a file, as GitHub runs a step — not `bash -c`: Windows argv quoting mangles a script this size.
+    fs.writeFileSync(path.join(dir, "step.sh"), SCRIPT);
+    const r = spawnSync("bash", ["step.sh"], {
       cwd: dir, encoding: "utf8",
       env: { PATH: `${path.join(dir, "bin")}:${process.env.PATH}`, REPO: "acme/acme-gov", PR: "7", AUTHOR: author, GH_TOKEN: "x", GOV_APPROVERS: approvers },
     });
