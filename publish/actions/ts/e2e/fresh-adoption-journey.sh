@@ -55,6 +55,11 @@ STOP_DEADLINE="${E2E_STOP_DEADLINE_SECS:-900}"
 RUNS_ON="${E2E_RUNS_ON:-[self-hosted, svayam-e2e-3]}"
 CHECK_OWNER="${E2E_CHECK_OWNER:-none}"
 PRACTICE_TITLE="Make the policy ours"
+# WHAT THE SANDBOX RUNNER MUST HAVE ON ITS SERVICE'S PATH (E2E_RUNS_ON). The journey runs on GitHub's runner and cannot
+# probe that machine before the PR, so a missing one is named afterwards, from the check's own log (exit 127):
+#   approver-check.yml  bash awk sed tr grep sort jq gh   (jq: the reviews; gh: the API — 2026-11-24's exit 127 was jq)
+#   gov-checks.yml      git (checkout) · node + npm (setup-node, npm install -g the gov CLI) · gh (gov check run)
+RUNNER_TOOLS="bash awk sed tr grep sort jq gh git node npm"
 TASK_TITLE="Put our name on the policy"
 
 PASS=0
@@ -283,7 +288,12 @@ case "$VERDICT" in
     REASON="$(printf '%s\n' "$MSGS" | grep -m1 -E 'No approving review yet|self-merged: no second person|Name a second person|none of them is on' || true)"
     if [ -z "$REASON" ]; then
       echo "  approver-check's failure annotations:"; printf '%s\n' "${MSGS:-<none>}" | sed 's/^/    /'
-      case "$MSGS" in *"exit code 127"*) die "approver-check failed with exit 127 — a command it needs (gh) is missing on the runner $RUNS_ON, not gov waiting for an approval. Install the GitHub CLI on that runner's PATH and restart its service" ;; esac
+      case "$MSGS" in *"exit code 127"*)
+        # The check run IS the Actions job: its log names the command the shell could not find.
+        NOTFOUND="$(gh api "repos/$E2E_ORG/$REPO/actions/jobs/${LAST%% *}/logs" 2>/dev/null \
+          | grep -oE '[A-Za-z0-9_.-]+: (command )?not found' | sed -E 's/: (command )?not found//' | sort -u | tr '\n' ' ' || true)"
+        die "approver-check failed with exit 127 — not gov waiting for an approval: the runner $RUNS_ON lacks ${NOTFOUND:-a command (its log did not say which)}. gov's workflows there need: $RUNNER_TOOLS" ;;
+      esac
       die "approver-check failed on PR #$PR_NUM, but not because it waits for someone else's approval"
     fi
     ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change: \"$REASON\"" ;;
