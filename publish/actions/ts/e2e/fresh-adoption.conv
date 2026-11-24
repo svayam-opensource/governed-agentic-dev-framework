@@ -1,0 +1,41 @@
+# THE FRESH ADOPTER'S ANSWERS — one conversation, driven twice (Q62 A / Q64 A):
+#   LIVE        e2e/fresh-adoption-journey.sh, the real first-run interview against FRESH_ADOPT_ORG, timed
+#   HERMETIC    journey.d/34-fresh-adoption-conversation.sh, the same file against the stub gh, on every PR —
+#               so a reworded prompt breaks a hermetic scenario first, not the timed live run.
+# Placeholders (@NAME@) are filled by render_conv in each driver. Format: pty/drive.exp.
+#
+# The path the home page promises: soft posture (the default), no AI agents (no installer, no sign-in), the
+# practice project made by setup without a question.
+~ 300
+> Select \(A/B/C\)
+< A
+> Q1 - What is full legal name
+< @ORG_NAME@
+> Q2 - What is short name
+<
+> Q3 - What is the Github Organization ID
+< @ORG@
+> Q4 - What would you like the name of your new governance repo
+< @REPO@
+> Q5 - What would you like the identifier
+< @SLUG@
+> Q6 - Default branch to be used for production
+<
+> Q7 - Default branch to be used for development
+<
+> Q8 - Who is the Policy Owner
+< @LOGIN@
+> Q9 - Who will approve your own changes
+< @CHECK_OWNER@
+> Q10 - What contact email
+< @EMAIL@
+> Q11 - What governance posture
+<
+> default for your organization
+< none
+> happy with
+< y
+# Creating the repository, seeding it, the setup commit, the practice board, its anchor and task, `gov seed`.
+~ 600
+> policies now
+< n
