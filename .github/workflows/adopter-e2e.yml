@@ -499,6 +499,81 @@ jobs:
           E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
         run: bash publish/actions/ts/e2e/live-verdict.sh
 
+  # THE HOME PAGE'S PROMISE, TIMED (Policy Owner rulings Q62 A and Q64 A, 2026-11-24): "Watch gov stop your first change
+  # until someone else approves it, in under 10 minutes." A FRESH adoption — `gov` on a machine that has never run it,
+  # the first-run interview in a pty, the practice project setup makes — then the practice task scripted as the agent
+  # would do it, to the pull request and the approval check failing on it. Phases and total in the log and the run
+  # summary; over E2E_BUDGET_SECS (600) fails. e2e/fresh-adoption-journey.sh.
+  #
+  # ITS OWN ORG, svayam-e2e-3 (var FRESH_ADOPT_ORG, Q64 A): an org is adopted once, and svayam-e2e is adopted many times
+  # over — gov would make every run there a joiner. The journey checks the org is unadopted first, and its teardown
+  # returns it to that. ONE RUN AT A TIME across every branch (the concurrency group below, never cancelled midway).
+  #
+  # LANDED BEFORE ITS SECRET (Q64 A): without FRESH_ADOPT_PAT the guard reports the job INCOMPLETE and passes; with the
+  # variable FRESH_ADOPT_REQUIRED=true a missing secret fails a strict run, like live-guard.sh. No step is skipped
+  # (green-streak.sh): when the guard says not to run, each step says so and ends.
+  fresh-adoption:
+    name: fresh adoption, timed (setup → first stop, live GitHub)
+    if: github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    # The journey's own waits: setup (~minutes), the approval check (E2E_STOP_DEADLINE_SECS 900) — inside this, so its
+    # own trap, not a killed runner, deletes what it made.
+    timeout-minutes: 45
+    concurrency:
+      group: adopter-e2e-fresh-adoption
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard — is the fresh-adoption sandbox configured?
+        id: guard
+        env:
+          TOK: ${{ secrets.FRESH_ADOPT_PAT }}
+          ORG: ${{ vars.FRESH_ADOPT_ORG }}
+          REQUIRED: ${{ vars.FRESH_ADOPT_REQUIRED }}
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: bash publish/actions/ts/e2e/fresh-adopt-guard.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Fresh adoption, timed (real GitHub, self-cleaning)
+        id: fresh
+        env:
+          RUN: ${{ steps.guard.outputs.run }}
+          E2E_ORG: ${{ vars.FRESH_ADOPT_ORG }}
+          GH_TOKEN: ${{ secrets.FRESH_ADOPT_PAT }}
+          E2E_BUDGET_SECS: ${{ vars.FRESH_ADOPT_BUDGET_SECS || '600' }}
+          # THE TEST CONCESSION (the script's header): the sandbox has no hosted minutes, so the practice PR's workflows
+          # ask for its runner. svayam-e2e-3's runner carries [self-hosted, Linux, X64, svayam-e2e-3].
+          E2E_RUNS_ON: ${{ vars.FRESH_ADOPT_RUNS_ON || '[self-hosted, svayam-e2e-3]' }}
+          E2E_LEDGER: ${{ runner.temp }}/fresh-ledger.env
+          E2E_ARTIFACTS: ${{ runner.temp }}/fresh-artifacts
+        run: |
+          if [ "$RUN" != true ]; then echo "fresh-adoption journey not run — the guard step says why"; exit 0; fi
+          sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq expect >/dev/null
+          ( cd publish/actions/ts && npm ci && npm run build ) >/dev/null
+          TGZ="$PWD/publish/actions/ts/$(cd publish/actions/ts && npm pack --silent | tail -1)"
+          GOV_TARBALL="$TGZ" bash publish/actions/ts/e2e/fresh-adoption-journey.sh
+      - name: Fresh adoption — teardown (always)
+        if: always()
+        env:
+          RUN: ${{ steps.guard.outputs.run }}
+          E2E_ORG: ${{ vars.FRESH_ADOPT_ORG }}
+          GH_TOKEN: ${{ secrets.FRESH_ADOPT_PAT }}
+          E2E_LEDGER: ${{ runner.temp }}/fresh-ledger.env
+        run: |
+          if [ "$RUN" != true ]; then echo "fresh-adoption journey not run — nothing to tear down"; exit 0; fi
+          bash publish/actions/ts/e2e/fresh-adoption-journey.sh teardown
+      # always(), not failure(): a step skipped on a green run would break green-streak.sh's "no step skipped".
+      - name: Fresh adoption — the first-run transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-adoption-transcript
+          path: ${{ runner.temp }}/fresh-artifacts
+          if-no-files-found: ignore
+
   # THE INSTALL-SIGNUP JOURNEY (PRJ-121 intent 02 addendum, IS-E6; spec addendum-install-signup §9, §10).
   #
   # NOT PART OF THE REQUIRED `live` JOB, deliberately: its live half needs PRJ-119's signals (S-g, S-h, S-i, S-k), the
