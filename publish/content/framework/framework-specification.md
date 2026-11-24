@@ -505,8 +505,10 @@ every new id itself; a language model never does. A commit made by a bot never c
 Reading your policy and suggesting rows is done by a language model, so your policy text is sent to it. gov
 sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
 `models:`. gov can use a Claude model from Anthropic, a Gemini model from Google, or a command-line program you
-name that reads the request and prints the reply. Until you approve one, propose refuses and tells you where to
-do it. The pull request check never uses a model.
+name that reads the request and prints the reply. A change that rewords no section, such as an edit to the title
+page, needs no model: propose then writes only the new version number, the copy of the previous version and the
+changelog entry. When a section does need reading and no model is approved, propose refuses, names that section,
+and tells you where to approve one. The pull request check never uses a model.
 
 ### 9.4 Stricter, never laxer
 
@@ -570,7 +572,7 @@ ci:
 
 `runs_on` is one runner label, or a list of labels a runner must carry every one of. A self-hosted runner needs
 `git` and the GitHub CLI, `gh`, on the runner service's PATH. gov reads and writes GitHub through `gh`, and GitHub's
-hosted runners already have it. The workflow installs Node itself. If `git` or `gh` is missing, each check fails,
+hosted runners already have it. The workflow installs Node itself. Nothing else is needed: no workflow gov installs runs `jq`, Python or any other tool a bare machine may lack. Where a check filters what GitHub returns, the filter runs inside `gh` itself (`gh api --jq`), and the rest is the shell's standard tools — `awk`, `sed`, `grep`, `sort`. If `git` or `gh` is missing, each check fails,
 under soft posture as well as hard, and says which tool to install. A check that could not run says nothing about
 the change, so it is never shown as passed. Any other check that cannot tell keeps the rules of your posture
 (§11.1). gov then uses it in the
