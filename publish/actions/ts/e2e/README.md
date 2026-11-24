@@ -75,8 +75,9 @@ The 2026-10-07 sandbox run, scripted. Two ephemeral private repos `rmj-<run>-gov
 `rmj-<run>-app`; every workflow installs the **packed tarball** under test. Asserts:
 (a) a workflows-only PR passes GOV-FRM-455/467/468 · (b) a direct push opens a
 GOV-FRM-040 `gov-violation` issue for the Policy Owner · (c) a policy prose PR is
-`unreviewed` in GOV-FRM-467 and GOV-FRM-468 proposes · (d) the bot's follow-up run
-is approved through the API and GOV-FRM-467 passes · (e) a soft merge with a red
+`unreviewed` in GOV-FRM-467, and GOV-FRM-468 fails naming the local fix while pushing
+nothing (F154 A) · (d) the author runs `gov rules propose` locally, commits and pushes;
+no run waits for approval and GOV-FRM-467 and 468 pass on the author's commit · (e) a soft merge with a red
 check opens a violation record · (f) the code repo reads the gov repo's rules
 through the sandbox App. Propose uses a **stub `command` model** (fixed reply, no
 key); the real model runs only on `workflow_dispatch` with `real_model: true`.

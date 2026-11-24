@@ -57,13 +57,6 @@ export interface GithubRendererOptions {
 export const CREATE_APP_TOKEN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0";
 /** The org Actions secrets the App's token is minted from (`gov check install` prints how to set them). */
 export const GOV_APP_SECRETS = { clientId: "GOV_APP_CLIENT_ID", privateKey: "GOV_APP_PRIVATE_KEY" } as const;
-/**
- * The org Actions secrets holding the model keys `gov rules propose` may use in CI (framework §9.3; the providers
- * that take a key — Policy Owner, 2026-10-07). LEAST PRIVILEGE: only the job that runs the rules-propose action gets
- * them; every other job runs without. A secret the org has not set renders as an empty variable, and propose then
- * refuses in plain words, naming it.
- */
-export const MODEL_KEY_SECRETS = ["ANTHROPIC_API_KEY", "GEMINI_API_KEY"] as const;
 
 type Binding = { readonly id: string; readonly check: CheckBinding };
 /** The GitHub trigger for a resource · event: the `on:` key, and for `issues` the activity type. */
@@ -125,10 +118,10 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
   const p: Record<string, string> = { "id-token": "write" };
   if (trigger.on === "push" || trigger.on === "issues") p.issues = "write";
   if (actions.has("gov-builtin/section-owner-approval")) p["pull-requests"] = "write";
-  // The propose fallback commits its rows to the PR branch with the built-in token (the App stays read-only —
-  // Policy Owner, option B) and comments its questions: contents and pull requests, write, on THIS job only.
-  if (actions.has("gov-builtin/rules-propose")) { p.contents = "write"; p["pull-requests"] = "write"; }
-  else if (actions.has("gh-action/landed-by-pr")) p["pull-requests"] = "read";
+  // rules-propose writes nothing (F154 A): it reads the repository like every other job — no contents: write, no
+  // pull-requests: write, no model key. A bot's commit on a private repository's pull request would hold every
+  // workflow at "waiting for approval to run".
+  if (actions.has("gh-action/landed-by-pr")) p["pull-requests"] = "read";
   // landed-by-pr also reads the merged PR's check runs, to record a soft-posture merge made with gov checks red.
   // Without `checks: read` that call is refused and the merge goes unrecorded (found in the live journey, (e)).
   if (actions.has("gh-action/landed-by-pr")) p.checks = "read";
@@ -280,7 +273,6 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       // `id-token` (X13) is not repository access: it alone does not hand the step the token.
       ...(keys.some((k) => k !== "id-token") ? ["          GH_TOKEN: ${{ github.token }}"] : []),
       ...(opts.govCheckout ? ["          GOV_EVIDENCE_TOKEN: ${{ steps.evidence-token.outputs.token }}", `          GOV_EVIDENCE_REMOTE: https://github.com/${opts.govCheckout.repository}.git`] : []),
-      ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
       ...(ghSteps.outcomes ? [`          ${GH_ACTION_OUTCOMES_ENV}: ${ghSteps.outcomes}`] : []),
     ];
     lines.push(

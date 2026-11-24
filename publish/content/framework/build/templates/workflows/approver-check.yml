@@ -161,15 +161,20 @@ jobs:
           # The LATEST review per reviewer decides. An APPROVED review that was later changed to
           # CHANGES_REQUESTED is not an approval, and counting every APPROVED event ever submitted would let a
           # withdrawn approval keep satisfying the policy.
-          reviews_json="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews")"
+          #
+          # NO jq (F153 A). A bare self-hosted runner need not have it, and without it this step died with exit 127 —
+          # a red that says nothing. gh embeds its own jq (`--jq`), so the filter runs inside the gh call: one line
+          # per review, "login<TAB>submitted_at<TAB>state". The per-reviewer "latest wins" is done after, in sort and
+          # awk, because `--jq` runs once per PAGE of `--paginate` — grouping inside it would group each page alone.
+          reviews="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" --jq '
+            .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")
+            | [.user.login, .submitted_at, .state] | @tsv
+          ')"
+          # Oldest first (a stable sort, so equal times keep GitHub's order); the last line per login is its latest.
           approving="$(
-            printf '%s' "$reviews_json" | jq -r '
-              [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
-              | group_by(.user.login)
-              | map(sort_by(.submitted_at) | last)
-              | map(select(.state == "APPROVED") | .user.login | ascii_downcase)
-              | unique | .[]
-            '
+            printf '%s\n' "$reviews" | LC_ALL=C sort -s -t "$(printf '\t')" -k2,2 \
+              | awk -F '\t' '$1 != "" { last[$1] = $3 } END { for (l in last) if (last[l] == "APPROVED") print tolower(l) }' \
+              | LC_ALL=C sort -u
           )"
 
           # NOBODY APPROVES THEIR OWN WORK (§3.1). GitHub already refuses an author's own approval, so this is

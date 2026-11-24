@@ -259,3 +259,61 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
     if (r.ok) expect(r.archivedOnly, "no archive-only shortcut was taken").to.equal(undefined);
   });
 });
+
+// F154 A: the policy change's pull request number is written by the AUTHOR, the moment close has opened the PR —
+// never left for CI, whose commit would hold a private repository's workflows at "waiting for approval to run".
+describe("close names the policy change's pull request in the author's commit (F154 A)", () => {
+  function recordingVcs() {
+    const v = fakeVcs();
+    const steps: string[] = [];
+    const vcs: Vcs = {
+      ...v.vcs,
+      addPath: (r, p) => steps.push(`add ${r} ${p}`),
+      commit: (r, m) => steps.push(`commit ${r} ${m.split("\n")[0]}`),
+      push: (r, rm, b) => { steps.push(`push ${r} ${b}`); v.vcs.push(r, rm, b); },
+    };
+    return { vcs, steps };
+  }
+  const base = (over: Partial<CloseDeps>): CloseDeps => ({ board: fakeBoard(), vcs: fakeVcs().vcs, fs: fakeFs(), pulls: fakePulls(), authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over });
+
+  it("after the PR opens: called with its number; what it wrote is committed and pushed to the project branch", () => {
+    const v = recordingVcs();
+    const asked: number[] = [];
+    const r = close(base({ vcs: v.vcs, numberPolicyPr: (pr) => { asked.push(pr); return { wrote: ["policies/CHANGELOG.md", "policies/rules/rules.yaml"] }; } }), CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(asked).to.deep.equal([1]);
+    expect(r.policyNumbered).to.deep.equal({ ok: true, pr: 1, wrote: ["policies/CHANGELOG.md", "policies/rules/rules.yaml"] });
+    const tail = pxAll(v.steps).slice(pxAll(v.steps).indexOf(`push ${GOV} BRNCH-43-governance-common-project`) + 1);
+    expect(tail.slice(0, 3), "right after the PR opens — before the code repos archive").to.deep.equal([
+      `add ${GOV} policies`,
+      `commit ${GOV} gov close: name pull request #1 in the policy change`,
+      `push ${GOV} BRNCH-43-governance-common-project`,
+    ]);
+  });
+
+  it("nothing to write (policies/ untouched, or propose never ran) → no commit, nothing reported", () => {
+    const v = recordingVcs();
+    const r = close(base({ vcs: v.vcs, numberPolicyPr: () => ({ wrote: [] }) }), CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.policyNumbered).to.equal(undefined);
+    expect(v.steps.some((s) => s.startsWith("commit"))).to.equal(false);
+  });
+
+  it("a writer error or a failing push is REPORTED, never thrown — the project is closed either way", () => {
+    const err = close(base({ numberPolicyPr: () => ({ error: "the merge-base could not be read" }) }), CONFIG, input());
+    expect(err.ok).to.equal(true);
+    if (err.ok) expect(err.policyNumbered).to.deep.equal({ ok: false, pr: 1, why: "the merge-base could not be read" });
+    const v = recordingVcs();
+    const throwing: Vcs = { ...v.vcs, commit: () => { throw new Error("git commit failed: nothing staged"); } };
+    const r = close(base({ vcs: throwing, numberPolicyPr: () => ({ wrote: ["policies/CHANGELOG.md"] }) }), CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.policyNumbered).to.deep.equal({ ok: false, pr: 1, why: "git commit failed: nothing staged" });
+  });
+
+  it("without the dep, close is what it was — no policy step", () => {
+    const r = close(base({}), CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.policyNumbered).to.equal(undefined);
+  });
+});
