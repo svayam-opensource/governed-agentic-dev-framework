@@ -18,17 +18,19 @@ const E2E = path.resolve(import.meta.dirname, "../../e2e");
 const GUARD = path.join(E2E, "fresh-adopt-guard.sh");
 const JOURNEY = path.join(E2E, "fresh-adoption-journey.sh");
 
-interface Run { status: number | null; out: string; output: string; summary: string }
+interface Run { status: number | null; out: string; stdout: string; output: string; summary: string }
 
 function run(args: readonly string[], env: Record<string, string>): Run {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fresh-gate-"));
   const output = path.join(dir, "output"), summary = path.join(dir, "summary");
   fs.writeFileSync(output, ""); fs.writeFileSync(summary, "");
   const r = spawnSync("bash", [...args], {
-    env: { PATH: process.env.PATH, GITHUB_ACTIONS: "true", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, ...env },
+    // A HOME, as every shell has: without one, a runner's own shell setup can speak (macOS: "$HOME must be set to run
+    // brew"). Values are asserted on stdout alone, so nothing the machine prints to stderr can change them.
+    env: { PATH: process.env.PATH, HOME: dir, GITHUB_ACTIONS: "true", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, ...env },
     encoding: "utf8",
   });
-  const res = { status: r.status, out: `${r.stdout}${r.stderr}`, output: fs.readFileSync(output, "utf8"), summary: fs.readFileSync(summary, "utf8") };
+  const res = { status: r.status, out: `${r.stdout}${r.stderr}`, stdout: r.stdout, output: fs.readFileSync(output, "utf8"), summary: fs.readFileSync(summary, "utf8") };
   fs.rmSync(dir, { recursive: true, force: true });
   return res;
 }
@@ -130,16 +132,16 @@ describe("e2e/token-scopes.sh — missing_scopes, for the fresh-adoption preflig
     run(["-c", `. "${path.join(E2E, "token-scopes.sh")}"; printf '[%s]' "$(missing_scopes "$1")"`, "x", headers], {});
 
   it("REGRESSION (first dispatch, 2026-11-24): a token without `project` is named, not a bare exit on the projects query", () => {
-    expect(missing("HTTP/2 200\r\nX-OAuth-Scopes: delete_repo, read:org, repo, workflow\r\n").out).to.equal("[ project]");
+    expect(missing("HTTP/2 200\r\nX-OAuth-Scopes: delete_repo, read:org, repo, workflow\r\n").stdout).to.equal("[ project]");
   });
   it("every scope present → nothing missing; admin:org covers read:org", () => {
-    expect(missing("X-OAuth-Scopes: repo, workflow, project, read:org, delete_repo").out).to.equal("[]");
-    expect(missing("X-OAuth-Scopes: repo, workflow, project, admin:org, delete_repo").out).to.equal("[]");
+    expect(missing("X-OAuth-Scopes: repo, workflow, project, read:org, delete_repo").stdout).to.equal("[]");
+    expect(missing("X-OAuth-Scopes: repo, workflow, project, admin:org, delete_repo").stdout).to.equal("[]");
   });
   it("read:project is not project (setup creates a board)", () => {
-    expect(missing("X-OAuth-Scopes: repo, workflow, read:project, read:org, delete_repo").out).to.equal("[ project]");
+    expect(missing("X-OAuth-Scopes: repo, workflow, read:project, read:org, delete_repo").stdout).to.equal("[ project]");
   });
   it("no scope header (fine-grained token) is not judged here", () => {
-    expect(missing("HTTP/2 200").out).to.equal("[]");
+    expect(missing("HTTP/2 200").stdout).to.equal("[]");
   });
 });
