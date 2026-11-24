@@ -26,19 +26,41 @@ const ROLES_ALT = "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---
 const gov = (posture: string, po: string, poAlt = "", co = "") =>
   `governance_posture: "${posture}"\npolicy_owner:\n  email: ""\n  github: "${po}"\n  alternate: "${poAlt}"\ncheck_owner:\n  github: "${co}"\n  alternate: ""\n`;
 
-function run(files: { governance: string; roles?: string }, author: string, approvedBy: readonly string[]): { code: number; out: string } {
+interface Review { readonly state: string; readonly user: { readonly login: string } | null; readonly submitted_at: string | null }
+
+/**
+ * A `gh` that answers the reviews call AS gh DOES (F153 A): `--paginate` serves the reviews in pages of PAGE, and
+ * `--jq <filter>` is applied to each page separately and prints strings raw — gh's embedded gojq, stood in for by
+ * the real jq with `-r`. The workflow itself no longer runs jq; only this stub does.
+ */
+const PAGE = 2;
+function ghStub(dir: string, reviews: readonly Review[]): void {
+  const pages = path.join(dir, "pages");
+  fs.mkdirSync(pages);
+  const n = Math.max(1, Math.ceil(reviews.length / PAGE));
+  for (let i = 0; i < n; i++) fs.writeFileSync(path.join(pages, `${i}.json`), JSON.stringify(reviews.slice(i * PAGE, (i + 1) * PAGE)));
+  fs.writeFileSync(path.join(dir, "bin", "gh"), [
+    "#!/bin/sh",
+    'filter=""',
+    'while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && { filter="$2"; shift; }; shift; done',
+    `for p in "${pages}"/*.json; do if [ -n "$filter" ]; then jq -r "$filter" "$p" || exit 1; else cat "$p"; fi; done`,
+    "",
+  ].join("\n"), { mode: 0o755 });
+}
+
+function runWith(files: { governance: string; roles?: string }, author: string, reviews: readonly Review[], approvers = ""): { code: number; out: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "approver-check-"));
   try {
     fs.mkdirSync(path.join(dir, "policies", "common"), { recursive: true });
     fs.mkdirSync(path.join(dir, "bin"));
     fs.writeFileSync(path.join(dir, "policies", "governance.yaml"), files.governance);
     if (files.roles) fs.writeFileSync(path.join(dir, "policies", "common", "authorized-representatives.md"), files.roles);
-    const reviews = approvedBy.map((login, i) => ({ state: "APPROVED", user: { login }, submitted_at: `2026-11-23T10:0${i}:00Z` }));
-    fs.writeFileSync(path.join(dir, "reviews.json"), JSON.stringify(reviews));
-    fs.writeFileSync(path.join(dir, "bin", "gh"), `#!/bin/sh\ncat "${path.join(dir, "reviews.json")}"\n`, { mode: 0o755 });
-    const r = spawnSync("bash", ["-c", SCRIPT], {
+    ghStub(dir, reviews);
+    // From a file, as GitHub runs a step — not `bash -c`: Windows argv quoting mangles a script this size.
+    fs.writeFileSync(path.join(dir, "step.sh"), SCRIPT);
+    const r = spawnSync("bash", ["step.sh"], {
       cwd: dir, encoding: "utf8",
-      env: { PATH: `${path.join(dir, "bin")}:${process.env.PATH}`, REPO: "acme/acme-gov", PR: "7", AUTHOR: author, GH_TOKEN: "x", GOV_APPROVERS: "" },
+      env: { PATH: `${path.join(dir, "bin")}:${process.env.PATH}`, REPO: "acme/acme-gov", PR: "7", AUTHOR: author, GH_TOKEN: "x", GOV_APPROVERS: approvers },
     });
     return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
   } finally {
@@ -46,7 +68,12 @@ function run(files: { governance: string; roles?: string }, author: string, appr
   }
 }
 
-/** The script needs bash and jq, as GitHub's hosted runner has them; a machine without either skips (not a pass). */
+function run(files: { governance: string; roles?: string }, author: string, approvedBy: readonly string[]): { code: number; out: string } {
+  return runWith(files, author, approvedBy.map((login, i) => ({ state: "APPROVED", user: { login }, submitted_at: `2026-11-23T10:0${i}:00Z` })));
+}
+
+/** The TEST needs bash, and jq to stand in for gh's embedded one (the workflow needs neither jq nor python); a machine
+ * without either skips (not a pass). */
 const hasTools = ["bash", "jq"].every((t) => spawnSync(t, ["--version"], { encoding: "utf8" }).status === 0);
 
 describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)", function () {
@@ -110,5 +137,75 @@ describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)",
 
   it(APPROVER_LOGINS, () => {
     expect(approverLogins(gov("soft", "polly", "@pat", "chuck"), ROLES_ALT)).to.deep.equal(["polly", "pat", "chuck", "dana", "dev"]);
+  });
+});
+
+// ── F153 A (Policy Owner, 2026-11-24): no installed workflow runs jq ─────────────────────────────────────────────
+// A bare self-hosted runner without jq killed the approver check with exit 127. The filter now runs inside the gh
+// call (`--jq`, gh's embedded gojq) and the per-reviewer grouping in sort and awk.
+
+/** The jq filter the approver check ran before F153 A, verbatim — the reference the new pipeline must agree with. */
+const PRE_F153_FILTER = `
+  [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+  | group_by(.user.login)
+  | map(sort_by(.submitted_at) | last)
+  | map(select(.state == "APPROVED") | .user.login | ascii_downcase)
+  | unique | .[]
+`;
+const FIXTURE = path.join(import.meta.dirname, "fixtures", "approver-check", "reviews.json");
+
+/** A line that runs jq as a command: `jq` as a word, not gh's `--jq` flag, outside a comment. */
+const invokesJq = (text: string): string[] =>
+  text.split("\n").filter((l) => !/^\s*#/.test(l) && /(^|[^-\w])jq(\s|$|["')])/.test(l));
+
+describe("approver-check — no jq on the runner (F153 A)", function () {
+  it("no workflow gov installs invokes jq: the templates, gov-validate.yml, and both files the setup commit writes", async () => {
+    const { firstRunWorkflows } = await import("../../src/setup/first-run-workflows.js");
+    const { fsTree } = await import("../../src/rules/policy-pr/tree.js");
+    const dir = path.join(CONTENT, "framework", "build", "templates", "workflows");
+    const texts: [string, string][] = fs.readdirSync(dir).map((f) => [f, fs.readFileSync(path.join(dir, f), "utf8")]);
+    // gov-validate.yml: installed once into the governance repository (spec 9.5), so it counts too.
+    const validate = path.join(CONTENT, ".github", "workflows", "gov-validate.yml");
+    texts.push(["gov-validate.yml", fs.readFileSync(validate, "utf8")]);
+    const t = fsTree(CONTENT);
+    const tree = { files: (d: string) => [...t.files(d), ...(d === "org-config.yaml" ? ["org-config.yaml"] : [])], read: (f: string) => (f === "org-config.yaml" ? 'org_slug: "acme"\ngithub_org: "acme"\n' : t.read(f)) };
+    const r = firstRunWorkflows(tree, { home: CONTENT, defaultBranch: "main", defaultCodeBranch: "main", githubOrg: "acme", workspaceRepo: "acme-gov", posture: "soft" });
+    expect(r.ok, r.ok ? "" : r.reason).to.equal(true);
+    if (r.ok) for (const f of r.files) texts.push([f.path, f.text]);
+    expect(texts.length).to.be.greaterThan(3);
+    for (const [name, text] of texts) expect(invokesJq(text), name).to.deep.equal([]);
+    expect(SCRIPT).to.contain("--jq");
+  });
+
+  it("the check catches a jq invocation (so the assertion above can fail)", () => {
+    expect(invokesJq('  x="$(printf %s "$j" | jq -r .a)"')).to.have.length(1);
+    expect(invokesJq("  gh api user --jq .login\n  # no jq here")).to.deep.equal([]);
+  });
+
+  it("on a recorded reviews fixture, split across pages, the approvers equal what the pre-F153 jq filter gave", function () {
+    if (!hasTools) this.skip();
+    const reviews = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as Review[];
+    const ref = spawnSync("jq", ["-r", PRE_F153_FILTER, FIXTURE], { encoding: "utf8" });
+    expect(ref.status, ref.stderr).to.equal(0);
+    const author = "polly";
+    const expected = ref.stdout.split(/\r?\n/).filter((l) => l && l !== author);
+    // withdrawn (dana), dismissed (chuck), commented-after (cora counts), equal times (dev), pending (erin counts)
+    expect(expected).to.deep.equal(["cora", "dev", "erin", "pat"]);
+    const r = runWith({ governance: gov("soft", "polly") }, author, reviews, expected.join(" "));
+    expect(r.code, r.out).to.equal(0);
+    const listed = r.out.split("Approving reviewers:\n")[1]!.split("✓")[0]!.split("\n").map((l) => l.trim()).filter(Boolean);
+    expect(listed).to.deep.equal(expected);
+  });
+
+  it("a withdrawn approval on a later page does not count", function () {
+    if (!hasTools) this.skip();
+    const reviews: Review[] = [
+      { state: "APPROVED", user: { login: "dana" }, submitted_at: "2026-11-23T10:00:00Z" },
+      { state: "COMMENTED", user: { login: "x" }, submitted_at: "2026-11-23T10:01:00Z" },
+      { state: "CHANGES_REQUESTED", user: { login: "dana" }, submitted_at: "2026-11-23T10:02:00Z" },
+    ];
+    const r = runWith({ governance: gov("hard", "polly") }, "polly", reviews, "dana");
+    expect(r.code).to.equal(1);
+    expect(r.out).to.contain("No approving review yet");
   });
 });

@@ -565,7 +565,7 @@ ci:
 
 `runs_on` is one runner label, or a list of labels a runner must carry every one of. A self-hosted runner needs
 `git` and the GitHub CLI, `gh`, on the runner service's PATH. gov reads and writes GitHub through `gh`, and GitHub's
-hosted runners already have it. The workflow installs Node itself. If `git` or `gh` is missing, each check fails,
+hosted runners already have it. The workflow installs Node itself. Nothing else is needed: no workflow gov installs runs `jq`, Python or any other tool a bare machine may lack. Where a check filters what GitHub returns, the filter runs inside `gh` itself (`gh api --jq`), and the rest is the shell's standard tools — `awk`, `sed`, `grep`, `sort`. If `git` or `gh` is missing, each check fails,
 under soft posture as well as hard, and says which tool to install. A check that could not run says nothing about
 the change, so it is never shown as passed. Any other check that cannot tell keeps the rules of your posture
 (§11.1). gov then uses it in the
