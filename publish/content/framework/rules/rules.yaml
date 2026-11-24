@@ -707,7 +707,7 @@
 
 # P3 wave 2 (P1 "Propose trigger"): the proposer, run on a policy pull request
 - id: GOV-FRM-468
-  source: { doc: framework/framework-specification.md, section: "9.3", sha: "c10c081" }
+  source: { doc: framework/framework-specification.md, section: "9.3", sha: "40db107" }
   expectation: "gov proposes rules on a policy pull request only when its rows are out of date or a section it added or changed has not been reviewed, and only with a model the organization allowed in CI, issues every new id itself, and never counts its own commit as an approval."
   statement: "gov must propose rule updates on a policy change only when the rules are out of date or a changed section is unreviewed, must use only an AI model the organization has approved, and must never count its own work as an approval."
   chapter: 7
