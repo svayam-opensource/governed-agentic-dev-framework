@@ -689,7 +689,7 @@
 
 # W5 (P1 "Org version"): the policy pull request gate
 - id: GOV-FRM-467
-  source: { doc: framework/framework-specification.md, section: "9.2", sha: "e4a87ad" }
+  source: { doc: framework/framework-specification.md, section: "9.2", sha: "0b838d0" }
   expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog."
   statement: "Every change to the organization's policy must carry its updated rules, a new version number, a copy of the previous version and an entry in the change log."
   chapter: 7

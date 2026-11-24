@@ -326,7 +326,7 @@ function prWorld(headFiles: Record<string, string>, baseF = baseFiles()) {
   const git: GitRead = (_repo, args) => {
     const k = args.join(" ");
     if (k === `merge-base ${BASE} ${HEAD}`) return "MB\n";
-    if (k === `show -s --format=%cs ${HEAD}`) return "2026-10-07\n";
+    if (k === `show -s --format=%ct ${HEAD}`) return "1791374400\n";   // 2026-10-07T12:00Z
     if (args[0] === "ls-tree") {
       const ref = args.find((a) => a in trees);
       return ref ? treeAsGit(memTree(trees[ref]!))("", args) : null;

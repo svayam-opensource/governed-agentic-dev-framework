@@ -418,6 +418,8 @@ if [ "$BOT_PUSHED" = 1 ]; then
     note "(d) no run waited for approval at $SHA_D — GitHub started it directly, or not at all; waiting for GOV-FRM-467 either way"
   fi
   res="$(wait_check "$R_GOV" "$SHA_D" "GOV-FRM-467 · pull_request")"
+  # WHAT THE GATE SAID on a failure, before teardown deletes the repo (F151: a stamp-date failure was invisible).
+  [ "${res%% *}" = success ] || [ "${res#* }" = - ] || explain_check "$R_GOV" "${res#* }"
   expect "(d) GOV-FRM-467 passes on the bot's commit (got: ${res%% *})" test "${res%% *}" = success
   HEAD_E="$SHA_D"
 else

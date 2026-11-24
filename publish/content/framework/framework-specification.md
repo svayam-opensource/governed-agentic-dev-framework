@@ -455,6 +455,10 @@ your policies as they were is kept in `policies/history/<x.y.z>/`, and nobody ma
 (These copies used to live in `policies/version/`. On a Mac or a Windows machine, a folder of that name and the
 file `policies/VERSION` count as the same name, so one of them went missing. `gov upgrade` moves the old copies
 for you, unchanged, and moving them is allowed.)
+A row is also stamped with a date, and that date is always the day in UTC. The policy pull request check takes
+"today" from the time of the pull request's last commit, also as the day in UTC. So where the person committing
+lives does not matter: just after midnight in India it is still the previous day in UTC, and a row gov stamped a
+moment earlier still counts as today's.
 `policies/CHANGELOG.md` records:
 
 - what changed
