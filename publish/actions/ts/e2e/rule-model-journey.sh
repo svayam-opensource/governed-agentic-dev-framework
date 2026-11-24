@@ -393,7 +393,7 @@ expect "(b) gov-violation issue opened, assigned to the Policy Owner @$LOGIN (#$
 # commit; it finds the open PR itself (`--pr` here, to be explicit). No bot commit → nothing waits for approval.
 step "(d) author's gov rules propose + push — no approval wait, GOV-FRM-467 and GOV-FRM-468 pass"
 PROPOSED=1
-if ! ( cd "$G" && x gov rules propose --pr "$PR_C" </dev/null >"$ROOT/propose-d.log" 2>&1 ); then
+if ! ( cd "$G" && x gov rules propose --pr "$PR_C" --gov-home . </dev/null >"$ROOT/propose-d.log" 2>&1 ); then
   tail -15 "$ROOT/propose-d.log"
   if [ "$REAL_MODEL" = "1" ]; then PROPOSED=0; else die "(d) gov rules propose failed with the stub model"; fi
 fi
