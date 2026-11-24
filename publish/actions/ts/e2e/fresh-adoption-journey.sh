@@ -267,16 +267,17 @@ ok "gov close opened $PR_URL"
 step "Stop — wait for approver-check to fail on PR #$PR_NUM (≤ ${STOP_DEADLINE}s)"
 VERDICT=""; LAST=""
 while [ $(( $(now) - T2 )) -lt "$STOP_DEADLINE" ]; do
-  # The PR's CURRENT head: the policy check may push a commit, and the approval check then runs again on it.
-  SHA="$(gh api "repos/$E2E_ORG/$REPO/pulls/$PR_NUM" --jq .head.sha 2>/dev/null || true)"
-  if [ -n "$SHA" ]; then
+  # EVERY COMMIT THE PR HAS HAD, newest first — not only its current head. The policy check commits its paperwork to the
+  # PR's branch, and the workflows on that bot commit wait for approval (`action_required`) and report nothing; the
+  # approval check's verdict is then on the commit gov close opened the PR with (run 45294316719, 2026-11-24).
+  for SHA in $(gh api "repos/$E2E_ORG/$REPO/pulls/$PR_NUM/commits?per_page=100" --jq '[.[].sha] | reverse | .[]' 2>/dev/null || true); do
     LAST="$(gh api "repos/$E2E_ORG/$REPO/commits/$SHA/check-runs?check_name=approver-check" \
       --jq '.check_runs | sort_by(.started_at) | last | select(. != null) | "\(.id) \(.status) \(.conclusion)"' 2>/dev/null || true)"
     case "$LAST" in
-      *" completed failure") VERDICT=failure; break ;;
-      *" completed success") VERDICT=success; break ;;
+      *" completed failure") VERDICT=failure; break 2 ;;
+      *" completed success") VERDICT=success; break 2 ;;
     esac
-  fi
+  done
   sleep 5
 done
 T3=$(now)
