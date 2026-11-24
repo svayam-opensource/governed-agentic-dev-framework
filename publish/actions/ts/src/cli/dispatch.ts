@@ -32,7 +32,7 @@ import { planLines } from "../lifecycle/cleanup.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
-import { close } from "../lifecycle/close.js";
+import { close, type CloseSuccess } from "../lifecycle/close.js";
 import { sync } from "../lifecycle/sync.js";
 import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
 import { addRepo } from "../lifecycle/add-repo.js";
@@ -48,6 +48,8 @@ import { approverLogins, protectRepo, type GhApi, type RuleChecksRead } from "..
 import { requiredRuleChecks } from "../maintain/rule-checks.js";
 import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
+import { numberPolicyPr } from "../rules/propose/number-pr.js";
+import { fsTree } from "../rules/policy-pr/tree.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens, parseGovernance } from "../config/governance.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { rules } from "./rules-verb.js";
@@ -594,6 +596,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         {
           board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, pulls: ctx.pulls, tracker: ctx.workTracker, authorize: ctx.authorize,
           gate: ctx.gate, anchor: ctx.anchor, log: ctx.log,
+          // F154 A: the policy change's pull request number, written in the author's commit once the PR is open.
+          ...(ctx.git ? {
+            numberPolicyPr: (pr: number) => numberPolicyPr(ctx.git!, fsTree(ctx.home), {
+              home: ctx.home, defaultBranch: c.defaultBranch, pr, author: ctx.login ?? "unknown",
+              today: new Date().toISOString().slice(0, 10),   // one clock, UTC (Q66 A)
+            }),
+          } : {}),
           // The organization's own `when=verb:close` checks, read from the DEFAULT branch — the socket that
           // replaced the hardcoded knowledge gate (2026-09-28). A workspace with no such clause has none.
           policyGate: (projectDir) => policyGate(
@@ -619,6 +628,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           r.prUrl
             ? `  PR: ${r.prUrl} — a human merges this; re-run \`gov close\` afterwards to archive the branch`
             : `  the close PR could not be opened — open one for '${r.projectBranch}' → ${c.defaultBranch}, then re-run \`gov close\``,
+          ...policyNumberedLines(r.policyNumbered),
         ],
       };
     }
@@ -984,4 +994,11 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       };
     }
   }
+}
+
+/** What close did with the policy change's pull request number (F154 A), in plain words. */
+function policyNumberedLines(n: CloseSuccess["policyNumbered"]): string[] {
+  if (!n) return [];
+  if (n.ok) return [`  policy change: pull request #${n.pr} named in ${n.wrote.join(", ")} — committed and pushed`];
+  return [`  policy change: the pull request number was not written (${n.why}) — run \`gov rules propose\`${n.pr ? ` --pr ${n.pr}` : ""} on the project branch, commit and push`];
 }

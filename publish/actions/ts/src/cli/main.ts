@@ -70,7 +70,6 @@ import { keyNameFor } from "./secret-reach.js";
 import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
 import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
 import { proposeOnPullRequest } from "./rules-propose-ci.js";
-import { openPrBranch, botIdentity } from "./pr-branch-io.js";
 import { terminalChannel } from "../rules/propose/interview.js";
 import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
 import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
@@ -2374,7 +2373,6 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   const fs = createNodeFs();
   const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
   const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
-  const bot = botIdentity(process.env);
   setEvidenceFor(home, config.githubOrg);
   const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
     git, gh, env: process.env, toolOnPath,
@@ -2383,16 +2381,8 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
     writeFile: (f, t) => fs.writeFile(f, t),
     scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
     executor: createNodeActionExecutor(),
-    proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, {
-      git, gh, repoDir,
-      repository: process.env.GITHUB_REPOSITORY ?? "",
-      // The org's model setting from the DEFAULT branch: a pull request cannot approve its own model.
-      settings: settingsAt(git, home, defaultRef(git, home, config.defaultBranch)),
-      model: (s) => modelChoiceFor(s, true),
-      openBranch: (sha, ref) => openPrBranch(repoDir, sha, ref, bot),
-      self: process.env.GOV_BOT_LOGIN || bot.name,
-      today: new Date().toISOString().slice(0, 10),
-    }),
+    // A check and nothing more (F154 A): no model, no commit — it names what the author runs.
+    proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, { git, repoDir }),
   }, {
     home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
     githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,

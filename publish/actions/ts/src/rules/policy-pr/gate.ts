@@ -19,7 +19,7 @@
  *   its SNAPSHOT   `policies/history/<prev>/` is the base's `policies/` byte for byte (minus `history/` and
  *                  `actions/`), and nothing already frozen there was edited or deleted — moving the snapshots
  *                  byte for byte from their old folder, `policies/version/`, is a rename, not an edit;
- *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired — and, under
+ *   its CHANGELOG  an entry for the new version naming this pull request and every rule added, revised or retired — and, under
  *                  "Sections reviewed", every policy section the change ADDED or CHANGED, at its new sha, with what
  *                  propose settled for it (reviewed.ts). THE GATE STARTS FROM THE PROSE (Policy Owner, 2026-10-07):
  *                  a changed section with no rule rows is still a changed section, and someone — propose and its
@@ -377,7 +377,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
   }
   checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
-    checkChangelog(base, head, headVersion, plan.changes, f, plan.governance);
+    checkChangelog(base, head, headVersion, plan.changes, f, plan.governance, pr);
     checkReviewed(base, head, baseVersion, headVersion, f);
     const cannot = checkSnapshot(base, head, baseVersion, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
@@ -464,7 +464,7 @@ function checkVersion(base: string, head: string, required: RequiredBump, f: Emi
  * ONLY entry the pull request adds: one pull request, one version jump, one entry (a second run that bumped again
  * replaces its earlier entry; it never leaves it behind).
  */
-function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = []): void {
+function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = [], pr?: number): void {
   const text = head.read(POLICY_PR_PATHS.changelog);
   if (text !== null) {
     const was = base.read(POLICY_PR_PATHS.changelog);
@@ -476,6 +476,11 @@ function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: 
   }
   const entry = text === null ? null : changelogEntry(text, version);
   if (entry === null) { f("changelog", `${POLICY_PR_PATHS.changelog} has no entry for ${version}`); return; }
+  // THE ENTRY NAMES ITS PULL REQUEST (F154 A): propose writes the entry before the pull request is open, and the
+  // number follows in the author's commit (`gov close`, or `gov rules propose` once it is open) — never in CI's.
+  if (pr !== undefined && !entry.includes(`| #${pr} | `)) {
+    f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name this pull request (#${pr}) — run gov rules propose on this branch (it finds the open pull request), commit and push`);
+  }
   for (const [ids, change] of [[c.added, "added"], [c.revised, "revised"], [c.retired, "retired"]] as const) {
     for (const id of ids) if (!mentions(entry, id)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name ${id} (${change})`);
   }
