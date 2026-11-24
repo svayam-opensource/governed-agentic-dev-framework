@@ -160,8 +160,8 @@ One-time setup (the framework repo's settings):
 2. Secret **`FRESH_ADOPT_PAT`** — a classic token of an **owner** of that org: `repo`, `workflow`, `project`,
    `read:org`, `delete_repo`. `admin:org` is not needed (soft posture protects nothing).
 3. A self-hosted runner on the org carrying the label `svayam-e2e-3` (variable `FRESH_ADOPT_RUNS_ON` overrides
-   `[self-hosted, svayam-e2e-3]`), with `bash awk sed tr grep sort jq gh git node npm` on its service's PATH — the
-   tools the approval check and gov-checks call. A missing one fails the stop with exit 127; the journey names it
+   `[self-hosted, svayam-e2e-3]`), with `git` and `gh` (plus the base system's `bash awk sed tr grep sort`, and `node`/`npm` for gov-checks) on its
+   service's PATH — the tools the approval check and gov-checks call; no `jq` since F153 A. A missing one fails the stop with exit 127; the journey names it
    from the check's log.
 4. Once the first run is green: variable **`FRESH_ADOPT_REQUIRED`** = `true`. Until then a missing secret makes the
    job `incomplete` (a warning, never green evidence) rather than failing PRs; from then on it fails a strict run.

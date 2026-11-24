@@ -57,9 +57,10 @@ CHECK_OWNER="${E2E_CHECK_OWNER:-none}"
 PRACTICE_TITLE="Make the policy ours"
 # WHAT THE SANDBOX RUNNER MUST HAVE ON ITS SERVICE'S PATH (E2E_RUNS_ON). The journey runs on GitHub's runner and cannot
 # probe that machine before the PR, so a missing one is named afterwards, from the check's own log (exit 127):
-#   approver-check.yml  bash awk sed tr grep sort jq gh   (jq: the reviews; gh: the API — 2026-11-24's exit 127 was jq)
+#   approver-check.yml  bash awk sed tr grep sort gh      (gh --jq reads the reviews; the 2026-11-24 exit 127 was a
+#                                                          missing jq, fixed by F153 A: the check no longer calls jq)
 #   gov-checks.yml      git (checkout) · node + npm (setup-node, npm install -g the gov CLI) · gh (gov check run)
-RUNNER_TOOLS="bash awk sed tr grep sort jq gh git node npm"
+RUNNER_TOOLS="bash awk sed tr grep sort gh git node npm"
 TASK_TITLE="Put our name on the policy"
 
 PASS=0
@@ -265,19 +266,26 @@ ok "gov close opened $PR_URL"
 
 # ── stop: the approval check reports failure on the PR ─────────────────────────────────────────────────────────────
 step "Stop — wait for approver-check to fail on PR #$PR_NUM (≤ ${STOP_DEADLINE}s)"
-VERDICT=""; LAST=""
+VERDICT=""; LAST=""; HEAD_AUTHOR=""
 while [ $(( $(now) - T2 )) -lt "$STOP_DEADLINE" ]; do
-  # EVERY COMMIT THE PR HAS HAD, newest first — not only its current head. The policy check commits its paperwork to the
-  # PR's branch, and the workflows on that bot commit wait for approval (`action_required`) and report nothing; the
-  # approval check's verdict is then on the commit gov close opened the PR with (run 45294316719, 2026-11-24).
-  for SHA in $(gh api "repos/$E2E_ORG/$REPO/pulls/$PR_NUM/commits?per_page=100" --jq '[.[].sha] | reverse | .[]' 2>/dev/null || true); do
+  # THE PR'S HEAD ONLY (F154 A): the policy check never pushes, and `gov close` writes the PR number in a second commit
+  # of its own, authored by the adopter — so the head moves once, right after the PR opens, and the verdict that counts
+  # is the one on the head. A head authored by a bot, or any run there waiting for approval (`action_required`), is the
+  # pattern F154 removed, and fails the journey rather than being waited out.
+  HEAD="$(gh api "repos/$E2E_ORG/$REPO/pulls/$PR_NUM" --jq '"\(.head.sha) \(.head.user.login)"' 2>/dev/null || true)"
+  SHA="${HEAD%% *}"
+  if [ -n "$SHA" ]; then
+    HEAD_AUTHOR="$(gh api "repos/$E2E_ORG/$REPO/commits/$SHA" --jq '"\(.author.login // .commit.author.name) \(.author.type // "")"' 2>/dev/null || true)"
+    case "$HEAD_AUTHOR" in *"[bot]"*|*" Bot") die "PR #$PR_NUM's head ${SHA:0:7} is authored by a bot ($HEAD_AUTHOR) — F154 A: nothing but the adopter commits to the practice PR" ;; esac
+    AR="$(gh api "repos/$E2E_ORG/$REPO/actions/runs?head_sha=$SHA" --jq '[.workflow_runs[] | select(.conclusion == "action_required") | .name] | join(", ")' 2>/dev/null || true)"
+    [ -z "$AR" ] || die "workflow run(s) on PR #$PR_NUM's head ${SHA:0:7} wait for approval to run (action_required): $AR — F154 A removed that"
     LAST="$(gh api "repos/$E2E_ORG/$REPO/commits/$SHA/check-runs?check_name=approver-check" \
       --jq '.check_runs | sort_by(.started_at) | last | select(. != null) | "\(.id) \(.status) \(.conclusion)"' 2>/dev/null || true)"
     case "$LAST" in
-      *" completed failure") VERDICT=failure; break 2 ;;
-      *" completed success") VERDICT=success; break 2 ;;
+      *" completed failure") VERDICT=failure; break ;;
+      *" completed success") VERDICT=success; break ;;
     esac
-  done
+  fi
   sleep 5
 done
 T3=$(now)
@@ -313,6 +321,6 @@ esac
 step "Time to the first stop"
 [ -z "${GITHUB_STEP_SUMMARY:-}" ] || { echo "PR: $PR_URL · approver-check: failed · policies/VERSION $VERSION_BEFORE → $VERSION_AFTER"; echo; } >>"$GITHUB_STEP_SUMMARY"
 BUDGET_OK=0
-timing_report "$BUDGET" "install=$T_INSTALL" "setup=$((T1 - T0))" "practice task → PR open=$((T2 - T1))" "PR open → approver-check red=$((T3 - T2))" || BUDGET_OK=$?
+timing_report "$BUDGET" "install=$T_INSTALL" "setup=$((T1 - T0))" "practice task → PR open=$((T2 - T1))" "PR open → approval finding on the head=$((T3 - T2))" || BUDGET_OK=$?
 [ "$BUDGET_OK" -eq 0 ] && ok "the first stop came in ${TIMING_TOTAL}s — within the ${BUDGET}s the home page promises" \
   || die "the first stop took ${TIMING_TOTAL}s — over the ${BUDGET}s budget (E2E_BUDGET_SECS): the home page's \"under 10 minutes\" is not met"
