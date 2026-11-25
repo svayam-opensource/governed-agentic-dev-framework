@@ -306,6 +306,10 @@ case "$VERDICT" in
           | grep -oE '[A-Za-z0-9_.-]+: (command )?not found' | sed -E 's/: (command )?not found//' | sort -u | tr '\n' ' ' || true)"
         die "approver-check failed with exit 127 — not gov waiting for an approval: the runner $RUNS_ON lacks ${NOTFOUND:-a command (its log did not say which)}. gov's workflows there need: $RUNNER_TOOLS" ;;
       esac
+      # SHOW THE CHECK'S OWN WORDS before the teardown deletes them: a failure with no annotation (F158's PR1 met two
+      # in a row) is otherwise undiagnosable — the repository, and the log with it, are gone a minute later.
+      echo "  the last lines of approver-check's log (job ${LAST%% *}):"
+      gh api "repos/$E2E_ORG/$REPO/actions/jobs/${LAST%% *}/logs" 2>/dev/null | tail -40 | sed -E 's/^[0-9TZ:.-]+ //; s/^/    /' || echo "    (the log could not be read)"
       die "approver-check failed on PR #$PR_NUM, but not because it waits for someone else's approval"
     fi
     ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change: \"$REASON\"" ;;
