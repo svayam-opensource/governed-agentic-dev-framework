@@ -11,7 +11,7 @@ scenario "33 · adopter picks the agents with the arrow keys — a single-select
 
 export GH_STUB_LOGIN="acme"
 export GH_STUB_GOVERNED=""
-export GH_STUB_REPOS="acme/acme-gov"
+export GH_STUB_REPOS="acme/gov_repo"
 
 # The vendor installer, doubled at `curl`, as scenario 30 does for IBM Bob.
 cat > "$WORLD/bin/curl" <<EOF
@@ -28,31 +28,13 @@ drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
 ~ 240
-> Q1 - What is full legal name
-< Acme Incorporated
-> Q2 - What is short name
-<
-> Q3 - What is the Github Organization ID
+> Q1 - What is the GitHub organization
 < acme
 ~ 240
-> Q4 - What would you like the name of your new governance repo
-< acme-gov
-> Q5 - What would you like the identifier
+> Q2 - What would you like the identifier
 < ACME
-> Q6 - Default branch to be used for production
-<
-> Q7 - Default branch to be used for development
-<
-> Q8 - Who is the Policy Owner
-< adopter
-> Q9 - Who will approve your own changes
-< none
-> Q10 - What contact email
-< adopter@acme.test
-> Q11 - What governance posture
-<
 ~ 240
-# Q12 — the default: the list ends with `none`, then Aider, then IBM Bob — so End, Up, Up.
+# Q3 — the default: the list ends with `none`, then Aider, then IBM Bob — so End, Up, Up.
 > Enter choose
 <k end up up enter
 # The others: Claude Code is first (the cursor starts there), Aider is last. Space on each, then Enter.
@@ -66,7 +48,7 @@ drive "$(conv <<'C'
 C
 )" env -u CI -u GOV_PLAIN_PROMPTS TERM=xterm-256color gov
 
-info "F158 — Q12 is the shared picker in a real terminal"
+info "F158 — Q3 (the agents) is the shared picker in a real terminal"
 saw "the default is asked with the ruling's question" "Which AI agent would you like to use as the default in your organization?"
 saw "the single-select draws its hint line" "↑/↓ move · Enter choose"
 saw "the multi-select draws its own" "↑/↓ move · Space select · Enter done"
@@ -85,4 +67,4 @@ done
 for id in cursor openai-codex; do
   runs grep -q "$id" "$G" && fail "governance.yaml allows $id, which was never selected" || pass "and not $id, which was never selected"
 done
-saw "the founding went ahead after the picker gave the terminal back" "creating acme/acme-gov"
+saw "the founding went ahead after the picker gave the terminal back" "creating acme/gov_repo"

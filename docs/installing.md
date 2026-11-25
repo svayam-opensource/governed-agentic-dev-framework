@@ -47,22 +47,30 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
    GitHub. Re-running resumes; it never repeats a finished step.
 2. It asks whether you are **adopting** the framework, **joining** an organization that has it,
    or **not sure**.
-3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it. A new governance
+3. Adopt asks three questions: your GitHub organization, a 2-6 letter identifier for it, and which AI agents
+   it allows (a default, then any others). In a terminal you pick the agents with the arrow keys, Space and
+   Enter; without one they are numbered (`GOV_PLAIN_PROMPTS=1` asks for numbers anyway). Everything else
+   takes a default: the organization's names are its display name on GitHub, the governance repo is
+   `gov_repo`, the branches are `main` and `dev`, you are the Policy Owner, nobody else is named yet, no
+   contact email is written, and governance is **soft**. gov prints every value, asked or not, before it
+   creates anything; each one can be changed later by a pull request to `org-config.yaml` or
+   `policies/governance.yaml`. If your organization already has a repository called `gov_repo` that is not a
+   governance repo, gov stops, creates nothing, and says how to go on.
+   Adopt then creates and seeds your governance repo; join finds it on GitHub and clones it. A new governance
    repo has the approval check and the rules' checks from its very first commit, so every pull request in it
-   shows whether someone other than its author has approved it. If you chose **hard** governance, setup also
-   protects the default branch, so GitHub blocks a merge until that approval arrives. On a plan that cannot
-   protect the repo (a private repo on GitHub Free), setup says so, lists the ways forward, and carries on.
+   shows whether someone other than its author has approved it. If your organization later switches to
+   **hard** governance, the default branch is protected, so GitHub blocks a merge until that approval arrives.
+   On a plan that cannot protect the repo (a private repo on GitHub Free), gov says so and lists the ways
+   forward.
 4. If you adopted, it makes your practice project, **Make the policy ours**, without asking. It is a real
    project: a board, its anchor issue, a project branch, and one task. The task is to put your organization's
    name on the policy's title page. The pull request for that change shows a check waiting for someone other
    than you to approve it. The title page is the Policy Owner's, and you are the Policy Owner and its author,
-   so the check waits for the Check Owner. That wait is the point: nobody approves their own work. Setup asks
-   who approves your own changes; if you named a teammate, they are the Check Owner and nothing else is
-   needed. If you are on your own, invite a teammate and name them Check Owner (`check_owner.github` in
-   `policies/governance.yaml`, in a pull request of its own). Under soft governance, or where GitHub cannot
-   protect the repo, nothing technically stops a merge past the check, but the red check is there for
-   everyone to see. Don't merge it yourself. Hard governance needs that second person: with nobody named,
-   setup records soft and says how to switch later. People who join get no practice project; their first project is
+   so the check waits for the Check Owner. That wait is the point: nobody approves their own work. Setup names
+   nobody else, so the practice task asks you to invite a teammate and name them Check Owner
+   (`check_owner.github` in `policies/governance.yaml`, in a pull request of its own). Under soft governance,
+   or where GitHub cannot protect the repo, nothing technically stops a merge past the check, but the red check
+   is there for everyone to see. Don't merge it yourself. Hard governance needs that second person. People who join get no practice project; their first project is
    one they are assigned to.
 5. It installs an approved AI agent, if you agree, and helps you sign it in.
 6. It opens a first project and launches the agent, which posts its context manifest.

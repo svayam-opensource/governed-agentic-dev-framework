@@ -34,7 +34,6 @@
 #   E2E_BUDGET_SECS        the promise, in seconds (default 600)
 #   E2E_STOP_DEADLINE_SECS how long to wait for the approval check (default 900)
 #   E2E_RUNS_ON            the runner the practice PR's workflows ask for (default [self-hosted, svayam-e2e-3])
-#   E2E_CHECK_OWNER        the answer to Q9, the second person (default none: solo, the check says so and fails)
 #   E2E_LEDGER             file recording what was created, for the `teardown` mode (default: in the run's HOME)
 #   E2E_KEEP=1             leave everything for inspection
 #
@@ -53,7 +52,6 @@ case "$MODE" in run|teardown) ;; *) echo "usage: fresh-adoption-journey.sh [run|
 BUDGET="${E2E_BUDGET_SECS:-600}"
 STOP_DEADLINE="${E2E_STOP_DEADLINE_SECS:-900}"
 RUNS_ON="${E2E_RUNS_ON:-[self-hosted, svayam-e2e-3]}"
-CHECK_OWNER="${E2E_CHECK_OWNER:-none}"
 PRACTICE_TITLE="Make the policy ours"
 # WHAT THE SANDBOX RUNNER MUST HAVE ON ITS SERVICE'S PATH (E2E_RUNS_ON). The journey runs on GitHub's runner and cannot
 # probe that machine before the PR, so a missing one is named afterwards, from the check's own log (exit 127):
@@ -146,7 +144,9 @@ scope_check "$(gh api -i user 2>/dev/null || true)" "$E2E_ORG/<this run's govern
 [ "$CAN_DELETE" != no ] || die "the token lacks delete_repo — this run would leave $E2E_ORG adopted, and the next one could not start"
 
 RUN_ID="${E2E_RUN_ID:-$(date +%s)}"
-REPO="fresh-${RUN_ID}-gov"
+# FIXED, NOT PER RUN (F158): setup names every new organization's governance repository gov_repo and no longer asks.
+# The preflight above refuses an org that is already adopted, and the teardown deletes it, so one name is enough.
+REPO="gov_repo"
 START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RUN_HOME="$(mktemp -d)"
 if [ -z "$LEDGER" ]; then LEDGER="$RUN_HOME/ledger.env"; fi
@@ -178,8 +178,7 @@ ok "gov $(gov --version 2>/dev/null || echo '?') installed, git identity set (${
 # ── setup: the first-run interview, as an adopter ──────────────────────────────────────────────────────────────────
 step "Setup — \`gov\`, the first-run interview (adopter, soft, no agents), in a pty"
 CONV="$RUN_HOME/fresh-adoption.conv"; TRANSCRIPT="$RUN_HOME/setup.transcript"
-sed -e "s|@ORG_NAME@|Fresh Adoption E2E|" -e "s|@ORG@|$E2E_ORG|" -e "s|@REPO@|$REPO|" -e "s|@SLUG@|FRESH|" \
-    -e "s|@LOGIN@|$LOGIN|" -e "s|@CHECK_OWNER@|$CHECK_OWNER|" -e "s|@EMAIL@|$EMAIL|" "$HERE/fresh-adoption.conv" >"$CONV"
+sed -e "s|@ORG@|$E2E_ORG|" -e "s|@SLUG@|FRESH|" "$HERE/fresh-adoption.conv" >"$CONV"
 T0=$(now)
 DRIVE_RC=0; expect "$HERE/pty/drive.exp" "$TRANSCRIPT" "$CONV" -- gov 2>"$RUN_HOME/drive.err" || DRIVE_RC=$?
 T1=$(now)

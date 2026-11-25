@@ -16,25 +16,22 @@
  * order quietly gave away. It also means the answers can be shown back as one block,
  * because by then they are all known.
  *
- * THE ONE CONCESSION TO ORDER (#197). The probe that asks "does this organization
- * already have a governance repository?" needs the organization, and diverting to
- * the joiner path makes every later question pointless. It therefore runs the
- * instant Q3 is answered — the earliest moment it can — which costs two answered
- * questions (the two names) in the case where the adopter should have been joining.
- * Two questions is the price of asking for the human-readable name first; the
- * alternative is opening with a GitHub org id, which is not how anyone describes
- * their own organization.
+ * THREE QUESTIONS, NOT TWELVE (PRJ-121 F158, Policy Owner rulings, 2026-11-25). An adopter is asked only what gov
+ * cannot know or safely assume: Q1 the GitHub organization, Q2 the organization's identifier, Q3 its AI agents.
+ * Everything else takes a default — the names from the organization's display name on GitHub, the repository
+ * `gov_repo`, branches `main` and `dev`, the Policy Owner the signed-in GitHub login, no second person (the
+ * practice project asks to invite one), no contact email, soft posture — and every value, asked or not, is
+ * printed back before anything is created, with where to change it later.
+ *
+ * THE PROBE RUNS THE INSTANT Q1 IS ANSWERED (#197): "does this organization already have a governance
+ * repository?" needs only the organization, and diverting to the joiner path makes every later question
+ * pointless. With the organization first, a would-be joiner answers nothing else.
  */
-import { askPosture, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import type { OrgConfigValues } from "./setup.js";
 
-import {
-  nonEmpty, orgSlug as orgSlugRule, githubHandle, optionalEmail, parseOptionalEmail,
-  branchChoice, parseBranchChoice, branchName, secondPerson, parseSecondPerson, SECOND_PERSON_QUESTION, secondPersonDefault,
-  type Validator,
-} from "./answers.js";
+import { orgSlug as orgSlugRule, type Validator } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
-import { askAgentSelection, DEFAULT_AGENT_QUESTION } from "../cli/agent-selection.js";
+import { askAgentSelection, namesSentence, DEFAULT_AGENT_QUESTION } from "../cli/agent-selection.js";
 import type { PickerTerminal } from "../cli/picker.js";
 import type { ApprovedAgent } from "../config/approved-agents.js";
 
@@ -44,6 +41,12 @@ type Answers = { -readonly [K in keyof OrgConfigValues]?: OrgConfigValues[K] };
 
 /** Thrown when a prompt cannot get a usable answer — never on a human's typo. */
 export class InterviewRefused extends Error {}
+
+/**
+ * Thrown when the interview stops on a FACT, not a missing answer — `gov_repo` taken, nobody signed in (F158).
+ * Re-running interactively would not help, so the caller says what to change instead.
+ */
+export class InterviewStopped extends InterviewRefused {}
 
 export interface InterviewIo {
   /** Ask with a default; return the answer (default when blank). */
@@ -62,11 +65,21 @@ export interface InterviewIo {
    * A convenience, never a gate — see `org-choice.ts`.
    */
   readonly myOrgs?: () => readonly string[];
-  /** Ask the agent-approval question (Q12). Absent = do not ask; the caller asks elsewhere. */
+  /**
+   * The organization's display name on GitHub (`gh api orgs/<org> --jq .name`, or `users/<login>` for a personal
+   * account) — the default for org_name and org_short_name. Null or empty = unknown; the login is used instead.
+   */
+  readonly orgDisplayName?: (org: string) => string | null;
+  /**
+   * Runs once the organization is known and found NOT governed: may `gov_repo` be created there? Returns null when
+   * it may, or the lines that say why not (a repository of that name exists and is not a failed run of setup).
+   */
+  readonly checkRepoName?: (org: string, repo: string) => readonly string[] | null;
+  /** Ask the agent-approval question (Q3). Absent = do not ask; the caller asks elsewhere. */
   readonly selectAgents?: boolean;
   readonly color?: boolean;
   /**
-   * The terminal Q12's picker may take for arrow keys (F158, ruling Q12 A). Absent = the numbered form, which is
+   * The terminal Q3's picker may take for arrow keys (F158, ruling Q12 A). Absent = the numbered form, which is
    * also what the picker falls back to on its own wherever arrows cannot run (see picker.ts).
    */
   readonly terminal?: PickerTerminal | null;
@@ -82,17 +95,17 @@ export interface InterviewIo {
 export type SetupPreAnswers = Partial<OrgConfigValues> & { readonly agents?: readonly ApprovedAgent[] };
 
 export interface InterviewResult {
-  /** The GitHub organization (Q3). */
+  /** The GitHub organization (Q1). */
   readonly org: string;
   /**
-   * The organization's approved agents (Q12), first one default.
+   * The organization's approved agents (Q3), first one default.
    *
    * IN THE INTERVIEW, not after the repository exists. It used to be asked once the clone had
    * landed, which put the single most consequential policy answer in adoption AFTER the point
    * of no return — and left it out of the block that reads every other answer back.
    */
   readonly agents?: readonly ApprovedAgent[];
-  /** The governance repository to create (Q4). */
+  /** The governance repository to create — always {@link NEW_GOV_REPO} for a new organization (F158). */
   readonly repo: string;
   /** Every answer, keyed as org-config values, ready to hand to `runSetup` as `existing`. */
   readonly answers: Partial<OrgConfigValues>;
@@ -101,15 +114,12 @@ export interface InterviewResult {
 const RULE_GITHUB_ORG: Validator = (v) => {
   const t = v.trim();
   if (!t) return "A GitHub organization is required — it is where the repository will be created.";
-  if (t.includes("/")) return `'${t}' looks like <organization>/<repository>. Just the organization here — the repository is the next question.`;
+  if (t.includes("/")) return `'${t}' looks like <organization>/<repository>. Just the organization here — gov names the repository itself.`;
   return /^[A-Za-z0-9._-]+$/.test(t) ? null : `'${t}' is not a GitHub organization name (letters, digits, dots, dashes).`;
 };
 
-const RULE_REPO: Validator = (v) => {
-  const t = v.trim();
-  if (!t) return "A repository name is required.";
-  return /^[A-Za-z0-9._-]+$/.test(t) ? null : `'${t}' is not a repository name (letters, digits, dots, dashes).`;
-};
+/** The governance repository every NEW organization gets (F158). Existing organizations keep theirs. */
+export const NEW_GOV_REPO = "gov_repo";
 
 /**
  * The opening block. Numbered because it makes three separate promises — a repository
@@ -201,125 +211,135 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
   throw new InterviewRefused(`Q${n}: no usable answer after ${MAX_ATTEMPTS} attempts.`);
 }
 
+/** One value the interview settled, as the summary prints it. */
+export interface SettledValue {
+  readonly what: string;
+  readonly value: string;
+  /** Asked, or taken as a default. */
+  readonly asked: boolean;
+  /** The file a pull request changes it in. */
+  readonly file: "org-config.yaml" | "policies/governance.yaml";
+}
+
 /**
- * Run the questions in order. Returns null when `afterOrg` took over.
+ * Every value used, asked and defaulted, before the irreversible step — and where each one is changed later.
+ * Pure, so the block is tested as text.
+ */
+export function settledSummary(values: readonly SettledValue[]): readonly string[] {
+  const w = Math.max(...values.map((v) => v.what.length));
+  return [
+    "",
+    "================================================================",
+    "  These are the values your new governance repo will be set up with:",
+    "",
+    ...values.map((v) => `  ${v.what.padEnd(w)}  ${v.value || "(none)"}   (${v.asked ? "your answer" : "default"} · ${v.file})`),
+    "",
+    "  Any of these can be changed later by a pull request to the file named beside it",
+    "  (org-config.yaml or policies/governance.yaml).",
+    "================================================================",
+  ];
+}
+
+/**
+ * Run the questions in order. Returns null when `afterOrg` took over, or Enter was pressed at Q1 with no default.
  *
- * Each default is re-derived from the answers so far, so Q2 can suggest a short name
- * built from Q1's legal name and Q5 can suggest a slug built from Q3's organization.
- * Offering an empty default and then refusing empty is a question that answers itself
- * wrongly (#210).
+ * Q2's default is re-derived from Q1's organization (#210): offering an empty default and then refusing empty is a
+ * question that answers itself wrongly.
  */
 export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult | null> {
   const a: Answers = {};
 
-  // ENTER STILL STOPS (#192 kept). The old flow let an adopter leave at its first
-  // question by pressing Enter; reordering must not quietly take that away, so the
-  // escape moves to whatever is now first. It applies ONLY when there is no default
-  // to accept — where a default exists, Enter means "yes, that one", which is the
-  // whole point of offering it.
-  const d0 = io.derive(a);
-  if (!d0.orgName) {
-    const first = ((await io.prompt(`Q1 - What is full legal name of your organization ?\nEnter Value : `, "")) ?? "").trim();
-    if (first === "") return null;
-    const bad = nonEmpty("An organization name")(first);
-    a.orgName = bad ? await ask(io, 1, "What is full legal name of your organization ?", "", nonEmpty("An organization name")) : first;
-  } else {
-    a.orgName = await ask(io, 1, "What is full legal name of your organization ?", d0.orgName, nonEmpty("An organization name"));
-  }
-
-  const dName = io.derive(a);
-  a.orgShortName = await ask(io, 2,
-    "What is short name of your organization that you would like to use in headings etc?",
-    dName.orgShortName || dName.orgName, nonEmpty("A short display name"));
-
-  // ASKED WITH THE ANSWER ON SCREEN. GitHub knows which organizations this account belongs to,
-  // so the common case is a number rather than a recalled identifier. A name that is not on the
-  // list is still accepted: the token needs `read:org` to see them all, and an organization that
-  // gov cannot see is not thereby the wrong answer.
+  // Q1 — THE GITHUB ORGANIZATION, ASKED WITH THE ANSWER ON SCREEN. GitHub knows which organizations this account
+  // belongs to, so the common case is a number rather than a recalled identifier. A name that is not on the list is
+  // still accepted: the token needs `read:org` to see them all.
   const mine = io.myOrgs?.() ?? [];
-  const org = resolveOrgChoice(await ask(io, 3,
-    "What is the Github Organization ID of your organization? This is where your new governance repo will be created?",
-    defaultOrg(mine, io.derive(a).githubOrg),
-    (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, mine)),
-    renderOrgChoices(mine), mine.map((_, i) => String(i + 1))), mine);
+  const orgDefault = defaultOrg(mine, io.derive(a).githubOrg);
+  const Q1 = "What is the GitHub organization where your new governance repo will be created?";
+  // ENTER STILL STOPS (#192 kept) — at whatever question is first, and only when there is no default to accept.
+  let orgAnswer: string;
+  if (!orgDefault) {
+    const choices = renderOrgChoices(mine);
+    const first = ((await io.prompt(`Q1 - ${Q1}\n${choices.length ? choices.join("\n") + "\n" : ""}Enter Value : `, "")) ?? "").trim();
+    if (first === "") return null;
+    const bad = RULE_GITHUB_ORG(resolveOrgChoice(first, mine));
+    if (bad) io.print(`  ✗ ${bad}`);
+    orgAnswer = bad
+      ? await ask(io, 1, Q1, "", (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, mine)), choices, mine.map((_, i) => String(i + 1)))
+      : first;
+  } else {
+    orgAnswer = await ask(io, 1, Q1, orgDefault, (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, mine)),
+      renderOrgChoices(mine), mine.map((_, i) => String(i + 1)));
+  }
+  const org = resolveOrgChoice(orgAnswer, mine);
   a.githubOrg = org;
 
   // THE PROBE, AT THE EARLIEST POSSIBLE MOMENT — see the file header.
   if (io.afterOrg && !(await io.afterOrg(org))) return null;
 
-  const repo = await ask(io, 4,
-    "What would you like the name of your new governance repo to be created as ?",
-    `${org}-gov`, RULE_REPO);
+  // THE REPOSITORY IS NOT ASKED: every new organization's is `gov_repo`. A repository of that name that is not a
+  // governance repo (the probe above found none) is refused, never written over.
+  const repo = NEW_GOV_REPO;
+  const refused = io.checkRepoName?.(org, repo);
+  if (refused) throw new InterviewStopped(refused.join("\n"));
   a.workspaceRepo = repo;
 
+  // THE NAMES ARE NOT ASKED: GitHub's display name for the organization, or its login.
+  const display = (io.orgDisplayName?.(org) ?? "").trim() || org;
+  a.orgName = display;
+  a.orgShortName = display;
+
+  // Q2 — THE IDENTIFIER. Asked, because it names the workspace folder and every rule id, and cannot be changed
+  // cheaply afterwards.
   const dOrg = io.derive(a);
-  a.orgSlug = await ask(io, 5,
+  a.orgSlug = await ask(io, 2,
     "What would you like the identifier (2-6 chars in uppercase) for your organization? Choose it carefully — it is used\n"
     + "  throughout, including the workspace folder where all governance files live i.e. ~/.gov/<org-id>/…",
     dOrg.orgSlug || org.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase(), orgSlugRule);
 
-  const dSlug = io.derive(a);
-  // A CHOICE, not free text: only two answers mean anything here, and a typo
-  // produces a branch the rest of the tool looks for and never finds.
-  const branchDefault = parseBranchChoice(dSlug.defaultBranch ?? "") === "master" ? "2" : "1";
-  a.defaultBranch = parseBranchChoice(await ask(io, 6,
-    "Default branch to be used for production (BaseRef) in your code repository?\n  (1 = main, 2 = master)",
-    branchDefault, branchChoice, [], ["1", "2"], parseBranchChoice(branchDefault) ?? undefined)) ?? "main";
+  // NOT ASKED — the defaults the rulings set (F158). Each is in the summary below, with where to change it.
+  a.defaultBranch = "main";
+  a.defaultCodeBranch = "dev";
+  // The Policy Owner is whoever is signed in to GitHub and running setup. With nobody signed in there is no honest
+  // default, and setup would refuse later anyway — so refuse now, before anything is created.
+  const owner = io.derive(a).policyOwnerGithub ?? "";
+  if (!owner.replace(/^@+/, "").trim()) {
+    throw new InterviewStopped("Could not tell who is signed in to GitHub, so there is no Policy Owner to record. Sign in with `gh auth login`, then re-run `gov`.");
+  }
+  a.policyOwnerGithub = owner;
+  a.checkOwnerGithub = owner;            // no second person yet: the Policy Owner holds Check Owner (Q44 A)
+  a.policyOwnerEmail = "";               // no contact email is written
+  a.governancePosture = "soft";
 
-  a.defaultCodeBranch = await ask(io, 7,
-    "Default branch to be used for development?", dSlug.defaultCodeBranch, branchName);
-
-  // Q8–Q10 — THE TWO ROLES, ASKED ALIKE, THEN A CONTACT (Policy Owner, 2026-10-07 — adoption walk #1).
-  //
-  // The Policy Owner used to be asked for an EMAIL while their GitHub handle was taken, unannounced, from whoever
-  // was signed in to gh — and the Check Owner was asked by handle. Two roles, two forms, and the one that decides
-  // who approves every policy was the one never asked. Both are handles now, the second defaulting to the first
-  // (a one-person org is the common first case; `gov doctor` says plainly when one person holds both keys).
-  //
-  // NO EFFECTIVE-DATE QUESTION (org-config split, 2026-10-06): `policy_effective_date` is retired — a policy's
-  // history is its version and its CHANGELOG, and the date setup ran fills the documents' <POLICY_EFFECTIVE_DATE>.
-  a.policyOwnerGithub = await ask(io, 8,
-    "Who is the Policy Owner — the GitHub handle that approves your policies and holds every role nobody else holds?",
-    io.derive(a).policyOwnerGithub, githubHandle);
-
-  // Q9 — THE SECOND PERSON (Policy Owner ruling Q44 A, 2026-11-23). Optional: a teammate who approves the Policy
-  // Owner's own changes, named Check Owner. `none` keeps the Policy Owner in the role, as a one-person org is.
-  const second = parseSecondPerson(await ask(io, 9, SECOND_PERSON_QUESTION,
-    secondPersonDefault(io.derive(a)), secondPerson(a.policyOwnerGithub ?? "")));
-  a.checkOwnerGithub = second ?? a.policyOwnerGithub;
-
-  // OPTIONAL: the role is the handle; the email is only a contact the policies show. `none` leaves it empty.
-  a.policyOwnerEmail = parseOptionalEmail(await ask(io, 10,
-    "What contact email should your policies show for the Policy Owner? (optional — `none` for no email)",
-    io.derive(a).policyOwnerEmail, optionalEmail));
-
-  // Q11 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
-  // Q44 A: hard without a second person is not applied — soft is recorded, and the reason said.
-  a.governancePosture = await askPosture(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"], "soft"),
-    second !== null, io.prompt, io.print);
-
-  // Q12 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
-  //
-  // Last, because it is the only answer that is a POLICY rather than a fact about the
-  // organization, and because it is the one an adopter most needs the preceding context to
-  // answer well. Inside the interview, though: it used to run after the clone, which put the
-  // most consequential decision in adoption on the far side of the irreversible step and
-  // outside the block that reads every other answer back.
+  // Q3 — WHICH AGENTS THIS ORGANIZATION ALLOWS. A single-select for the default, then a multi-select for the others,
+  // through the one shared picker (F158, ruling Q12 A). The only answer that is a POLICY rather than a fact.
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    // A SINGLE-SELECT FOR THE DEFAULT, THEN A MULTI-SELECT FOR THE OTHERS, through the one shared picker (F158,
-    // ruling Q12 A, 2026-11-25). The default keeps `default: true` in the approved list.
-    io.print(`Q12 - ${DEFAULT_AGENT_QUESTION}`);
+    io.print(`Q3 - ${DEFAULT_AGENT_QUESTION}`);
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
       ...(io.terminal ? { terminal: io.terminal } : {}),
     });
-    if (picked === null) throw new InterviewRefused("Q12: no usable AI agent selection.");
+    if (picked === null) throw new InterviewRefused("Q3: no usable AI agent selection.");
     agents = picked;
   }
+
+  for (const l of settledSummary([
+    { what: "GitHub organization", value: org, asked: true, file: "org-config.yaml" },
+    { what: "Organization identifier", value: a.orgSlug, asked: true, file: "org-config.yaml" },
+    { what: "Organization name", value: a.orgName, asked: false, file: "org-config.yaml" },
+    { what: "Short name", value: a.orgShortName, asked: false, file: "org-config.yaml" },
+    { what: "Governance repository", value: `${org}/${repo}`, asked: false, file: "org-config.yaml" },
+    { what: "Production branch", value: a.defaultBranch, asked: false, file: "org-config.yaml" },
+    { what: "Development branch", value: a.defaultCodeBranch, asked: false, file: "org-config.yaml" },
+    { what: "Policy Owner", value: owner, asked: false, file: "policies/governance.yaml" },
+    { what: "Check Owner", value: `${owner} (the Policy Owner, until you name a second person)`, asked: false, file: "policies/governance.yaml" },
+    { what: "Policy Owner contact email", value: "", asked: false, file: "policies/governance.yaml" },
+    { what: "Governance posture", value: "soft", asked: false, file: "policies/governance.yaml" },
+    ...(agents ? [{ what: "AI agents", value: namesSentence(agents), asked: true, file: "policies/governance.yaml" as const }] : []),
+  ])) io.print(l);
 
   io.print("");
   return { org, repo, answers: a, ...(agents ? { agents } : {}) };

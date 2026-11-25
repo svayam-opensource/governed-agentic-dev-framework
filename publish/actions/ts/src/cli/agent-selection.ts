@@ -91,7 +91,7 @@ export function defaultAgentItems(offered: readonly OfferedAgent[] = offeredAgen
  * is being asked now, and an arrow key does not make it less true.
  */
 export function defaultAgentLines(): readonly string[] {
-  // NO HEADING HERE. The interview prints `Q12 - <DEFAULT_AGENT_QUESTION>` as its question line.
+  // NO HEADING HERE. The interview prints `Q3 - <DEFAULT_AGENT_QUESTION>` as its question line.
   return [
     "",
     "  This is a policy decision, and it is yours to make now rather than later: an",
