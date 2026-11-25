@@ -164,6 +164,9 @@ export HOME="$RUN_HOME/home"; mkdir -p "$HOME"
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; mkdir -p "$NPM_CONFIG_PREFIX/bin"
 npm i -g "$GOV_TARBALL" >/dev/null 2>&1 || die "npm i -g $GOV_TARBALL failed"
 command -v gov >/dev/null || die "gov not on PATH after install"
+# The numbered form of every choice (F158): the conversation types numbers, so it must meet prompts and not the arrow
+# picker, on a laptop as on a CI runner (where `CI` would turn the arrows off anyway).
+export GOV_PLAIN_PROMPTS=1
 [ ! -e "$HOME/.gov" ] || die "this HOME already has ~/.gov — not a first run"
 EMAIL="${LOGIN}@users.noreply.github.com"
 git config --global user.email "$EMAIL"; git config --global user.name "$LOGIN (fresh adoption e2e)"

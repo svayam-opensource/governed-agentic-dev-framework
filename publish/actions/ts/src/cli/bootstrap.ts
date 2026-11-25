@@ -40,6 +40,7 @@ import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
+import type { PickerTerminal } from "./picker.js";
 import { olderFrameworkLines, type FrameworkCurrency, type PolicyOwnerFacts } from "../maintain/framework-currency.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -373,6 +374,8 @@ export interface FirstRunIo {
    * broken. There is only ever one writer now, and it is the one that can also commit.
    */
   recordsApprovals?: boolean;
+  /** The terminal the interview's picker may take for arrow keys (F158). Absent = numbered prompts. */
+  terminal?: PickerTerminal | null;
   /**
    * Build the practice project — "Make the policy ours" — and return the lines to print (F136; #186 before it).
    * ADOPTER PATH ONLY, and asked nothing: a joiner's first project is one they are assigned to.
@@ -509,6 +512,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
       myOrgs: io.listMyOrgs?.bind(io),
       selectAgents: io.recordsApprovals === true,
+      ...(io.terminal ? { terminal: io.terminal } : {}),
       ...(io.color === undefined ? {} : { color: io.color }),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
