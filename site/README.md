@@ -96,6 +96,12 @@ the tag to `versioned` — in one commit, or the site advertises a version nobod
 
 1.2.2 is the exception: its client was built from `c05aa80`, which predates the installer, so it has
 no `/v/1.2.2/` pair. From 1.2.3 the installer and client are one release tag.
+
+**An older release line is labelled, not removed** (PRJ-121 R6 P2 item 6). `versions.json` marks every
+`versioned` entry whose major version is below the newest major listed with `"deprecated": true` — today
+`1.2.3`, since `2.0.0-next.4` is listed. Nothing is hand-kept: listing a 3.x release deprecates 2.x the same
+way. The entry and its `/v/<ver>/` pair stay, so an existing 1.x user can still find their installer; gov web's
+`/install` page shows it as "1.2.3 (deprecated)". A current-line entry carries no `deprecated` key.
 `--verify` refuses a prod ref that can move — a gov release tag or a full commit sha only. `--verify` catches an unpinned build; it cannot catch a pin to a version
 that was never published.
 
