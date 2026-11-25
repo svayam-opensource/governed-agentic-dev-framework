@@ -17,10 +17,11 @@
 
 ### 1.1 Every exception has a named approver
 
-An exception is approved only by the role named for its domain in section 1.2, and only by the person who
-holds that role in section 4, or by that role's alternate when section 3.1 says the alternate stands in. While a
-role has nobody in it and no alternate, the Policy Owner approves in its place. There is no exception to this: an
-exception approved by anyone else is not approved.
+An exception is approved only by the role named for its domain in section 1.2, and only by someone on that
+role's approver list: the person who holds the role in section 4, or any of its alternates (section 3.1). One
+of them is enough, and it is never the person who asked for the exception. While a role has nobody in it and no
+alternate, the Policy Owner approves in its place. There is no exception to this: an exception approved by
+anyone else is not approved.
 
 ### 1.2 Which role approves which kind of exception (starter)
 
@@ -70,16 +71,18 @@ will not finish without both, and `gov doctor` reports either one when it falls 
 
 ### 3.1 Every role has an alternate
 
-Every role, including the Policy Owner and the Check Owner, has a named alternate: a second person who approves
-in the role's place when the holder wrote the change, or when the role has nobody in it. Without one, a change
-the holder makes waits for the Policy Owner, and a change the Policy Owner makes waits for the Check Owner; with
+Every role, including the Policy Owner and the Check Owner, has at least one named alternate. A role's
+approver list is its holder plus its alternates, and any one of them approves for the role, as long as they did
+not write the change. A change therefore needs two people: the one who proposes it, and one approver from the
+list. While the role has nobody in it, its alternates are the list. Without any alternate, a change the holder
+makes waits for the Policy Owner's list, and a change the Policy Owner makes waits for the Check Owner's; with
 nobody else named at all, nobody but the author can approve it.
 
 The Policy Owner appoints each alternate by a pull request to this file, in the Alternate column of section 4.
 The alternates of the Policy Owner and the Check Owner are recorded in `policies/governance.yaml`, as
-`policy_owner.alternate` and `check_owner.alternate`. An alternate is never the author's way round the rule in
-section 1.3: an alternate who wrote the change does not approve it. `gov doctor` reports every role that has no
-alternate.
+`policy_owner.alternate` and `check_owner.alternate`, each one handle or a list of them. An alternate is never
+the author's way round the rule in section 1.3: an alternate who wrote the change does not approve it.
+`gov doctor` shows every role's approver list and reports every role that has no alternate.
 
 ## 4. The role list
 
@@ -103,9 +106,10 @@ How to read and change it:
   nobody does: the Policy Owner then approves in that role's place (section 3).
 - **Owns** lists the `knowledge/` folders the role approves, separated by commas, or `—` for none. A folder
   nobody owns, and `knowledge/` as a whole, belong to the Policy Owner.
-- **Alternate** is the person who approves in the role's place when the holder wrote the change, or when the
-  role is vacant (section 3.1). Leave it empty until the Policy Owner names someone. An older copy of this table
-  without the column still works: its roles simply have no alternate.
+- **Alternate** names the role's co-approvers (section 3.1): one or more handles, separated by commas, for
+  example `@ana, @ben`. Any one of them, or the holder, approves a change somebody else on the list wrote.
+  Leave it empty until the Policy Owner names someone. An older copy of this table without the column still
+  works: its roles simply have no alternate.
 - The Policy Owner and the Check Owner are not listed here. They are the framework's own two roles, and
   setup (the first-run flow's adopt step) records who holds them. Their alternates are in
   `policies/governance.yaml`.

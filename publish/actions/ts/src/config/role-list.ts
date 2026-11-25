@@ -19,10 +19,12 @@
  * The table is found by its header (Role · GitHub handle · Owns), never by its position, so an org can move it or
  * write around it freely. A table inside a code fence is an example and is skipped.
  *
- * THE ALTERNATE (Policy Owner ruling F143 A, 2026-11-23): an optional column, found by its header wherever it sits
- * after the first three, naming who stands in when the holder is the author of a change or the role is vacant. A
- * table without the column — every org's before F143 — parses exactly as before, with no alternates. The Policy
- * Owner appoints an alternate by pull request, like any holder; an agent never does (§2.1 of the document).
+ * THE ALTERNATES (Policy Owner rulings F143 A, 2026-11-23, and F163 B, 2026-11-25): an optional column, found by its
+ * header wherever it sits after the first three, naming one or more co-approvers, separated by commas or spaces
+ * (`@ana, @ben`). A role's APPROVER POOL is its holder plus its alternates; any one of them who is not the author
+ * approves for the role (policy-actions.ts {@link approverPool}). A table without the column — every org's before
+ * F143 — parses exactly as before, with no alternates. The Policy Owner appoints an alternate by pull request, like
+ * any holder; an agent never does (§2.1 of the document).
  *
  * THREE ANSWERS KEPT APART, as everywhere a policy file is read:
  *   no table        → `found: false`. NOT "the org defines no roles": the caller falls back (below).
@@ -51,8 +53,11 @@ export interface RoleHolder {
   readonly holder: string | null;
   /** Repo-relative `knowledge/` folders, each ending in `/`. Empty when the role owns no folder. */
   readonly owns: readonly string[];
-  /** `@login` who stands in for the holder (F143 A), or null when none is named or the table has no Alternate column. */
-  readonly alternate: string | null;
+  /**
+   * `@login`s who approve for the role alongside the holder (F163 B): any one of the pool — holder and alternates,
+   * minus the author — suffices. Empty when none is named or the table has no Alternate column.
+   */
+  readonly alternates: readonly string[];
 }
 
 export type RoleListParse =
@@ -82,6 +87,31 @@ function parseHolder(raw: string): string | null | { error: string } {
   return `@${h}`;
 }
 
+/**
+ * ONE OR MORE HANDLES (F163 B): a cell or a value naming co-approvers, separated by commas or whitespace — `@ana, @ben`,
+ * `ana ben`, a lone `@ana`, or a list of such strings. A vacancy word names nobody. Duplicates (case-insensitive) are
+ * kept once. Each entry gov cannot use is an error, said by itself — and then NONE of the value loads: a cell of prose
+ * (`ask the legal team`) must not quietly make `@ask` and `@legal` approvers. Pure.
+ */
+export function parseHandleList(raw: string | readonly unknown[] | null | undefined): { readonly handles: readonly string[]; readonly errors: readonly string[] } {
+  const parts: string[] = [];
+  for (const item of Array.isArray(raw) ? raw : [raw]) {
+    if (item === null || item === undefined || typeof item === "object") continue;
+    parts.push(...unquote(String(item)).split(/[\s,]+/).filter(Boolean));
+  }
+  const handles: string[] = [], errors: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const h = parseHolder(p);
+    if (h === null) continue;
+    if (typeof h === "object") { errors.push(h.error); continue; }
+    if (seen.has(h.toLowerCase())) continue;
+    seen.add(h.toLowerCase());
+    handles.push(h);
+  }
+  return { handles: errors.length ? [] : handles, errors };
+}
+
 /** Parse the role table out of the document. */
 export function parseRoleList(markdown: string): RoleListParse {
   const lines = markdown.split(/\r?\n/);
@@ -98,7 +128,7 @@ export function parseRoleList(markdown: string): RoleListParse {
   return { found: false };
 }
 
-/** The Alternate column's index in the header (F143 A), or -1 when the table has none. Never one of the first three. */
+/** The Alternate(s) column's index in the header (F143 A), or -1 when the table has none. Never one of the first three. */
 const alternateColumn = (header: readonly string[]): number =>
   header.findIndex((c, i) => i >= 3 && c.toLowerCase().replace(/[*_`]/g, "").trim().startsWith("alternate"));
 
@@ -134,13 +164,13 @@ function readRows(rows: readonly string[][], altAt = -1): { roles: RoleHolder[];
       folderOwner.set(folder, role);
       owns.push(folder);
     }
-    let alternate: string | null = null;
+    let alternates: readonly string[] = [];
     if (altAt >= 0) {
-      const a = parseHolder(c[altAt] ?? "");
-      if (a !== null && typeof a === "object") problems.push(`${role}: the alternate ${a.error} — read as none`);
-      else alternate = a;
+      const a = parseHandleList(c[altAt] ?? "");
+      if (a.errors.length) problems.push(`${role}: the alternate ${a.errors.join("; ")} — the Alternate cell is read as none`);
+      alternates = a.handles;
     }
-    roles.push({ role, holder, owns, alternate });
+    roles.push({ role, holder, owns, alternates });
   }
   return { roles, problems };
 }
@@ -232,18 +262,19 @@ export function roleHandles(owners: { readonly policyOwner?: string | null; read
 }
 
 /**
- * Role → alternate's handle, the shape `RuleSet.alternates` carries (F143 A): the Policy Owner's and Check Owner's
- * from governance.yaml (`policy_owner.alternate`, `check_owner.alternate`), every org role's from the Alternate
- * column. A role with none is absent. Pure.
+ * Role → its alternates' handles, the shape `RuleSet.alternates` carries (F143 A, F163 B): the Policy Owner's and
+ * Check Owner's from governance.yaml (`policy_owner.alternate`, `check_owner.alternate`), every org role's from the
+ * Alternate column. A role with none is absent. Pure.
  */
 export function roleAlternates(
-  owners: { readonly policyOwnerAlternate?: string | null; readonly checkOwnerAlternate?: string | null },
+  owners: { readonly policyOwnerAlternates?: readonly string[] | null; readonly checkOwnerAlternates?: readonly string[] | null },
   roles: readonly RoleHolder[],
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  const po = (owners.policyOwnerAlternate ?? "").trim(), co = (owners.checkOwnerAlternate ?? "").trim();
-  if (po) out[POLICY_OWNER_ROLE] = po;
-  if (co) out[CHECK_OWNER_ROLE] = co;
-  for (const r of roles) if (r.alternate && !FRAMEWORK_ROLES.has(r.role.toLowerCase())) out[r.role] = r.alternate;
+): Record<string, readonly string[]> {
+  const out: Record<string, readonly string[]> = {};
+  const clean = (l: readonly string[] | null | undefined): string[] => (l ?? []).map((h) => h.trim()).filter(Boolean);
+  const po = clean(owners.policyOwnerAlternates), co = clean(owners.checkOwnerAlternates);
+  if (po.length) out[POLICY_OWNER_ROLE] = po;
+  if (co.length) out[CHECK_OWNER_ROLE] = co;
+  for (const r of roles) if (r.alternates.length && !FRAMEWORK_ROLES.has(r.role.toLowerCase())) out[r.role] = [...r.alternates];
   return out;
 }

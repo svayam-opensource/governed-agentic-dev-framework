@@ -25,6 +25,19 @@ describe("gov doctor — alternates (F143 A)", () => {
     const d = alternatesDiagnostic(gov(), "| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | — |\n")!;
     expect(d.detail).to.contain("Policy Owner, Check Owner, Data Owner");
   });
+  it("F163 B: reports every role's approver list — holder and every alternate — and reads lists", () => {
+    const d = alternatesDiagnostic(gov({ co: "chuck" }).replace('  alternate: ""\ncheck_owner', '  alternate: [pat, sam]\ncheck_owner').replace('alternate: ""\n', 'alternate: "cora, cy"\n'),
+      LIST.replace("| @lex | — | |", "| @lex | — | @lee, @lin |"))!;
+    expect(d.status).to.equal("ok");
+    expect(d.detail).to.contain("Policy Owner: @polly, @pat, @sam").and.contain("Check Owner: @chuck, @cora, @cy")
+      .and.contain("Data Owner: @dana, @dev").and.contain("Legal Owner: @lex, @lee, @lin");
+    const warn = alternatesDiagnostic(gov(), LIST)!;
+    expect(warn.detail).to.contain("Approvers by role: Policy Owner: @polly; Check Owner: nobody; Data Owner: @dana, @dev; Legal Owner: @lex");
+  });
+  it("F163 B: a vacant Check Owner with several alternates names them all", () => {
+    expect(checkOwnerDiagnostic(gov({ coAlt: "cora, cy" }))!.detail)
+      .to.contain("its alternates (any of @cora, @cy) approve the code of");
+  });
   it("nobody looked → no row", () => {
     expect(alternatesDiagnostic(undefined, LIST)).to.equal(null);
   });

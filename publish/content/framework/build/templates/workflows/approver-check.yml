@@ -72,8 +72,8 @@ jobs:
 
           # ── 1. THE LIST ──────────────────────────────────────────────────────────────────────────────────
           # In order: the variable an organization set, then — in the governance repository, which holds them —
-          # the people who hold a role or are a role's alternate: the Policy Owner and the Check Owner and their
-          # alternates (policies/governance.yaml) and every holder and alternate in the role list (the `| Role | GitHub handle | Owns |` table in
+          # the people in any role's approver pool: the Policy Owner and the Check Owner and their alternates
+          # (policies/governance.yaml) and every holder and alternate in the role list (the `| Role | GitHub handle | Owns |` table in
           # policies/common/authorized-representatives.md). `gov repo protect` computes the same list the same way.
           approvers=""
           posture=""
@@ -82,28 +82,36 @@ jobs:
             approvers="$GOV_APPROVERS"
             source="the GOV_APPROVERS variable"
           elif [ -f policies/governance.yaml ]; then
-            # `github:` and `alternate:` under the top-level policy_owner: and check_owner: blocks (or their flow
-            # form). An alternate approves in the role's place when the holder wrote the change (F143 A), or while
-            # the role is vacant (Q46 A) — so a vacant Policy Owner's alternate keeps this list from being empty.
+            # `github:` and `alternate:` (or `alternates:`) under the top-level policy_owner: and check_owner:
+            # blocks, block or flow form. An alternate is one handle or a list of them — `alternate: "pat"`,
+            # `alternate: [pat, sam]`, or one `- pat` per line (F163 B). Every holder and alternate is in a role's
+            # approver pool, so every one of them is an authorized representative; this check asks only that one of
+            # them, other than the author, approved. Which role's pool a change needs is GOV-FRM-455's to say.
             owners="$(
               awk '
-                /^(policy_owner|check_owner):[[:space:]]*\{/ {
-                  line = $0
-                  while (match(line, /(github|alternate):[[:space:]]*["'"'"']?[^,"'"'"'}[:space:]]*/)) {
-                    v = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH)
-                    sub(/^(github|alternate):[[:space:]]*["'"'"']?/, "", v); if (v != "") print v
+                function emit(s,   n, w, i, k) {
+                  sub(/#.*/, "", s)
+                  gsub(/\[/, " ", s); gsub(/\]/, " ", s); gsub(/[{}",]/, " ", s); gsub(/'"'"'/, " ", s)
+                  n = split(s, w, /[[:space:]]+/)
+                  for (i = 1; i <= n; i++) {
+                    if (w[i] == "") continue
+                    if (w[i] ~ /:$/) { k = w[i]; sub(/:$/, "", k); key = k; continue }
+                    if (key ~ /^(github|alternates?)$/) print w[i]
                   }
+                }
+                /^(policy_owner|check_owner):[[:space:]]*\{/ {
+                  line = $0; sub(/^[a-z_]+:[[:space:]]*/, "", line); key = ""; emit(line); inblock = 0; next
+                }
+                /^(policy_owner|check_owner):[[:space:]]*(#.*)?$/ { inblock = 1; key = ""; next }
+                inblock && /^[^[:space:]#]/ { inblock = 0 }
+                inblock && /^[[:space:]]+[A-Za-z_]+:/ {
+                  line = $0; sub(/^[[:space:]]+/, "", line)
+                  key = line; sub(/:.*$/, "", key); sub(/^[A-Za-z_]+:/, "", line)
+                  if (key ~ /^(github|alternates?)$/) emit(line)
                   next
                 }
-                /^(policy_owner|check_owner):[[:space:]]*(#.*)?$/ { inblock = 1; next }
-                inblock && /^[^[:space:]]/ { inblock = 0 }
-                inblock && /^[[:space:]]+(github|alternate):/ {
-                  v = $0
-                  sub(/^[[:space:]]+(github|alternate):[[:space:]]*/, "", v)
-                  sub(/[[:space:]]*#.*$/, "", v)
-                  gsub(/["'"'"']/, "", v)
-                  if (v != "") print v
-                }
+                # A list item, or a flow list carried onto the next line, under the last key read.
+                inblock && /^[[:space:]]+/ { line = $0; sub(/^[[:space:]]*-[[:space:]]*/, "", line); if (key ~ /^(github|alternates?)$/) emit(line) }
               ' policies/governance.yaml
             )"
             # The role list's handle column, and its Alternate column when it has one (F143 A, found by its
@@ -125,7 +133,11 @@ jobs:
                     if (intable) {
                       # `vacant` (and none, tbd) is how the list writes an empty role — never a login (role-list.ts).
                       if (handle ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/ && tolower(handle) !~ /^(vacant|none|tbd)$/) print handle
-                      if (altcol) { alt = $altcol; gsub(/[[:space:]`]/, "", alt); if (alt ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/ && tolower(alt) !~ /^(vacant|none|tbd)$/) print alt }
+                      # The Alternate column names one or more, separated by commas or spaces (F163 B).
+                      if (altcol) {
+                        alt = $altcol; gsub(/[`,]/, " ", alt); n = split(alt, alts, /[[:space:]]+/)
+                        for (k = 1; k <= n; k++) if (alts[k] ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/ && tolower(alts[k]) !~ /^(vacant|none|tbd)$/) print alts[k]
+                      }
                       next
                     }
                   }
