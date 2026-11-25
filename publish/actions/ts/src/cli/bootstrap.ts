@@ -37,7 +37,7 @@ import * as path from "node:path";
 import { paint } from "./format.js";
 import { phase } from "../log.js";
 import { approvalSummary } from "./approve-agents-step.js";
-import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
+import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, InterviewStopped, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
 import type { PickerTerminal } from "./picker.js";
@@ -361,7 +361,7 @@ export interface FirstRunIo {
    */
   deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
   /**
-   * Can this environment record an approved-agent list? Gates whether Q12 is asked at all.
+   * Can this environment record an approved-agent list? Gates whether Q3 (the agents) is asked at all.
    *
    * IT WAS A WRITER, AND THE WRITE WAS ALREADY DONE. This used to be
    * `approveAgents(agents) => boolean`, called after `createWorkspace` returned, and a walk on
@@ -376,6 +376,10 @@ export interface FirstRunIo {
   recordsApprovals?: boolean;
   /** The terminal the interview's picker may take for arrow keys (F158). Absent = numbered prompts. */
   terminal?: PickerTerminal | null;
+  /** The organization's display name on GitHub, for the names the interview no longer asks (F158). */
+  orgDisplayName?: (org: string) => string | null;
+  /** May `gov_repo` be created in this organization? Null = yes; otherwise the refusal's lines (F158). */
+  checkRepoName?: (org: string, repo: string) => readonly string[] | null;
   /**
    * Build the practice project — "Make the policy ours" — and return the lines to print (F136; #186 before it).
    * ADOPTER PATH ONLY, and asked nothing: a joiner's first project is one they are assigned to.
@@ -513,6 +517,8 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       myOrgs: io.listMyOrgs?.bind(io),
       selectAgents: io.recordsApprovals === true,
       ...(io.terminal ? { terminal: io.terminal } : {}),
+      ...(io.orgDisplayName ? { orgDisplayName: io.orgDisplayName.bind(io) } : {}),
+      ...(io.checkRepoName ? { checkRepoName: io.checkRepoName.bind(io) } : {}),
       ...(io.color === undefined ? {} : { color: io.color }),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
@@ -530,7 +536,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
     if (e instanceof InterviewRefused) {
       io.print("");
       io.print(`gov: ${e.message}`);
-      io.print("Nothing was created. Re-run `gov` when you can answer interactively.");
+      io.print(e instanceof InterviewStopped ? "Nothing was created." : "Nothing was created. Re-run `gov` when you can answer interactively.");
       return 1;
     }
     throw e;
@@ -552,7 +558,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target, { ...result.answers, ...(result.agents ? { agents: result.agents } : {}) });
   if (code !== 0) return code;
 
-  // WRITE DOWN WHAT Q12 DECIDED (#196).
+  // WRITE DOWN WHAT Q3 DECIDED (#196).
   //
   // The QUESTION moved into the interview, where every other answer is collected; only the
   // recording is left here, because the file it writes to did not exist until the clone above.
@@ -561,7 +567,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   //
   // The fallback that #196 removed stays removed: an approved list is produced during adoption,
   // so "nobody has decided" still never persists past setup.
-  // READ BACK WHAT Q12 DECIDED. The recording happened inside `createWorkspace`, which is the
+  // READ BACK WHAT Q3 DECIDED. The recording happened inside `createWorkspace`, which is the
   // only place that is both after the content seed and before the commit — so if it had failed,
   // it would already have said so loudly on stderr, naming the file and the recovery command.
   // This is the summary, not a second attempt at the write.

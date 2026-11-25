@@ -774,7 +774,7 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // Named for what it DECIDES. Asking "Org slug" here and again in the setup flow read as the same
     // question twice; this one chooses the governance home's location, the later one is the org-config
     // value (pre-filled from this answer). #159 finding 1a.
-    // ALREADY ANSWERED (Q5) when the org interview ran — see setup/interview.ts. Asking
+    // ALREADY ANSWERED (Q2) when the org interview ran — see setup/interview.ts. Asking
     // here as well is the same defect #159 finding 1a fixed downstream: one fact, two
     // prompts, nothing reconciling a disagreement between them.
     const slug = preAnswers?.orgSlug
@@ -958,7 +958,7 @@ export async function runSetupCommand(
     // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
     // remove, reintroduced by an ordering mistake rather than by a decision.
     //
-    // Q12 collects the answer before anything is created, so it is available here, which is the
+    // Q3 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
     // The org's authorized agents are recorded AFTER the workspace is configured — further down, just before
     // the commit. Writing them here put them in a file the configure step then rewrote: gov said "recorded"
@@ -1165,7 +1165,7 @@ export async function runSetupCommand(
       // the right one: the configure step has written governance.yaml, and nothing else will.
       //
       // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
-      // `pre?.agents?.length`, so an organization that chose "none" at Q12 had its decision
+      // `pre?.agents?.length`, so an organization that chose "none" at Q3 had its decision
       // silently dropped: the key never appeared, `readAuthorizedAgents` said "unset", and every
       // joiner was governed by gov's own list — which is precisely the unowned state the question
       // exists to remove, reached by answering it. `withAuthorizedAgents` writes
@@ -1474,11 +1474,39 @@ export async function runFirstRunIfNeeded(
     openUpgradePr: (home) => main(["upgrade", "--pr", "--gov-home", home], now),
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
-    // one, which is what decides whether Q12 is asked; it is not a second writer.
+    // one, which is what decides whether Q3 (the agents) is asked; it is not a second writer.
     recordsApprovals: true,
     // THE PICKER MAY BORROW THE TERMINAL (F158): `ask` above holds no readline between questions, so nothing else
-    // is reading stdin while Q12 draws. The picker still decides for itself whether arrows can run here.
+    // is reading stdin while Q3 draws. The picker still decides for itself whether arrows can run here.
     terminal: processTerminal(),
+    // THE NAMES THE INTERVIEW NO LONGER ASKS (F158): GitHub's display name for the organization — or, for a personal
+    // account, the user's. Empty or unreadable means "unknown", and the interview uses the login.
+    orgDisplayName: (org) => {
+      const asOrg = tryRun("gh", ["api", `orgs/${org}`, "--jq", ".name"]);
+      if (asOrg !== undefined) return asOrg.trim() || null;
+      return tryRun("gh", ["api", `users/${org}`, "--jq", ".name"])?.trim() || null;
+    },
+    // MAY `gov_repo` BE CREATED HERE? (F158.) Called only once the probe found no governance repository in the org,
+    // so a `gov_repo` that exists is not one. It may still be a failed earlier run of setup, which setup adopts
+    // (#159, canAdoptExisting); anything else is refused — never written over, never renamed around.
+    checkRepoName: (org, repo) => {
+      const found = tryRun("gh", ["api", `repos/${org}/${repo}`, "--jq", ".full_name"])?.trim() ?? "";
+      if (found.toLowerCase() !== `${org}/${repo}`.toLowerCase()) return null;           // not there: create it
+      const probeIo: CreateIo = {
+        gh: (args) => { try { return runProcess("gh", [...args], { pgm: "gov-work:cli:main" }).trim(); } catch { return null; } },
+        home: os.homedir(),
+        exists: (p) => fsSync.existsSync(p),
+        print: () => { /* the interview does the talking */ },
+      };
+      const verdict = canAdoptExisting(probeIo, { org, repo });
+      if (verdict.adopt) return null;                                                   // a failed run of setup: setup adopts it
+      return [
+        `${org}/${repo} already exists and is not a governance repository (${verdict.detail}).`,
+        `gov names every new organization's governance repository '${repo}', so it will not create one here, and it`,
+        "will not write over that repository. Rename or remove it on GitHub, then re-run `gov` —",
+        `or choose another name yourself:  gov setup ${org}/<repo-name>`,
+      ];
+    },
     // THE PRACTICE PROJECT, MADE WITHOUT A QUESTION (F136, Q27 B). Adopter path only — bootstrap never calls this for a
     // joiner. The same board + anchor + `gov seed` as `gov project "<name>" --seed`, through the same ports, with the
     // `practice` label on the anchor (Q39 A) and one task issue for the title-page change (Q29 A / Q30 A).

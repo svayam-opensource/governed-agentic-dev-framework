@@ -97,7 +97,7 @@ function existingAgents(governanceText: string | null, orgConfigText: string | n
 /**
  * THE AGENTS QUESTION, IN PLACE TOO (F18, svm-geneva re-walk 2026-10-07). Configure-in-place skipped it, and doctor
  * then said "agents: not chosen yet" about a setup that had just finished. An org that already chose is shown its
- * choice and keeps it on Enter; one that has not is asked the same selection the adopter interview asks (Q12).
+ * choice and keeps it on Enter; one that has not is asked the same selection the adopter interview asks (Q3).
  * Returns the answer, which is the org's decision — written even where it replaces the old list, because the person
  * at the keyboard just made it.
  */
@@ -264,7 +264,7 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
     // Q44 A: hard without a second person is not applied — soft is recorded, and the reason said.
     answers.governancePosture = known("governancePosture") ?? await askPosture(await askValid(io, POSTURE_QUESTION, "1", postureRule),
       hasSecondPerson(answers.policyOwnerGithub ?? "", answers.checkOwnerGithub), io.prompt, io.print);
-    // F18: in place, the agents are asked here; the interviewed path asked them at Q12 and records them itself.
+    // F18: in place, the agents are asked here; the interviewed path asked them at Q3 and records them itself.
     if (!interviewed) {
       chosenAgents = await askAgentsInPlace(io, existingAgents(
         io.fs.readFile(path.join(io.cwd, GOVERNANCE_PATH)), io.fs.readFile(path.join(io.cwd, "org-config.yaml"))));
@@ -309,7 +309,7 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
   io.fs.writeFile(configPath, renderOrgConfig(v));
   io.print(`Wrote ${configPath}`);
   // THE GOVERNANCE CHOICES, beside the policy they configure (org-config split, 2026-10-06). The agents are added
-  // afterwards by whoever asked for them (the adopter path records Q12's answer just before the commit).
+  // afterwards by whoever asked for them (the adopter path records Q3's answer just before the commit).
   //
   // GOV-FRM-445: an existing governance.yaml is the ORG'S. It is never re-rendered — that dropped the org's models
   // block and every key gov does not read (adopter-e2e live tier, 2026-10-07). Setup edits only its own keys where its

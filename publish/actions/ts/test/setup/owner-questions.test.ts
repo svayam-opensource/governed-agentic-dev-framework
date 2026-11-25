@@ -12,8 +12,6 @@
 // #3 — a numbered question printed `Choose [1/2] :` while "1" was the default. Every numbered question says what
 // Enter does, and names the option.
 import { expect } from "chai";
-import { askOrgInterview } from "../../src/setup/interview.js";
-import { deriveOrgConfig } from "../../src/setup/setup.js";
 import { runSetup } from "../../src/setup/setup-run.js";
 import { governanceTokens, parseGovernance } from "../../src/config/governance.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -24,53 +22,10 @@ const pxKeys = (m: Record<string, string>): Record<string, string> => Object.fro
 
 const CTX = { originUrl: "", ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-10-07" };
 
-async function interview(reply: (q: string) => string) {
-  const asked: string[] = [];
-  const r = await askOrgInterview({
-    prompt: async (q) => { asked.push(q); return reply(q); },
-    print: () => {},
-    derive: (partial) => deriveOrgConfig(partial, CTX),
-  });
-  return { r, asked };
-}
-const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : "");
-const ask = (asked: readonly string[], n: number): string => asked.find((q) => q.startsWith(`Q${n} - `)) ?? "";
 
 describe("gov-work — setup asks both owners by GitHub handle (walk #1)", () => {
-  it("Q8 asks the Policy Owner's GitHub handle, offering the signed-in user", async () => {
-    const { r, asked } = await interview((q) => (/^Q8 /.test(q) ? "@alice" : base(q)));
-    expect(ask(asked, 8)).to.match(/Policy Owner/).and.match(/GitHub handle/).and.contain("[@rk]");
-    expect(r!.answers.policyOwnerGithub).to.equal("@alice");
-  });
-
-  // Q44 A: Q9 asks for a second person — optional, Enter is `none` and the Policy Owner stays Check Owner.
-  it("Q9 asks for the second person by GitHub handle, named Check Owner; Enter is none", async () => {
-    const { r, asked } = await interview((q) => (/^Q8 /.test(q) ? "@alice" : base(q)));
-    expect(ask(asked, 9)).to.match(/approve your own changes/).and.match(/Check Owner/).and.match(/GitHub handle/).and.contain("[none]");
-    expect(r!.answers.checkOwnerGithub).to.equal("@alice");
-  });
-
-  it("Q10 asks a contact email, OPTIONAL — the git email is offered, and `none` leaves it empty", async () => {
-    const { r, asked } = await interview(base);
-    expect(ask(asked, 10)).to.match(/email/i).and.match(/optional/i).and.contain("[rk@acme.io]");
-    expect(r!.answers.policyOwnerEmail).to.equal("rk@acme.io");
-    const none = await interview((q) => (/^Q10 /.test(q) ? "none" : base(q)));
-    expect(none.r!.answers.policyOwnerEmail).to.equal("");
-  });
-
-  it("an email that is not one is still refused, and asked again", async () => {
-    let n = 0;
-    const { r } = await interview((q) => (/^Q10 /.test(q) ? (n++ === 0 ? "not-an-email" : "po@acme.io") : base(q)));
-    expect(r!.answers.policyOwnerEmail).to.equal("po@acme.io");
-  });
-
-  it("the posture is Q11 now, and nothing is asked twice", async () => {
-    const { asked } = await interview(base);
-    expect(ask(asked, 11)).to.match(/governance posture/);
-    const numbers = asked.map((q) => /^Q(\d+) - /.exec(q)?.[1]).filter(Boolean);
-    expect(numbers).to.deep.equal(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
-  });
-
+  // F158: the founding interview no longer asks the owners (the Policy Owner is the signed-in login, no second person,
+  // no email) — test/setup/interview.test.ts holds that. Configure-in-place still asks them, below.
   it("configure-in-place asks the Policy Owner's handle too — never takes the gh login silently", async () => {
     const writes: Record<string, string> = {};
     const asked: Array<[string, string]> = [];
@@ -97,23 +52,6 @@ describe("gov-work — setup asks both owners by GitHub handle (walk #1)", () =>
     expect(order.map((q) => (/Policy Owner GitHub/.test(q) ? "po" : /your own changes/.test(q) ? "ck" : "email"))).to.deep.equal(["po", "ck", "email"]);
     expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(/^check_owner:\n {2}github: "@alice"$/m);
     expect(pxKeys(writes)["/repo/policies/governance.yaml"]).to.match(/^policy_owner:\n {2}email: "rk@acme.io"\n {2}github: "@alice"$/m);
-  });
-});
-
-describe("gov-work — a numbered question says what Enter does (walk #3)", () => {
-  it("every Choose prompt names its default, and the option it stands for", async () => {
-    const { asked } = await interview(base);
-    const choices = asked.filter((q) => /Choose \[/.test(q));
-    expect(choices.length, "Q6 and Q11 are numbered").to.be.at.least(2);
-    for (const q of choices) expect(q, q).to.match(/Choose \[[^\]]+\] \(Enter = \d+/);
-    expect(ask(asked, 6)).to.contain("Choose [1/2] (Enter = 1, main) : ");
-    expect(ask(asked, 11)).to.contain("Choose [1/2] (Enter = 1, soft) : ");
-  });
-
-  it("the default it shows is the one Enter takes", async () => {
-    const { r } = await interview(base);
-    expect(r!.answers.defaultBranch).to.equal("main");
-    expect(r!.answers.governancePosture).to.equal("soft");
   });
 });
 

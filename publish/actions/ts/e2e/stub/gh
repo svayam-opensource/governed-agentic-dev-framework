@@ -19,6 +19,8 @@
 #                            and the board first — one run then sees what the last one did (gov autorun, L17)
 #   GH_STUB_DB_TOOL          where gh-db.mjs is (default: beside the journey's stubs)
 #   GH_STUB_REPOS            "owner/repo,…" that `gh api repos/<owner>/<repo>` can read (unset: the old silence)
+#   GH_STUB_ORG_NAME         the display name `gh api orgs/<org> --jq .name` answers (unset: none)
+#   GH_STUB_TAKEN            "owner/repo,…" that already exist before setup creates anything (F158)
 #   GH_STUB_ISSUE_FAIL       an owner/repo where `gh issue create` is refused (a failure after a board exists)
 set -uo pipefail
 : "${GH_STUB_LOGIN:=adopter-bot}"
@@ -49,10 +51,22 @@ case "$*" in
   "api -i user")                 printf 'HTTP/2.0 200 OK\nX-Oauth-Scopes: project, read:org, repo, workflow\n\n{"login":"%s"}\n' "$GH_STUB_LOGIN" ;;
   "api user --jq .login")        echo "$GH_STUB_LOGIN" ;;
   "api user --jq .login // empty") echo "$GH_STUB_LOGIN" ;;
+  # The organizations this account belongs to (the interview's Q1 list). None unless the scenario names some —
+  # before this case `api user/orgs` fell through to the one below and answered with a JSON object.
+  "api user/orgs"*)              [ -n "${GH_STUB_MY_ORGS:-}" ] && printf '%s\n' ${GH_STUB_MY_ORGS//,/ } ;;
   "api user"*)                   echo "{\"login\":\"$GH_STUB_LOGIN\"}" ;;
 
   # "may I create in this org?" — the org exists as far as the stub is concerned.
   "api orgs/"*"--jq .login")     echo "${2#orgs/}" ;;
+  # The organization's display name (F158: the names setup no longer asks). Empty unless the scenario names one.
+  "api orgs/"*"--jq .name")      echo "${GH_STUB_ORG_NAME:-}" ;;
+  # Does <owner>/<repo> exist yet? (F158: setup refuses a `gov_repo` that is not its own.) Only once it was really
+  # created in this world, or when the scenario says it already exists (GH_STUB_TAKEN).
+  "api repos/"*"--jq .full_name")
+      r="${2#repos/}"
+      if [ -d "${GIT_STUB_REMOTES:-/nonexistent}/${r##*/}" ] || case ",${GH_STUB_TAKEN:-}," in *",$r,"*) true ;; *) false ;; esac; then
+        echo "$r"
+      else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
 
   # THE GOVERNANCE PROBE (#197/#201). One GraphQL call, answered from GH_STUB_GOVERNED.
   "api graphql"*"org-config.yaml"*) json_repos ;;
