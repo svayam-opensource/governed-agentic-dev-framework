@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderCaddyfile, sitesIn, PORT } from "../caddyfile.mjs";
-import { dnFor, portalOrigin, versionsDoc, pinsOf, versionsMismatches, pagesIn, PORTAL_PATH } from "../lib.mjs";
+import { dnFor, portalOrigin, versionsDoc, majorOf, pinsOf, versionsMismatches, pagesIn, PORTAL_PATH } from "../lib.mjs";
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(SITE, p), "utf8");
@@ -379,6 +379,27 @@ test("versions.json carries exactly what the scripts are pinned to (spec §7.2 s
   assert.deepEqual({ ...fixture, built: doc.built }, doc);
   // Prod declares no registry, and says so with null rather than leaving the key out.
   assert.equal(versionsDoc({ env: "prod", host: "gov.svayamtech.com", ref: "gov-work-1.2.3", pkg: "@svayam-opensource/gov@1.2.3", label: null, versions: [], built: "x" }).registry, null);
+});
+
+test("versions.json labels an older release line deprecated, and still lists it (R6 P2 item 6)", () => {
+  assert.equal(majorOf("1.2.3"), 1);
+  assert.equal(majorOf("2.0.0-next.4"), 2);
+  const doc = versionsDoc({ env: "prod", host: "gov.svayamtech.com", ref: "gov-work-2.0.0-next.4",
+    pkg: "@svayam-opensource/gov@2.0.0-next.4", label: null, versions: ["1.2.3", "2.0.0-next.4"], built: "x" });
+  assert.deepEqual(doc.versioned, [
+    { version: "1.2.3", sh: "/v/1.2.3/install.sh", ps1: "/v/1.2.3/install.ps1", deprecated: true },
+    { version: "2.0.0-next.4", sh: "/v/2.0.0-next.4/install.sh", ps1: "/v/2.0.0-next.4/install.ps1" },
+  ]);
+  // One line only, or none: nothing is deprecated.
+  assert.equal(versionsDoc({ env: "uat", host: "h", ref: "uat", pkg: "p", versions: ["1.2.2", "1.2.3"], built: "x" })
+    .versioned.some((v) => "deprecated" in v), false);
+  assert.deepEqual(versionsDoc({ env: "uat", host: "h", ref: "uat", pkg: "p", versions: [], built: "x" }).versioned, []);
+  // The envs.json prod pins today: 1.2.3 is deprecated, 2.x is not, and --verify still matches each pair.
+  const cfg = JSON.parse(read("envs.json"));
+  const vs = cfg.versioned.map((t) => t.replace(/^gov-work-/, ""));
+  const prod = versionsDoc({ env: "prod", host: "gov.svayamtech.com", ref: cfg.envs.prod.ref, pkg: cfg.envs.prod.pkg,
+    label: null, versions: vs, built: "x" });
+  for (const v of prod.versioned) assert.equal(v.deprecated === true, majorOf(v.version) < 2, v.version);
 });
 
 const SH = (url, pkg, reg = "") =>

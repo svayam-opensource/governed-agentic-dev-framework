@@ -32,11 +32,21 @@ export function portalOrigin(cfg, envName) {
 /** An origin and nothing else: scheme, host, optional port. What PORTAL holds and what CORS names. */
 export const ORIGIN = /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?$/;
 
+/** A release's major version: `1` for `1.2.3`, `2` for `2.0.0-next.4`. */
+export const majorOf = (version) => Number(/^(\d+)\./.exec(version)?.[1] ?? NaN);
+
 /**
  * `/versions.json` — the one source the portal's Install page reads (spec §7.2). Written from the SAME values
  * that are pinned into the scripts, and held to them by `versionsMismatches` in --verify.
+ *
+ * DEPRECATED RELEASE LINES (PRJ-121 R6 P2 item 6, 2026-11-25). Every listed release whose major version is below the
+ * newest major listed carries `deprecated: true` — so once 2.x is listed, 1.x is labelled, on every env, with no
+ * hand-kept list to drift. The entry and its `/v/<ver>/` scripts STAY: an existing 1.x user must still find their
+ * installer. A current-line entry has no `deprecated` key at all, so its shape is unchanged.
  */
 export function versionsDoc({ env, host, ref, pkg, registry, label, versions, built }) {
+  const list = versions ?? [];
+  const newest = Math.max(...list.map(majorOf).filter(Number.isFinite));
   return {
     env,
     host,
@@ -44,7 +54,12 @@ export function versionsDoc({ env, host, ref, pkg, registry, label, versions, bu
     pkg,
     registry: registry ?? null,
     label: label ?? null,
-    versioned: (versions ?? []).map((v) => ({ version: v, sh: `/v/${v}/install.sh`, ps1: `/v/${v}/install.ps1` })),
+    versioned: list.map((v) => ({
+      version: v,
+      sh: `/v/${v}/install.sh`,
+      ps1: `/v/${v}/install.ps1`,
+      ...(majorOf(v) < newest ? { deprecated: true } : {}),
+    })),
     built,
   };
 }
