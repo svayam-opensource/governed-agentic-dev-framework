@@ -136,7 +136,7 @@ function soloText(enforcement: PracticeEnforcement): string[] {
     "this change, so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,",
     "so you are the Check Owner as well, and the check says: "
       // SOLO MODE (Q45 C): under soft posture the check's words are the self-merge's; under hard, as before.
-      + (enforcement === "soft" ? "\"self-merged: no second person\" (solo mode)." : "\"Name a second person as Policy Owner or Check Owner\"."),
+      + (enforcement === "soft" ? "\"self-merged: no second person\" (solo mode)." : "\"Add a second person to one of them\"."),
     "",
     ...STOP_TEXT[enforcement],
     "",

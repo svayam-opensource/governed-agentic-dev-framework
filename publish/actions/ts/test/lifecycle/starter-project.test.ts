@@ -196,14 +196,14 @@ describe("F142 A / Q44 A — who the practice pull request waits for", () => {
       expect(body).to.contain("The change merges when @reviewer approves it.");
       expect(body, "no invitation to name somebody").to.not.contain("Invite a teammate");
       expect(body).to.not.contain("check_owner.github");
-      expect(body).to.not.contain("Name a second person");
+      expect(body).to.not.contain("Add a second person");
       expect(body, "the posture's own stop text stays").to.contain(flat(practiceTask("Acme Ltd", e).body.match(/^(Your default branch is protected|Your organization uses soft|Your organization chose hard)[^\n]*/m)![0]));
     });
 
     it(`${e}, nobody named: invite a teammate as Check Owner, and say how that pull request merges`, () => {
       const body = flat(practiceTask("Acme Ltd", e, null).body);
       expect(body).to.contain("asks the **Check Owner** to approve it instead. You named nobody else at setup");
-      expect(body).to.contain(e === "soft" ? "the check says: \"self-merged: no second person\" (solo mode)." : "Name a second person as Policy Owner or Check Owner");
+      expect(body).to.contain(e === "soft" ? "the check says: \"self-merged: no second person\" (solo mode)." : "Add a second person to one of them");
       expect(body).to.contain("Invite a teammate to your GitHub organization and name them Check Owner: put their GitHub handle in `check_owner.github` in `policies/governance.yaml`");
       expect(body).to.contain("naming them is a pull request of its own, and it needs the same approval");
       expect(body).to.contain("The change merges when your Check Owner approves it.");

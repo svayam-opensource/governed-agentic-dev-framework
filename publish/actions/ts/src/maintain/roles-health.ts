@@ -23,7 +23,7 @@ import type { Diagnostic } from "./doctor.js";
 import { CHECK_OWNER, normalizeHandle, renderCodeowners, codeownersDrift } from "../config/codeowners.js";
 import { CHECK_OWNER_ROLE, POLICY_OWNER_ROLE, ROLE_LIST_PATH, resolveRoles, roleAlternates, roleHandles } from "../config/role-list.js";
 import { GOVERNANCE_PATH, frameworkAlternates, frameworkOwners, parseGovernance } from "../config/governance.js";
-import { actingPolicyOwner, soloMode } from "../rules/checks/policy-actions.js";
+import { actingPolicyOwner, approverPool, describePool, soloMode } from "../rules/checks/policy-actions.js";
 
 const owners = (governanceText: string | null): { policy: string | null; check: string | null } => {
   const o = frameworkOwners(parseGovernance(governanceText));
@@ -39,12 +39,14 @@ export function checkOwnerDiagnostic(governanceText: string | null | undefined):
   const { policy, check } = owners(governanceText);
   const name = "check owner";
   if (check === null) {
-    // Q46 A: a vacant Check Owner's alternate approves the code in its place; with none, the Policy Owner does.
-    const alt = normalizeHandle(frameworkAlternates(parseGovernance(governanceText)).checkOwnerAlternate);
+    // Q46 A, F163 B: a vacant Check Owner's alternates approve the code in its place; with none, the Policy Owner does.
+    const alts = frameworkAlternates(parseGovernance(governanceText)).checkOwnerAlternates;
     return {
       name, status: "warn",
       detail: `vacant — \`${CHECK_OWNER.key}\` is empty in ${GOVERNANCE_PATH}, so `
-        + (alt ? `its alternate (${alt}) approves the code of` : `the Policy Owner${policy ? ` (${policy})` : ""} also approves the code of`)
+        + (alts.length === 1 ? `its alternate (${alts[0]}) approves the code of`
+          : alts.length ? `its alternates (${describePool(alts)}) approve the code of`
+            : `the Policy Owner${policy ? ` (${policy})` : ""} also approves the code of`)
         + ` the org's check actions (policies/actions/, GOV-FRM-033). Name a reviewer of code there and re-run \`gov upgrade\`.`,
     };
   }
@@ -66,12 +68,13 @@ export function policyOwnerDiagnostic(governanceText: string | null | undefined)
   if (policy === null) {
     // Q46 A: while the role is vacant its alternate acts as the Policy Owner for approvals — but the role still needs
     // a holder: CODEOWNERS cannot be generated without one. Still a failure, worded for what does and does not work.
-    const alt = governanceText === null ? null : normalizeHandle(frameworkAlternates(parseGovernance(governanceText)).policyOwnerAlternate);
+    const alts = governanceText === null ? [] : frameworkAlternates(parseGovernance(governanceText)).policyOwnerAlternates;
+    const alt = alts.length === 1 ? `Its alternate (${alts[0]}) approves` : alts.length ? `Its alternates (${describePool(alts)}) approve` : null;
     return {
       name: "policy owner", status: "fail",
       detail: (governanceText === null ? `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves the governance choices there from org-config.yaml. ` : "")
         + (alt
-          ? `vacant — \`policy_owner.github\` is empty. Its alternate (${alt}) approves in its place, and holds every vacant role,`
+          ? `vacant — \`policy_owner.github\` is empty. ${alt} in its place, and for every role with nobody else to approve,`
             + " but CODEOWNERS cannot be generated without a holder (GOV-FRM-033)."
           : "vacant — `policy_owner.github` is empty, so no policy change has an approver, no vacant role has anyone to"
             + " fall to, and CODEOWNERS cannot be generated (GOV-FRM-033).")
@@ -108,9 +111,10 @@ export function roleListDiagnostic(roleListText: string | null | undefined): Dia
 }
 
 /**
- * EVERY ROLE HAS AN ALTERNATE (Policy Owner ruling F143 A, 2026-11-23): the person who approves in the role's place
- * when its holder wrote the change, or the role is vacant. A role without one WARNS — advisory, as a vacant Check
- * Owner does: the role is still approved by somebody (the fallback), just not by a named stand-in.
+ * EVERY ROLE HAS AN ALTERNATE (Policy Owner rulings F143 A, 2026-11-23, and F163 B, 2026-11-25): a role's approver
+ * pool is its holder plus its alternates, and a change needs one approval from anyone in it other than the author.
+ * The row reports every role's pool. A role without an alternate WARNS — advisory, as a vacant Check Owner does: the
+ * role is still approved by somebody (the fallback) when its holder writes a change, just not from its own pool.
  *
  * `undefined` governance text = nobody looked (no row).
  */
@@ -118,16 +122,18 @@ export function alternatesDiagnostic(governanceText: string | null | undefined, 
   if (governanceText === undefined) return null;
   const gov = parseGovernance(governanceText);
   const roles = resolveRoles(roleListText ?? null).roles;
-  const alternates = roleAlternates(frameworkAlternates(gov), roles);
+  const rules = { roles: roleHandles(frameworkOwners(gov), roles), alternates: roleAlternates(frameworkAlternates(gov), roles) };
   const all = [POLICY_OWNER_ROLE, CHECK_OWNER_ROLE, ...roles.map((r) => r.role)];
-  const without = all.filter((r) => !alternates[r]);
+  const pools = all.map((r) => `${r}: ${approverPool(rules, r).join(", ") || "nobody"}`).join("; ");
+  const without = all.filter((r) => !rules.alternates[r]);
   const name = "alternates";
-  if (!without.length) return { name, status: "ok", detail: `every role has an alternate (${all.length} role(s))` };
+  if (!without.length) return { name, status: "ok", detail: `every role has an alternate — any one of a role's approvers other than the author approves for it (${pools})` };
   return {
     name, status: "warn",
     detail: `no alternate for ${without.join(", ")} — when the holder writes a change (or the role is vacant), it falls to`
-      + ` the Policy Owner, then the Check Owner, instead of a named stand-in. The Policy Owner names one by pull request:`
-      + ` \`policy_owner.alternate\` / \`check_owner.alternate\` in ${GOVERNANCE_PATH}, the Alternate column in ${ROLE_LIST_PATH}.`,
+      + ` the Policy Owner, then the Check Owner, instead of the role's own approvers. The Policy Owner names one or more by pull request:`
+      + ` \`policy_owner.alternate\` / \`check_owner.alternate\` in ${GOVERNANCE_PATH} (a handle or a list), the Alternate column in ${ROLE_LIST_PATH}`
+      + ` (handles separated by commas). Approvers by role: ${pools}.`,
   };
 }
 

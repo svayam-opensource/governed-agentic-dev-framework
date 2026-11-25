@@ -98,10 +98,25 @@ export interface SectionOwnersFile {
   readonly text: string | null;
 }
 
+/**
+ * One approval a policy change needs (GOV-FRM-455; F163 B): ONE approving review from anyone in {@link pool}.
+ */
+export interface RequiredApproval {
+  /** The first of the pool, as `@handle` — the role's holder when they are in it. Kept for callers that show one name. */
+  readonly handle: string;
+  /**
+   * EVERYONE WHO MAY GIVE THIS APPROVAL (Policy Owner ruling F163 B, 2026-11-25), as `@handle`s, never the author:
+   * the approving role's holder and its alternates. One approval from any of them satisfies it.
+   */
+  readonly pool: readonly string[];
+  /** What it approves — e.g. "`policies/org-policy.md` §4 (Data Owner)". */
+  readonly why: readonly string[];
+}
+
 /** Who must approve a policy change, and why (GOV-FRM-455). */
 export interface RequiredSectionOwners {
-  /** Each approver, as `@handle`, with what they must approve — e.g. "`policies/org-policy.md` §4 (Data Owner)". Sorted by handle. */
-  readonly owners: readonly { readonly handle: string; readonly why: readonly string[] }[];
+  /** Each approval needed, with who may give it and what it covers. Sorted by pool. */
+  readonly owners: readonly RequiredApproval[];
   /** What could not be worked out (a base text not given, a head unreadable). Non-empty → the list may be short. */
   readonly notes: readonly string[];
   /** Set when the author is the only one who could approve: the change cannot be approved by anyone else. */
@@ -116,7 +131,7 @@ export interface RequiredSectionOwners {
 
 /**
  * What {@link requiredSectionOwners} needs of the rule set: who owns which section, who holds each role, each role's
- * alternate (F143 A), and the posture (Q45 C: solo mode exists only under soft).
+ * alternates (F143 A, F163 B), and the posture (Q45 C: solo mode exists only under soft).
  */
 export type SectionOwnersRules = Pick<RuleSet, "ownership" | "roles"> & Partial<Pick<RuleSet, "alternates" | "posture">>;
 
@@ -128,12 +143,40 @@ export type SectionOwnersRules = Pick<RuleSet, "ownership" | "roles"> & Partial<
 export const SELF_MERGED_SOLO = "self-merged: no second person";
 
 /**
+ * A ROLE'S ALTERNATES, as written (F143 A, F163 B). A single string — a rule set built before F163 — reads as one
+ * handle, or several when it names them comma- or space-separated. Never the empty string. Pure.
+ */
+export function alternatesOf(rules: Partial<Pick<RuleSet, "alternates">>, role: string): string[] {
+  const v = rules.alternates?.[role];
+  if (!v) return [];
+  const list = typeof v === "string" ? v.split(/[\s,]+/) : [...v];
+  return list.filter((h) => !!handleKey(h));
+}
+
+/**
+ * THE ROLE'S APPROVER POOL (Policy Owner ruling F163 B, 2026-11-25): its holder plus its alternates, as `@handle`s,
+ * once each, the holder first. A vacant holder leaves the alternates. The author is NOT removed here — the caller
+ * does that, so it can tell "nobody named" from "only the author named". Pure.
+ */
+export function approverPool(rules: Pick<RuleSet, "roles"> & Partial<Pick<RuleSet, "alternates">>, role: string): string[] {
+  const out: string[] = [];
+  for (const h of [rules.roles?.[role] ?? "", ...alternatesOf(rules, role)]) {
+    const key = handleKey(h);
+    if (key && !out.includes(`@${key}`)) out.push(`@${key}`);
+  }
+  return out;
+}
+
+/** "@a" or "any of @a, @b" — how a finding and a review request name a pool. */
+export const describePool = (pool: readonly string[]): string => (pool.length === 1 ? pool[0]! : `any of ${pool.join(", ")}`);
+
+/**
  * IS THIS SOLO MODE? (Q45 C) — nobody other than `author` is named in any role or as any alternate. A vacant role
  * names nobody. With no author given, solo means at most one person is named anywhere. Pure.
  */
 export function soloMode(rules: SectionOwnersRules, author?: string): boolean {
   const a = author ? handleKey(author) : "";
-  const named = new Set([...Object.values(rules.roles ?? {}), ...Object.values(rules.alternates ?? {})].map(handleKey).filter(Boolean));
+  const named = new Set([...Object.values(rules.roles ?? {}), ...Object.keys(rules.alternates ?? {}).flatMap((r) => alternatesOf(rules, r))].map(handleKey).filter(Boolean));
   if (a) named.delete(a);
   return a ? named.size === 0 : named.size <= 1;
 }
@@ -150,10 +193,15 @@ export interface RequiredSectionOwnersOptions {
 /**
  * WHO MUST APPROVE A POLICY CHANGE (GOV-FRM-455; Policy Owner ruling D3 A+, 2026-11-23) — the owner of every changed
  * section, the Policy Owner for unowned sections, ownership changes, governance.yaml and the policy's title page
- * (policies/policy-document.yaml, ruling F142 A), the Check Owner for
- * executable actions; never the author. Pure: the one place this is decided, so the check and a service showing the
- * approvers (gov-licence's practice record) cannot disagree. {@link sectionOwnerApproval} compares the result with
- * the approvals.
+ * (policies/policy-document.yaml, ruling F142 A), the Check Owner for executable actions; never the author.
+ *
+ * TWO PEOPLE (Policy Owner ruling F163 B, 2026-11-25): anyone may propose; each approval is ONE review from anyone in
+ * the approving role's pool — its holder and its alternates — other than the author. A role whose pool is empty once
+ * the author is taken out (vacant with no alternates, or only the author named) falls to the Policy Owner's pool,
+ * then the Check Owner's, always without the author.
+ *
+ * Pure: the one place this is decided, so the check and a service showing the approvers (gov-licence's practice
+ * record) cannot disagree. {@link sectionOwnerApproval} compares the result with the approvals.
  */
 export function requiredSectionOwners(
   rules: SectionOwnersRules,
@@ -164,50 +212,44 @@ export function requiredSectionOwners(
 ): RequiredSectionOwners {
   const tag = options.tag ?? "GOV-FRM-455";
   const roles = rules.roles ?? {};
-  // A VACANT POLICY OWNER (Policy Owner ruling Q46 A, 2026-11-23): its alternate acts as the Policy Owner for routing —
-  // the fallback for every vacant role, and the approver of ownership and governance changes. With neither, nobody.
-  const policyOwner = actingPolicyOwner(rules);
-  if (!policyOwner) return { owners: [], notes: [`${tag}: the Policy Owner has no handle (and no alternate), so nobody could be asked to approve.`] };
-  const poVacant = !roles[POLICY_OWNER] || !handleKey(roles[POLICY_OWNER]!);
-  /** What a vacant role says it fell to. */
-  const fellTo = poVacant ? `the ${POLICY_OWNER}'s alternate, the ${POLICY_OWNER} being vacant` : `the ${POLICY_OWNER}`;
+  // A VACANT POLICY OWNER (Policy Owner ruling Q46 A, 2026-11-23): its alternates act as the Policy Owner for
+  // routing — the fallback for every role with no one else to approve. With neither holder nor alternate, nobody.
+  if (!actingPolicyOwner(rules)) return { owners: [], notes: [`${tag}: the Policy Owner has no handle (and no alternate), so nobody could be asked to approve.`] };
 
   const docs = options.docs?.length ? [...options.docs] : ["policies/**/*.md"];
   const ignore = [...MACHINE_WRITTEN_POLICY_PATHS, ...(options.ignore ?? [])];
 
-  /** handle key → { shown handle, what it must approve } */
-  const need = new Map<string, { handle: string; why: string[] }>();
+  /** pool key → { pool, what it must approve } */
+  const need = new Map<string, { pool: string[]; why: string[] }>();
+  /** What only the author could approve: nobody else is in its role's pool or either fallback. */
+  const authorOnly: { why: string; role: string }[] = [];
   const notes: string[] = [];
-  const alternates = rules.alternates ?? {};
   const authorKey = author ? handleKey(author) : "";
-  const held = (h: string | undefined): h is string => !!h && !!handleKey(h);
-  /** A role's alternate who can stand in: named, and not the author (F143 A). */
-  const standIn = (role: string): string | undefined => {
-    const a = alternates[role];
-    return held(a) && handleKey(a) !== authorKey ? a : undefined;
-  };
-  const add = (handle: string, line: string) => {
-    const key = handleKey(handle);
-    const entry = need.get(key) ?? { handle: `@${key}`, why: [] };
+  const eligible = (role: string): string[] => approverPool(rules, role).filter((h) => handleKey(h) !== authorKey);
+  const add = (pool: string[], line: string) => {
+    const key = pool.map(handleKey).sort().join(" ");
+    const entry = need.get(key) ?? { pool, why: [] };
     entry.why.push(line);
     need.set(key, entry);
   };
-  // ROUTING (GOV-FRM-455; alternates, Policy Owner ruling F143 A, 2026-11-23). The role's holder approves — unless
-  // the holder is the author, or the role is vacant: then its ALTERNATE, when one is named who is not the author.
-  // Otherwise as before: a vacant role reads as the Policy Owner (and so takes the Policy Owner's alternate when the
-  // Policy Owner is the author); a holder who is the author is handled after the loop.
+  // ROUTING (GOV-FRM-455; F163 B). The role's pool approves, without the author. Empty → the Policy Owner's pool,
+  // then the Check Owner's. Each line says which, so the review request explains itself.
   const require = (role: string, why: string) => {
-    const holder = roles[role];
-    const alt = standIn(role);
-    if (!held(holder)) {
-      // The Policy Owner vacant: `policyOwner` IS its alternate (even one who is the author — the fallback after the loop).
-      if (alt || (role === POLICY_OWNER && poVacant)) return add(alt ?? policyOwner, `${why} (${role}) — vacant, so its alternate approves`);
-      const poAlt = !poVacant && handleKey(policyOwner) === authorKey ? standIn(POLICY_OWNER) : undefined;
-      if (poAlt) return add(poAlt, `${why} (${role} — vacant, so the ${POLICY_OWNER}) — its owner is the author, so the ${POLICY_OWNER}'s alternate approves`);
-      return add(policyOwner, `${why} (${role} — vacant, so ${fellTo})`);
+    const named = approverPool(rules, role);
+    const pool = eligible(role);
+    const vacant = !handleKey(roles[role] ?? "");
+    if (pool.length) {
+      const note = vacant ? " — vacant, so its alternates approve"
+        : authorKey && handleKey(roles[role]!) === authorKey ? " — its holder is the author, so its alternates approve" : "";
+      return add(pool, `${why} (${role})${note}`);
     }
-    if (authorKey && handleKey(holder) === authorKey && alt) return add(alt, `${why} (${role}) — its owner is the author, so its alternate approves`);
-    return add(holder, `${why} (${role})`);
+    const reason = named.length ? "its only approver is the author" : "vacant";
+    for (const fallback of [POLICY_OWNER, CHECK_OWNER]) {
+      if (fallback === role) continue;
+      const p = eligible(fallback);
+      if (p.length) return add(p, `${why} (${role} — ${reason}, so the ${fallback})`);
+    }
+    authorOnly.push({ why, role });
   };
 
   for (const f of changed) {
@@ -237,53 +279,43 @@ export function requiredSectionOwners(
     }
   }
 
-  // THE AUTHOR IS NEVER AN APPROVER (Policy Owner, 2026-10-06). GitHub refuses an author's review of their own PR, so
-  // listing them would make the check unpassable. If leaving them off leaves nobody, someone else must still review —
-  // the Policy Owner, or the Check Owner when the author IS the Policy Owner, each through their alternate when they
-  // are the author themselves (F143 A) — because nothing merges unreviewed.
-  if (authorKey && need.has(authorKey)) {
-    const own = need.get(authorKey)!;
-    need.delete(authorKey);
-    if (!need.size) {
-      const fallbacks: [string | undefined, string][] = [
-        [policyOwner, poVacant ? `the ${POLICY_OWNER}'s alternate` : `the ${POLICY_OWNER}`], [alternates[POLICY_OWNER], `the ${POLICY_OWNER}'s alternate`],
-        [roles[CHECK_OWNER], `the ${CHECK_OWNER}`], [alternates[CHECK_OWNER], `the ${CHECK_OWNER}'s alternate`],
-      ];
-      const next = fallbacks.find(([h]) => held(h) && handleKey(h) !== authorKey);
-      if (!next) {
-        const changed = [...own.why].sort(byWhy).join(", ");
-        // SOLO MODE (Q45 C): under soft posture, with nobody but the author named anywhere, say so in the words the
-        // push reads back. Under hard posture — or with someone else named who simply cannot approve this — as before.
-        if (rules.posture !== "hard" && soloMode(rules, author)) {
-          return {
-            owners: [], notes, solo: true,
-            selfApprovedMiss: `${tag}: ${SELF_MERGED_SOLO} — ${own.handle} changed ${changed}, and no one other than the author holds any role or alternate (solo mode). Under soft posture a merge is recorded as a self-merge, not as a violation. Name a second person as a role holder or an alternate to end solo mode.`,
-          };
-        }
-        return {
-          owners: [], notes,
-          selfApprovedMiss: `${tag}: ${own.handle} changed ${changed} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner, or as an alternate; until then this change is self-approved.`,
-        };
-      }
-      const key = handleKey(next[0]!);
-      need.set(key, { handle: `@${key}`, why: own.why.map((w) => `${w} — its owner is the author, so ${next[1]} approves instead`) });
+  // NOBODY BUT THE AUTHOR (Policy Owner, 2026-10-06; F163 B). What only the author could approve rides on the other
+  // approvals when there are any — a second person still reviews the change. With none, nobody else can approve it:
+  // say so, and say who to add.
+  if (authorOnly.length && !need.size) {
+    const changed = authorOnly.map((x) => x.why).sort(byWhy).join(", ");
+    const who = `@${authorKey}`;
+    // SOLO MODE (Q45 C): under soft posture, with nobody but the author named anywhere, say so in the words the
+    // push reads back. Under hard posture — or with someone else named who simply cannot approve this — as before.
+    if (rules.posture !== "hard" && soloMode(rules, author)) {
+      return {
+        owners: [], notes, solo: true,
+        selfApprovedMiss: `${tag}: ${SELF_MERGED_SOLO} — ${who} changed ${changed}, and no one other than the author holds any role or alternate (solo mode). Under soft posture a merge is recorded as a self-merge, not as a violation. Name a second person as a role holder or an alternate to end solo mode.`,
+      };
     }
+    const lists = [...new Set(authorOnly.map((x) => x.role))].sort();
+    return {
+      owners: [], notes,
+      selfApprovedMiss: `${tag}: ${who} changed ${changed}, and nobody but the author is on the approver list of ${lists.join(", ")}, the ${POLICY_OWNER} or the ${CHECK_OWNER}. Add a second person to one of them — for example \`policy_owner.alternate\` in ${GOVERNANCE_PATH}, or the Alternate column of the role list; until then this change is self-approved.`,
+    };
   }
 
-  const owners = [...need.keys()].sort().map((k) => { const e = need.get(k)!; return { handle: e.handle, why: [...e.why].sort(byWhy) }; });
+  const owners = [...need.keys()].sort().map((k) => {
+    const e = need.get(k)!;
+    return { handle: e.pool[0]!, pool: [...e.pool], why: [...e.why].sort(byWhy) };
+  });
   return { owners, notes };
 }
 
 /**
- * WHO ACTS AS THE POLICY OWNER (Q46 A): its holder, or — while the role is vacant — its alternate. Undefined when
- * neither is named: then nobody can be asked to approve anything. Pure.
+ * WHO ACTS AS THE POLICY OWNER (Q46 A): its holder, or — while the role is vacant — its first alternate. Undefined
+ * when neither is named: then nobody can be asked to approve anything. The one person a record is assigned to; for
+ * who may APPROVE as the Policy Owner, see {@link approverPool}. Pure.
  */
-export function actingPolicyOwner(rules: Pick<RuleSet, "roles" | "alternates">): string | undefined {
-  const named = (h: string | undefined): h is string => !!h && !!handleKey(h);
+export function actingPolicyOwner(rules: Pick<RuleSet, "roles"> & Partial<Pick<RuleSet, "alternates">>): string | undefined {
   const holder = rules.roles?.[POLICY_OWNER];
-  if (named(holder)) return holder;
-  const alt = rules.alternates?.[POLICY_OWNER];
-  return named(alt) ? alt : undefined;
+  if (holder && handleKey(holder)) return holder;
+  return alternatesOf(rules, POLICY_OWNER)[0];
 }
 
 export function sectionOwnerApproval(tag: string, params: Readonly<Record<string, unknown>>, ctx: EventContext, rules: RuleSet | undefined): ActionOutcome {
@@ -297,24 +329,23 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
   });
   if (required.selfApprovedMiss) return { verdict: "miss", findings: [required.selfApprovedMiss], ...(required.solo ? { solo: true as const } : {}) };
 
-  const need = new Map(required.owners.map((o) => [handleKey(o.handle), o]));
-  const requestReview = [...need.keys()];
-  if (required.notes.length) return cannot([...required.notes], requestReview);
-  if (!need.size) return { verdict: "pass", findings: [] };
+  const all = [...new Set(required.owners.flatMap((o) => o.pool.map(handleKey)))].sort();
+  if (required.notes.length) return cannot([...required.notes], all);
+  if (!required.owners.length) return { verdict: "pass", findings: [] };
   const approvals = payloadStrings(ctx, "approvals");
   if (approvals === undefined) {
-    return cannot([`${tag}: the pull request's approvals were not given, so nothing was checked. Required: ${requestReview.map((h) => `@${h}`).join(", ")}.`], requestReview);
+    return cannot([`${tag}: the pull request's approvals were not given, so nothing was checked. Required: ${required.owners.map((o) => describePool(o.pool)).join("; ")}.`], all);
   }
+  // ONE APPROVAL FROM ANYONE IN THE POOL (F163 B).
   const approved = new Set(approvals.map(handleKey));
-  const missing = requestReview.filter((h) => !approved.has(h));
+  const missing = required.owners.filter((o) => !o.pool.some((h) => approved.has(handleKey(h))));
   if (!missing.length) return { verdict: "pass", findings: [] };
   return {
     verdict: "miss",
-    requestReview: missing,
-    findings: missing.map((h) => {
-      const e = need.get(h)!;
-      return `${tag}: ${e.handle} has not approved this change to ${e.why.join(", ")}.`;
-    }),
+    requestReview: [...new Set(missing.flatMap((o) => o.pool.map(handleKey)))].sort(),
+    findings: missing.map((o) => o.pool.length === 1
+      ? `${tag}: ${o.handle} has not approved this change to ${o.why.join(", ")}.`
+      : `${tag}: nobody from ${describePool(o.pool)} has approved this change to ${o.why.join(", ")} — one approval from any of them is enough.`),
   };
 }
 
