@@ -120,6 +120,7 @@ import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { processTerminal } from "./picker.js";
 import { advanceSetup, loadSetupState } from "./setup-progress.js";
 import { setupTrailDiagnostic } from "../setup/setup-state.js";
 import { ensurePracticeProject, practiceCheckOwner, practiceEnforcement, practiceSlug, practiceSummary, PRACTICE_BOARD_TITLE } from "../lifecycle/starter-project.js";
@@ -977,10 +978,14 @@ export async function runSetupCommand(
   // Untrimmed: porcelain's first column is significant (" M file").
   const statusBefore = createdHome === null ? runResult("git", ["-C", cwd, "status", "--porcelain", "-uall"], { pgm: "gov-work:cli:main", fn: "setup-land" }).stdout : "";
   const existingText = fs.readFile(path.join(cwd, "org-config.yaml"));
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  // ONE INTERFACE PER QUESTION, as first run does (#186): the agents question may hand the terminal to the shared
+  // picker (F158), and a readline held across that would be a second reader of the same keys (#213).
   const ask = (q: string, def: string): Promise<string> =>
-    new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
-  try {
+    new Promise((res) => {
+      const one = readline.createInterface({ input: process.stdin, output: process.stderr });
+      one.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => { one.close(); res(a.trim() || def); });
+    });
+  {
     const rc = await runSetup(
       {
         fs,
@@ -993,6 +998,7 @@ export async function runSetupCommand(
         interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
+        terminal: processTerminal(),
         // ADOPTION WALK #4 + #14: on a repo setup cannot write (the old layout), the same `gov upgrade --apply` a
         // person would type, on THIS repository — run before the first question, never after an answer.
         upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd, ...setupContent.argv], now),
@@ -1314,8 +1320,6 @@ export async function runSetupCommand(
     }
     if (rc === 0) process.stdout.write("\nNext: run `gov app setup` so checks in your code repos can read the governance rules.\n");
     return rc;
-  } finally {
-    rl.close();
   }
 }
 
@@ -1472,6 +1476,9 @@ export async function runFirstRunIfNeeded(
     // both after the content seed and before the commit. This says the environment CAN record
     // one, which is what decides whether Q12 is asked; it is not a second writer.
     recordsApprovals: true,
+    // THE PICKER MAY BORROW THE TERMINAL (F158): `ask` above holds no readline between questions, so nothing else
+    // is reading stdin while Q12 draws. The picker still decides for itself whether arrows can run here.
+    terminal: processTerminal(),
     // THE PRACTICE PROJECT, MADE WITHOUT A QUESTION (F136, Q27 B). Adopter path only — bootstrap never calls this for a
     // joiner. The same board + anchor + `gov seed` as `gov project "<name>" --seed`, through the same ports, with the
     // `practice` label on the anchor (Q39 A) and one task issue for the title-page change (Q29 A / Q30 A).

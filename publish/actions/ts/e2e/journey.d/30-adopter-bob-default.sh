@@ -108,7 +108,7 @@ never "the mid-flow echoes are gone — they are in the closing block now" "(fro
 
 info "#196 — the agent policy is asked one agent at a time, and read back"
 saw "the default is its own question" "default for your organization"
-saw "additions are offered one at a time" "add any other AI agent to the allowed list"
+saw "the others are one multi-select (F158)" "add any other AI agent to the allowed list"
 saw "the selection is read back before it becomes a rule" "You have selected"
 saw "naming the default explicitly" "'IBM Bob' (default)"
 saw "and it says where the answer can be changed" "org-config.yaml"
@@ -135,7 +135,7 @@ saw "setup creates their preferences file" "preferences.json"
 saw "and names the command that changes it" "gov preferences"
 
 info "#196 — the org decides which agents it allows, during adoption"
-says "the question is asked" "Which AI agents may be used in this organization"
+says "the question is asked (F158 wording)" "Which AI agent would you like to use as the default in your organization"
 saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
 runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
   && pass "ibm-bob is in policies/governance.yaml — the authorized list is a file, not a memory" \

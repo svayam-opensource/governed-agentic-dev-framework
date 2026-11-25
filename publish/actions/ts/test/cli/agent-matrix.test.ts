@@ -20,7 +20,8 @@
 import { expect } from "chai";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import { agentLaunchSpec } from "../../src/cli/work-flow.js";
-import { offeredAgents, parsePick } from "../../src/cli/agent-selection.js";
+import { offeredAgents, defaultAgentItems } from "../../src/cli/agent-selection.js";
+import { parseNumbered } from "../../src/cli/picker.js";
 
 /**
  * What we know about each agent, stated once.
@@ -161,15 +162,18 @@ describe("every selectable agent — the catalog's claims", () => {
       it(GA.includes(id) ? "can be chosen by number and by name" : "is not on the menu, so cannot be chosen", () => {
         const offered = offeredAgents();
         const row = offered.find((o) => o.id === id);
+        // The default question as the numbered form reads it (F158: through the shared picker).
+        const spec = { items: defaultAgentItems(offered) };
+        const at = offered.findIndex((o) => o.id === id);
         if (!GA.includes(id)) {
           // A DEFERRED AGENT MUST NOT BE PICKABLE, by number or by name. Leaving it parseable
           // while hiding its row is how a menu of six ends up approving a seventh.
           expect(row, `${id} is deferred but still on the menu`).to.equal(undefined);
-          expect(parsePick(id, offered, false).kind, "nor answerable by typing its id").to.equal("error");
+          expect(parseNumbered(spec, id, false).ok, "nor answerable by typing its id").to.equal(false);
           return;
         }
-        expect(parsePick(String(row!.n), offered, false)).to.deep.equal({ kind: "pick", id });
-        expect(parsePick(id.toUpperCase(), offered, false)).to.deep.equal({ kind: "pick", id });
+        expect(parseNumbered(spec, String(row!.n), false)).to.deep.equal({ ok: true, picks: [at] });
+        expect(parseNumbered(spec, id.toUpperCase(), false)).to.deep.equal({ ok: true, picks: [at] });
       });
     });
   }

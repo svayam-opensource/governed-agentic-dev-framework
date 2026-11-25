@@ -164,6 +164,9 @@ export HOME="$RUN_HOME/home"; mkdir -p "$HOME"
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; mkdir -p "$NPM_CONFIG_PREFIX/bin"
 npm i -g "$GOV_TARBALL" >/dev/null 2>&1 || die "npm i -g $GOV_TARBALL failed"
 command -v gov >/dev/null || die "gov not on PATH after install"
+# The numbered form of every choice (F158): the conversation types numbers, so it must meet prompts and not the arrow
+# picker, on a laptop as on a CI runner (where `CI` would turn the arrows off anyway).
+export GOV_PLAIN_PROMPTS=1
 [ ! -e "$HOME/.gov" ] || die "this HOME already has ~/.gov — not a first run"
 EMAIL="${LOGIN}@users.noreply.github.com"
 git config --global user.email "$EMAIL"; git config --global user.name "$LOGIN (fresh adoption e2e)"
@@ -303,6 +306,10 @@ case "$VERDICT" in
           | grep -oE '[A-Za-z0-9_.-]+: (command )?not found' | sed -E 's/: (command )?not found//' | sort -u | tr '\n' ' ' || true)"
         die "approver-check failed with exit 127 — not gov waiting for an approval: the runner $RUNS_ON lacks ${NOTFOUND:-a command (its log did not say which)}. gov's workflows there need: $RUNNER_TOOLS" ;;
       esac
+      # SHOW THE CHECK'S OWN WORDS before the teardown deletes them: a failure with no annotation (F158's PR1 met two
+      # in a row) is otherwise undiagnosable — the repository, and the log with it, are gone a minute later.
+      echo "  the last lines of approver-check's log (job ${LAST%% *}):"
+      gh api "repos/$E2E_ORG/$REPO/actions/jobs/${LAST%% *}/logs" 2>/dev/null | tail -40 | sed -E 's/^[0-9TZ:.-]+ //; s/^/    /' || echo "    (the log could not be read)"
       die "approver-check failed on PR #$PR_NUM, but not because it waits for someone else's approval"
     fi
     ok "approver-check FAILED on PR #$PR_NUM — gov stopped the change: \"$REASON\"" ;;

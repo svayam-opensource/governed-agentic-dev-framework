@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Which AI agents may be used in this organization — asked one at a time.
+ * Which AI agents may be used in this organization — the default first, then any others.
  *
  * WHY THIS REPLACED A SPACE-SEPARATED LIST. The question used to be "enter the numbers you
  * allow, separated by spaces. The first one becomes the default" — which asks for three
  * different things in one line: a set, an order, and the knowledge that position one is
- * special. A typo in the middle of `9 3 1` is silent, a missing space merges two numbers into
- * a tenth, and reversing two digits changes the organization's default without changing
- * anything visible. It is the most consequential answer in adoption and it had the least
- * forgiving shape.
+ * special. Reversing two digits changed the organization's default without changing anything
+ * visible. It is the most consequential answer in adoption and it had the least forgiving shape.
  *
- * So: the DEFAULT is its own question, additions are one number each, and the already-chosen
- * disappear from what is offered. Numbers stay STABLE — picking 9 leaves 3 as 3 — because a
- * list that renumbers itself between prompts turns an answer the reader has already composed
- * into the wrong one.
+ * So the DEFAULT is its own question — a single-select — and the others are a MULTI-SELECT of
+ * what is left (PRJ-121 F158, Policy Owner ruling Q12 A, 2026-11-25). Both go through the one
+ * shared picker (`picker.ts`): arrow keys and Space in a real terminal, and the numbered form
+ * everywhere else — `Choose [1/2/…] :` for the default, `2,4` (blank = none) for the others.
+ * Numbers stay STABLE — choosing 8 leaves 3 as 3 — because a list that renumbers itself
+ * between prompts turns an answer the reader has already composed into the wrong one.
  *
- * It ends with the selection read back and a Y/n. Everything above is reversible until then,
- * which is what makes it safe to ask this many small questions instead of one large one.
+ * It ends with the selection read back and a Y/n. Everything above is reversible until then.
  *
  * Pure, plus one driver that takes its asking as an argument.
  */
 import { paint } from "./format.js";
+import { pickOne, pickMany, type PickItem, type PickerTerminal } from "./picker.js";
 import { AGENT_CATALOG } from "./agent-catalog.js";
 import { NO_AGENTS, type ApprovedAgent } from "../config/approved-agents.js";
 
@@ -61,68 +61,66 @@ export function noneOption(): number {
   return offeredAgents().length + 1;
 }
 
-/** `Choose [1/2/4/…]` — the numbers still on offer, in catalog order. */
-export function optionsLabel(offered: readonly OfferedAgent[]): string {
-  return `[${offered.map((a) => a.n).join("/")}]`;
+/** The question the default is asked with (ruling Q12 A, word for word). */
+export const DEFAULT_AGENT_QUESTION = "Which AI agent would you like to use as the default in your organization?";
+/** The question the others are asked with. */
+export const MORE_AGENTS_QUESTION = "Would you like to add any other AI agent to the allowed list?";
+
+const agentItem = (a: OfferedAgent): PickItem => ({ label: a.tool, detail: a.how, number: a.n, aliases: [a.id] });
+
+/** The `none` row — the other KIND of organization, not a way past the question. */
+export function noneItem(): PickItem {
+  return {
+    label: `${NO_AGENTS} — this organization does not use AI agents`,
+    number: noneOption(),
+    aliases: [NO_AGENTS],
+    note: [
+      "gov still runs your process: projects, tasks, branches, knowledge, review.",
+      "Nothing agent-shaped is installed, rendered or offered.",
+    ],
+  };
 }
 
-/** The same, plus the `none` option — the label for the one question where it is on the table. */
-export function optionsLabelWithNone(offered: readonly OfferedAgent[]): string {
-  return `[${[...offered.map((a) => a.n), noneOption()].join("/")}]`;
+/** The default question's items: every offered agent, then `none`. */
+export function defaultAgentItems(offered: readonly OfferedAgent[] = offeredAgents()): readonly PickItem[] {
+  return [...offered.map(agentItem), noneItem()];
 }
-
-const rows = (offered: readonly OfferedAgent[]): readonly string[] =>
-  offered.map((a) => `    ${String(a.n).padStart(2)}) ${a.tool.padEnd(28)} ${a.how}`);
 
 /**
- * The first question: which agent is the organization's DEFAULT.
- *
- * Asked first and alone because it is the answer that governs everyone who joins — and in the
- * old shape it was implied by typing order, which is not a way to state a policy.
+ * The prose above the default question. Printed in both forms: it is the reason the question
+ * is being asked now, and an arrow key does not make it less true.
  */
-export function defaultAgentLines(offered: readonly OfferedAgent[], color = false): readonly string[] {
-  // NO HEADING HERE. The interview prints `Q12 - Which AI agents...` as its question line,
-  // and this block used to repeat it verbatim two lines later.
+export function defaultAgentLines(): readonly string[] {
+  // NO HEADING HERE. The interview prints `Q12 - <DEFAULT_AGENT_QUESTION>` as its question line.
   return [
     "",
     "  This is a policy decision, and it is yours to make now rather than later: an",
     "  agent that is not on this list is prohibited by default, and everyone who joins",
     "  will be offered exactly what you choose here. You can change it afterwards —",
     "  through a pull request, like any other rule.",
-    "",
-    ...rows(offered),
-    "",
-    // AN ANSWER, NOT A WAY PAST THE QUESTION (Policy Owner, 2026-09-28).
-    //
-    // An organization may want gov purely to put structure into its development process and
-    // never run an agent. Until this option existed it had to approve a tool it would never use
-    // — and then nine harness files appeared in every project directory with no explanation.
-    // Fixed behaviour must be complete on its own; agentic behaviour is additive.
-    //
-    // Worded as the other KIND of organization rather than as "skip": a skip would leave the
-    // list unowned, which is the state #196 was written to remove. This is recorded, reported by
-    // `gov doctor`, and reversed by one named command.
-    `    ${String(noneOption()).padStart(2)}) ${paint(`${NO_AGENTS} — this organization does not use AI agents`, "bold", color)}`,
-    "        gov still runs your process: projects, tasks, branches, knowledge, review.",
-    "        Nothing agent-shaped is installed, rendered or offered.",
+  ];
+}
+
+/** The numbered form's instruction under the default list. */
+export function defaultAgentHelp(): readonly string[] {
+  // AN ANSWER, NOT A WAY PAST THE QUESTION (Policy Owner, 2026-09-28): `none` is recorded,
+  // reported by `gov doctor`, and reversed by one named command.
+  return [
     "",
     "  Enter the number corresponding to the AI agent that you would like to use as",
     `  default for your organization — or ${noneOption()} if you will not be using AI agents.`,
   ];
 }
 
-/** Every question after the first: one more agent, or nothing and we are done. */
-export function addMoreLines(offered: readonly OfferedAgent[], color = false): readonly string[] {
+/** The prose above the multi-select of the others. */
+export function addMoreLines(color = false): readonly string[] {
   return [
     "",
-    `  ${paint("Would you like to add any other AI agent to the allowed list?", "bold", color)}`,
-    "  - If yes then enter the number corresponding to AI agent that you would like to",
-    "    add to sanctioned list and press enter.",
-    "  - OR leave it blank and press enter to finish AI agent selection.",
-    "",
-    ...rows(offered),
+    `  ${paint(MORE_AGENTS_QUESTION, "bold", color)}`,
+    "  Choose any number of them, or none, to finish AI agent selection.",
   ];
 }
+
 
 /** `'IBM Bob' (default), 'OpenAI Codex' and 'Claude Code'` — Oxford-free, as an operator would say it. */
 export function namesSentence(agents: readonly ApprovedAgent[]): string {
@@ -162,48 +160,16 @@ export function confirmLines(agents: readonly ApprovedAgent[]): readonly string[
   ];
 }
 
-export type PickResult =
-  | { readonly kind: "pick"; readonly id: string }
-  | { readonly kind: "done" }
-  /** The organization runs NO agents — structure-only. Only offered on the first question. */
-  | { readonly kind: "none" }
-  | { readonly kind: "error"; readonly message: string };
-
-/**
- * One answer, against what is currently on offer.
- *
- * `allowDone` is false for the default question — that one is not optional, and an EMPTY answer
- * there is still refused. What changed (Policy Owner, 2026-09-28) is that the refusal now points
- * at an option rather than at a wall: `none` is the answer for an organization that does not use
- * AI agents, and it is offered on exactly the same question. Empty and `none` are not the same:
- * one leaves the list unowned, the other records a decision.
- *
- * `none` is accepted only where `allowDone` is false — i.e. on the default question. As a reply
- * to "would you like to add any other agent?" it would be a contradiction, and blank already
- * means "no more".
- */
-export function parsePick(answer: string, offered: readonly OfferedAgent[], allowDone: boolean): PickResult {
-  const t = answer.trim();
-  if (t === "") {
-    return allowDone
-      ? { kind: "done" }
-      : { kind: "error", message: `Choose one — or ${noneOption()} if this organization does not use AI agents.` };
-  }
-  if (!allowDone && (t.toLowerCase() === NO_AGENTS || Number(t) === noneOption())) return { kind: "none" };
-  // A NAME IS ALSO AN ANSWER. The numbers are the address, but someone who types `ibm-bob`
-  // has told us exactly what they mean and refusing it would be pedantry.
-  const byNumber = /^\d+$/.test(t) ? offered.find((a) => a.n === Number(t)) : undefined;
-  const byId = offered.find((a) => a.id === t.toLowerCase());
-  const hit = byNumber ?? byId;
-  if (!hit) return { kind: "error", message: `'${t}' is not one of the numbers above.` };
-  return { kind: "pick", id: hit.id };
-}
-
 export interface SelectIo {
   /** Ask, with the label already built by the caller; returns the raw answer. */
   readonly prompt: (question: string, def: string) => Promise<string>;
   readonly print: (line: string) => void;
   readonly color?: boolean;
+  /** A terminal the picker may take for arrow keys. Absent = the numbered form. See picker.ts. */
+  readonly terminal?: PickerTerminal | null;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Ctrl-C in the arrow form (tests). Default: exit 130 once the terminal is restored. */
+  readonly onInterrupt?: () => void;
 }
 
 /**
@@ -213,49 +179,50 @@ export interface SelectIo {
  * AN EMPTY ARRAY IS AN ANSWER: the organization chose `none` and runs no AI agents. Null is the
  * absence of an answer. Every caller must keep those apart — one is recorded as
  * `authorized_agents: none`, the other stops adoption.
+ *
+ * The first agent in the result carries `default: true` — `renderApprovedAgents` writes it so.
  */
 export async function askAgentSelection(io: SelectIo): Promise<readonly ApprovedAgent[] | null> {
-  const MAX = 40;
-  let asked = 0;
+  const color = io.color ?? false;
+  const pio = {
+    prompt: io.prompt,
+    print: io.print,
+    ...(io.terminal ? { terminal: io.terminal } : {}),
+    ...(io.env ? { env: io.env } : {}),
+    ...(io.onInterrupt ? { onInterrupt: io.onInterrupt } : {}),
+  };
 
   // The Y/n at the end can send us back here, which is the point of asking it.
   for (let round = 0; round < 5; round++) {
+    // ── the default: a single-select, `none` included ─────────────────────────────────
+    const offered = offeredAgents();
+    const items = defaultAgentItems(offered);
+    const first = await pickOne(pio, {
+      lead: defaultAgentLines(),
+      items,
+      numberedHelp: defaultAgentHelp(),
+      emptyError: `Choose one — or ${noneOption()} if this organization does not use AI agents.`,
+      color,
+    });
+    if (first === null) return null;
     const chosen: ApprovedAgent[] = [];
-    /** `none` was chosen: an EMPTY `chosen` that is an answer, not an unfinished question. */
-    let structureOnly = false;
+    const def = offered[first];                      // undefined = the `none` row, the last item
+    if (def) chosen.push({ id: def.id, default: true });
 
-    // ── the default ───────────────────────────────────────────────────────────────
-    while (chosen.length === 0 && !structureOnly) {
-      if (++asked > MAX) return null;
-      const offered = offeredAgents();
-      for (const l of defaultAgentLines(offered, io.color ?? false)) io.print(l);
-      const r = parsePick(await io.prompt(`  Choose ${optionsLabelWithNone(offered)} : `, ""), offered, false);
-      if (r.kind === "error") { io.print(`  ✗ ${r.message}`); continue; }
-      if (r.kind === "none") structureOnly = true;
-      if (r.kind === "pick") chosen.push({ id: r.id, default: true });
-    }
-
-    // ── additions, one at a time ──────────────────────────────────────────────────
+    // ── the others: a multi-select of what is left ────────────────────────────────────
     // SKIPPED ENTIRELY WHEN `none` WAS CHOSEN. "Would you like to add any other AI agent?" to an
-    // organization that has just said it uses none would be asking the question again in a way
-    // that suggests the first answer did not take.
-    while (!structureOnly) {
-      const offered = offeredAgents(chosen.map((c) => c.id));
-      if (offered.length === 0) break;                    // everything is approved; nothing left to ask
-      if (++asked > MAX) return null;
-      for (const l of addMoreLines(offered, io.color ?? false)) io.print(l);
-      const r = parsePick(await io.prompt(`  Choose ${optionsLabel(offered)} : `, ""), offered, true);
-      if (r.kind === "done") break;
-      if (r.kind === "error") { io.print(`  ✗ ${r.message}`); continue; }
-      // `none` cannot arrive here — `parsePick` only returns it where `allowDone` is false — and
-      // the compiler is the right place to hold that, rather than a comment claiming it.
-      if (r.kind !== "pick") break;
-      chosen.push({ id: r.id });
+    // organization that has just said it uses none would suggest the first answer did not take.
+    if (def) {
+      const rest = offeredAgents([def.id]);
+      if (rest.length) {
+        const more = await pickMany(pio, { lead: addMoreLines(color), items: rest.map(agentItem), color });
+        if (more === null) return null;
+        for (const i of more) chosen.push({ id: rest[i]!.id });
+      }
     }
 
-    // ── read it back ──────────────────────────────────────────────────────────────
+    // ── read it back ──────────────────────────────────────────────────────────────────
     for (const l of confirmLines(chosen)) io.print(l);
-    if (++asked > MAX) return null;
     const yn = (await io.prompt("  Choose (Y/n) : ", "")).trim().toLowerCase();
     if (yn === "" || yn === "y" || yn === "yes") return chosen;
     io.print("");

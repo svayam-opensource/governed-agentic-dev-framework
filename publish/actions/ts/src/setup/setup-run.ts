@@ -11,7 +11,8 @@ import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig, renderSetupGovernance, setupNeedsUpgrade, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents, type ApprovedAgent } from "../config/approved-agents.js";
-import { askAgentSelection, namesSentence } from "../cli/agent-selection.js";
+import { askAgentSelection, namesSentence, DEFAULT_AGENT_QUESTION } from "../cli/agent-selection.js";
+import type { PickerTerminal } from "../cli/picker.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
 import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, secondPerson, parseSecondPerson, SECOND_PERSON_QUESTION, secondPersonDefault, type Validator } from "./answers.js";
 
@@ -35,6 +36,8 @@ export interface SetupIo {
   /** Ask a question with a default; return the answer (default if blank). Injected. */
   readonly prompt: (question: string, def: string) => Promise<string>;
   readonly print: (line: string) => void;
+  /** The terminal the agents question's picker may take for arrow keys (F158). Absent = numbered prompts. */
+  readonly terminal?: PickerTerminal | null;
   /**
    * Bring the workspace to the current layout — `gov upgrade --apply` on `cwd` — and return its exit code. Run BEFORE
    * the first question when the repo is on a layout setup cannot write (adoption walk #4 + #14; `setupNeedsUpgrade`).
@@ -106,10 +109,14 @@ async function askAgentsInPlace(io: SetupIo, before: readonly ApprovedAgent[] | 
     if (!/^n(o)?$/i.test(keep)) return before;
   } else {
     io.print("  Your organization has not chosen its AI agents yet — `gov doctor` reports it until it does.");
-    io.print("  Which AI agents may be used in this organization?");
   }
+  io.print(`  ${DEFAULT_AGENT_QUESTION}`);
   // The selection builds its own `Choose […] : ` label; the setup prompt adds its own colon, so the label's is dropped.
-  const picked = await askAgentSelection({ prompt: (q, def) => io.prompt(q.replace(/\s*:\s*$/, ""), def), print: io.print });
+  const picked = await askAgentSelection({
+    prompt: (q, def) => io.prompt(q.replace(/\s*:\s*$/, ""), def),
+    print: io.print,
+    ...(io.terminal ? { terminal: io.terminal } : {}),
+  });
   if (picked === null) throw new AnswerRefused("Which AI agents may be used: no usable selection.");
   return picked;
 }

@@ -34,7 +34,8 @@ import {
   type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
-import { askAgentSelection } from "../cli/agent-selection.js";
+import { askAgentSelection, DEFAULT_AGENT_QUESTION } from "../cli/agent-selection.js";
+import type { PickerTerminal } from "../cli/picker.js";
 import type { ApprovedAgent } from "../config/approved-agents.js";
 
 /** The answers under construction — `OrgConfigValues` is readonly by design. */
@@ -64,6 +65,11 @@ export interface InterviewIo {
   /** Ask the agent-approval question (Q12). Absent = do not ask; the caller asks elsewhere. */
   readonly selectAgents?: boolean;
   readonly color?: boolean;
+  /**
+   * The terminal Q12's picker may take for arrow keys (F158, ruling Q12 A). Absent = the numbered form, which is
+   * also what the picker falls back to on its own wherever arrows cannot run (see picker.ts).
+   */
+  readonly terminal?: PickerTerminal | null;
 }
 
 /**
@@ -302,11 +308,14 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    io.print("Q12 - Which AI agents may be used in this organization?");
+    // A SINGLE-SELECT FOR THE DEFAULT, THEN A MULTI-SELECT FOR THE OTHERS, through the one shared picker (F158,
+    // ruling Q12 A, 2026-11-25). The default keeps `default: true` in the approved list.
+    io.print(`Q12 - ${DEFAULT_AGENT_QUESTION}`);
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
+      ...(io.terminal ? { terminal: io.terminal } : {}),
     });
     if (picked === null) throw new InterviewRefused("Q12: no usable AI agent selection.");
     agents = picked;

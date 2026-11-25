@@ -14,102 +14,14 @@
  * asked to choose — they are told which agent is being installed, and consent to
  * the step like any other.
  *
- * Pure: the question and the answer's meaning live here, the asking is the caller's.
+ * Pure: what an approval MEANS is said here — the summary, the structure-only lines and the doctor row.
  */
-import { paint } from "./format.js";
 import { AGENT_CATALOG } from "./agent-catalog.js";
 import { readAuthorizedAgents, defaultAgent, NO_AGENTS, type ApprovedAgent } from "../config/approved-agents.js";
 
-/** The agents worth offering at adoption: the ones with something to run. */
-export function selectableAgents(): readonly { readonly id: string; readonly tool: string; readonly how: string }[] {
-  // `deferred` entries are known to gov and NOT offered — see AgentCandidate.deferred.
-  return AGENT_CATALOG.filter((a) => a.launch !== "none" && !a.deferred).map((a) => ({
-    id: a.id,
-    tool: a.tool,
-    how: a.variants?.map((v) => v.label).join(" · ") ?? (a.launch === "ide" ? "the editor" : "in the terminal"),
-  }));
-}
-
-/**
- * The number that means "no AI agents at all" — one past the last agent, so the agents keep the
- * numbers they have always had and nobody's muscle memory selects the new option by accident.
- */
-export function noneOption(): number {
-  return selectableAgents().length + 1;
-}
-
-export function approvalPrompt(color = false): readonly string[] {
-  const rows = selectableAgents().map((a, i) => `    ${String(i + 1).padStart(2)}) ${a.tool.padEnd(28)} ${a.how}`);
-  return [
-    "",
-    `  ${paint("Which AI agents may be used in this organization?", "bold", color)}`,
-    "",
-    "  This is a policy decision, and it is yours to make now rather than later: an",
-    "  agent that is not on this list is prohibited by default, and everyone who joins",
-    "  will be offered exactly what you choose here. You can change it afterwards —",
-    "  through a pull request, like any other rule.",
-    "",
-    ...rows,
-    "",
-    // A CHOICE, NOT A SKIP (Policy Owner, 2026-09-28). The wording carries the whole difference:
-    // "skip" would leave the organization in the unowned state #196 removed, whereas this is an
-    // answer — recorded, reported by `gov doctor`, and reversible by a named command. Numbered
-    // and set apart so it reads as the other kind of organization, not as a way out of the
-    // question.
-    `    ${String(noneOption()).padStart(2)}) ${paint("none — this organization does not use AI agents", "bold", color)}`,
-    "        gov still runs your process: projects, tasks, branches, knowledge, review.",
-    "        Nothing agent-shaped is installed, rendered or offered. Turn agents on any",
-    "        time with `gov agent approve <id>`.",
-    "",
-    "  Enter the numbers you allow, separated by spaces. The first one becomes the",
-    `  default for people who join — or ${noneOption()} on its own.`,
-  ];
-}
-
-export type ApprovalChoice =
-  | { readonly ok: true; readonly agents: readonly ApprovedAgent[] }
-  | { readonly ok: false; readonly message: string };
-
-/**
- * Read the answer. Refuses an EMPTY one — still — and that is not the same as refusing "none".
- *
- * Everything downstream reads the list this produces: installs, the joiner's flow, the work menu.
- * An empty answer leaves them reading nothing, which is the unowned state #196 removed. `none`
- * (the last number, or the word) leaves them reading a DECISION: no agents, structure-only. So the
- * refusal stays and now points at the option that says what an empty answer was being used to mean.
- */
-export function parseApprovalChoice(answer: string): ApprovalChoice {
-  const list = selectableAgents();
-  const none = noneOption();
-  const picks = answer.trim().split(/[\s,]+/).filter(Boolean);
-  if (!picks.length) {
-    return {
-      ok: false,
-      message: `Choose at least one — or ${none} if this organization does not use AI agents.`,
-    };
-  }
-  // NONE IS EXCLUSIVE, and saying so beats quietly dropping one half of a contradiction. "1 8"
-  // is not a smaller list, it is two different answers, and the person meant one of them.
-  const saysNone = picks.some((p) => p.toLowerCase() === NO_AGENTS || Number(p) === none);
-  if (saysNone && picks.length > 1) {
-    return { ok: false, message: `${none} means no AI agents at all — choose it on its own, or choose the agents you allow.` };
-  }
-  if (saysNone) return { ok: true, agents: [] };
-
-  const chosen: ApprovedAgent[] = [];
-  for (const p of picks) {
-    const n = Number(p);
-    const byNumber = Number.isInteger(n) && n >= 1 && n <= list.length ? list[n - 1] : undefined;
-    const byId = list.find((a) => a.id === p.toLowerCase());
-    const hit = byNumber ?? byId;
-    if (!hit) return { ok: false, message: `'${p}' is not one of the numbers above.` };
-    if (!chosen.some((c) => c.id === hit.id)) chosen.push({ id: hit.id });
-  }
-  // The first pick is the default — stated in the prompt, so the order carries
-  // meaning rather than being an accident of typing.
-  chosen[0] = { ...chosen[0]!, default: true };
-  return { ok: true, agents: chosen };
-}
+// THE QUESTION ITSELF LIVES IN agent-selection.ts (PRJ-121 F158, ruling Q12 A, 2026-11-25). This file used to hold an
+// older space-separated form of it ("the first one becomes the default") that nothing called any more; it was removed
+// when the question moved to the shared picker, so there is one question and not two that could drift apart.
 
 /** The one command that turns agents on later, named everywhere gov says agents are off. */
 export const TURN_AGENTS_ON = "gov agent approve <id>";

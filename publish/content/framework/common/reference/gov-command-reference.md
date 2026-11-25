@@ -1673,3 +1673,8 @@ install.ps1    irm https://<install-site>/install.ps1 | iex       (PowerShell 5.
 Both put a private Node 24 under the user's home, install gov from npm, need no administrator rights,
 and ask nothing when there is no terminal. They print what gov prints: a named phase, → under way,
 ✓ done, · already present; colour only on a terminal, and never with NO_COLOR set.
+
+When gov offers a choice in a terminal, you move with ↑/↓, select with Space where more than one is
+allowed, and press Enter. Where there is no terminal — a pipe, CI (`CI` set), TERM=dumb — the same choice
+is a numbered prompt (`Choose [1/2/3]`, or `1,3` for several). GOV_PLAIN_PROMPTS=1 asks for the numbered
+prompt everywhere.
