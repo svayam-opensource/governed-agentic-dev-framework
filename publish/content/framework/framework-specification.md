@@ -846,9 +846,6 @@ see the plan, so when gov cannot read it, it says it cannot tell and never assum
   to delete on the App's page.
 - `gov app check` and `gov doctor` name each repository that will not receive a secret it needs, with the
   fix: a repository secret, or `gov app rotate`.
-- When CI cannot propose rules because the model's key is missing, the message says that organization secrets
-  do not reach private repositories on the Free plan, and gives the command that sets the key on the
-  repository.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §11`.*
 

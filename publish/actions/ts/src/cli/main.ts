@@ -2192,10 +2192,7 @@ const geminiKey = (): string | null => modelKey(GEMINI_KEY_ENV, "gemini-code-ass
 const runModelCommand = (cmd: string, args: readonly string[], input: string): string =>
   runProcess(cmd, args, { pgm: "gov-work:rules:propose:command", fn: "complete", input, timeoutMs: 600_000 });
 
-const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, {
-  ci, anthropicKey, geminiKey, runCommand: runModelCommand,
-  ...(ci && process.env.GITHUB_REPOSITORY ? { repository: process.env.GITHUB_REPOSITORY } : {}),
-});
+const modelChoiceFor = (s: ModelSettings) => chooseModel(s, { anthropicKey, geminiKey, runCommand: runModelCommand });
 
 /**
  * `gov rules propose [--all] [--pr <n>]` — ASKS at the terminal, so it is routed here and not through `route()`
@@ -2217,7 +2214,7 @@ export async function runRulesPropose(argv: readonly string[]): Promise<number> 
       git,
       head: fsTree(at.home),
       channel: terminalChannel(ask.line),
-      model: (s) => lazyModel(() => modelChoiceFor(s, false), (d) => process.stderr.write(`  reading with ${d}\n`)),
+      model: (s) => lazyModel(() => modelChoiceFor(s), (d) => process.stderr.write(`  reading with ${d}\n`)),
       currentPr: () => {
         const n = tryRunProcess("gh", ["pr", "view", "--json", "number", "--jq", ".number"], { pgm: "gov-work:cli:main", fn: "propose-pr", cwd: at.home });
         return n && /^\d+$/.test(n) ? Number(n) : undefined;

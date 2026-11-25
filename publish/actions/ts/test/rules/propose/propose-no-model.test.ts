@@ -57,7 +57,7 @@ const noAnswers: InterviewChannel = { async ask() { return { kind: "pending" }; 
 function freshModel(base: Record<string, string>) {
   const s = readModelSettings(base["policies/governance.yaml"]!);
   const asked = { n: 0 };
-  const port = lazyModel(() => { asked.n++; return chooseModel(s, { ci: false, anthropicKey: () => null, geminiKey: () => null, runCommand: () => "" }); });
+  const port = lazyModel(() => { asked.n++; return chooseModel(s, { anthropicKey: () => null, geminiKey: () => null, runCommand: () => "" }); });
   return { asked, port, settings: s };
 }
 

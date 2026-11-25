@@ -17,24 +17,13 @@ export type ModelChoice =
   | { readonly ok: false; readonly lines: readonly string[] };
 
 export interface ModelChoiceDeps {
-  /** Running in CI (the policy pull request trigger) rather than at a person's terminal. */
-  readonly ci: boolean;
   /** The Anthropic key — the environment first, then gov's credentials store. Called only for `anthropic`. */
   readonly anthropicKey: () => string | null;
   /** The Gemini key — the environment first, then gov's credentials store. Called only for `gemini`. */
   readonly geminiKey: () => string | null;
   readonly runCommand: RunWithInput;
   readonly fetch?: FetchLike;
-  /** `owner/name` of the repository CI runs in (GITHUB_REPOSITORY) — named in the fix for a missing key. */
-  readonly repository?: string;
 }
-
-/**
- * The one line a CI refusal for a missing key adds (sandbox finding, svayam-e2e, 2026-10-07): on GitHub Free an
- * organization secret is never given to a private repository — the job sees it empty, and nothing warns.
- */
-const freePlanLine = (name: string, repo: string | undefined): string =>
-  `  On GitHub's Free plan, organization secrets do not reach private repositories, so set it on this repository: gh secret set ${name} -R ${repo || "<owner>/<repo>"}`;
 
 /** Framework specification §9.3, said in plain words. */
 export const NO_APPROVED_MODEL = [
@@ -57,8 +46,7 @@ export function chooseModel(s: ModelSettings, deps: ModelChoiceDeps): ModelChoic
     const apiKey = deps.geminiKey();
     if (!apiKey) {
       return { ok: false, lines: [
-        `gov rules propose: no Gemini API key. Set ${GEMINI_KEY_ENV} in the environment${deps.ci ? ` (the org's Actions secret ${GEMINI_KEY_ENV})` : ", or store it in gov's credentials file (`gov agent install gemini-code-assist` stores it there)"}.`,
-        ...(deps.ci ? [freePlanLine(GEMINI_KEY_ENV, deps.repository)] : []),
+        `gov rules propose: no Gemini API key. Set ${GEMINI_KEY_ENV} in the environment, or store it in gov's credentials file (\`gov agent install gemini-code-assist\` stores it there).`,
       ] };
     }
     return { ok: true, model: geminiModel({ apiKey, model: s.model, ...(deps.fetch ? { fetch: deps.fetch } : {}) }), describe: `${s.model} (Google Gemini)` };
@@ -66,8 +54,7 @@ export function chooseModel(s: ModelSettings, deps: ModelChoiceDeps): ModelChoic
   const apiKey = deps.anthropicKey();
   if (!apiKey) {
     return { ok: false, lines: [
-      `gov rules propose: no Anthropic API key. Set ${ANTHROPIC_KEY_ENV} in the environment${deps.ci ? " (an Actions secret)" : ", or store it in gov's credentials file (`gov agent install claude-code` stores it there)"}.`,
-      ...(deps.ci ? [freePlanLine(ANTHROPIC_KEY_ENV, deps.repository)] : []),
+      `gov rules propose: no Anthropic API key. Set ${ANTHROPIC_KEY_ENV} in the environment, or store it in gov's credentials file (\`gov agent install claude-code\` stores it there).`,
     ] };
   }
   return { ok: true, model: anthropicModel({ apiKey, model: s.model, ...(deps.fetch ? { fetch: deps.fetch } : {}) }), describe: `${s.model} (Anthropic)` };

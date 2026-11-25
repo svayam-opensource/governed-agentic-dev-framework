@@ -149,7 +149,7 @@ describe("rules propose — the gemini adapter (generateContent over fetch)", ()
 });
 
 describe("rules propose — choosing gemini", () => {
-  const deps = { ci: false, anthropicKey: () => null, geminiKey: () => KEY, runCommand: () => "" };
+  const deps = { anthropicKey: () => null, geminiKey: () => KEY, runCommand: () => "" };
   it("gemini with a model and a key → a Gemini model", () => {
     const c = chooseModel({ provider: "gemini", model: "gemini-org", command: "" }, deps);
     expect(c.ok).to.equal(true);

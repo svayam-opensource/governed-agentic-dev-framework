@@ -56,7 +56,7 @@ describe("rules propose — the org's model setting (policies/governance.yaml)",
 });
 
 describe("rules propose — choosing the model", () => {
-  const deps = { ci: false, anthropicKey: () => KEY, geminiKey: () => null, runCommand: () => "" };
+  const deps = { anthropicKey: () => KEY, geminiKey: () => null, runCommand: () => "" };
   it("no provider → refuses, naming governance.yaml and §9.3 in plain words", () => {
     const c = chooseModel(NO_MODEL, deps);
     expect(c.ok).to.equal(false);
@@ -273,7 +273,7 @@ describe("gov rules propose — the terminal trigger", () => {
   });
 
   it("no model approved → refuses in plain words, only when a section actually needs reading", async () => {
-    const refusing = lazyModel(() => chooseModel(NO_MODEL, { ci: false, anthropicKey: () => null, runCommand: () => "" }));
+    const refusing = lazyModel(() => chooseModel(NO_MODEL, { anthropicKey: () => null, runCommand: () => "" }));
     const r = await run(memTree(baseFiles({ [DOC]: NEW })), refusing, answers([]), { pr: 1 });
     expect(r.code).to.equal(1);
     expect(r.lines.join("\n")).to.contain("has not approved a language model").and.contain("policies/governance.yaml");

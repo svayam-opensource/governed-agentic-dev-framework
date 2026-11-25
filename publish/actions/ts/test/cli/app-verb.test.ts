@@ -527,22 +527,14 @@ describe("gov app check / gov doctor — each repo that will not receive a neede
   });
 });
 
-describe("gov rules propose in CI — a missing key names the Free-plan cause and the fix", () => {
-  it("adds one line: org secrets do not reach private repos on Free; gh secret set <NAME> -R <repo>", () => {
-    const c = chooseModel({ provider: "gemini", model: "g", command: "" },
-      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
-    expect(c.ok).to.equal(false);
-    const text = !c.ok ? c.lines.join("\n") : "";
-    expect(text).to.contain("Free plan").and.contain("gh secret set GEMINI_API_KEY -R acme/acme-gov");
-    const a = chooseModel({ provider: "anthropic", model: "m", command: "" },
-      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
-    expect(!a.ok && a.lines.join("\n")).to.contain("gh secret set ANTHROPIC_API_KEY -R acme/acme-gov");
-  });
-
-  it("locally, no such line", () => {
-    const c = chooseModel({ provider: "gemini", model: "g", command: "" },
-      { ci: false, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never });
-    expect(!c.ok && c.lines.join("\n")).to.not.contain("Free plan");
+describe("gov rules propose — a missing key says where to put it, with no CI-only hint (Q68)", () => {
+  it("names the environment variable and gov's credentials file; never a Free-plan or Actions-secret line", () => {
+    for (const provider of ["gemini", "anthropic"] as const) {
+      const c = chooseModel({ provider, model: "m", command: "" },
+        { anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never });
+      const text = !c.ok ? c.lines.join("\n") : "";
+      expect(text).to.contain("credentials file").and.not.contain("Free plan").and.not.contain("Actions secret");
+    }
   });
 });
 
