@@ -203,27 +203,42 @@ The framework asks only that the answers be **written down, with names**, in
 ### 2.4 When a role falls vacant
 
 The framework's two roles must always have a named holder. Setup will not finish without both.
-`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, its alternate does
+`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, its alternates do
 that work, or the Policy Owner when it has none. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
 vacancy falls to the Policy Owner until someone is named.
 
 ### 2.5 Every role has an alternate
 
-Every role, the framework's two included, should have an **alternate**: a second person who approves in the
-role's place when the holder wrote the change, or while the role is vacant (§7.2). The Policy Owner's and the
-Check Owner's alternates are `policy_owner.alternate` and `check_owner.alternate` in
-`policies/governance.yaml`. Every other role's is the Alternate column of the role table in
-`policies/common/authorized-representatives.md`. A role table written before the column existed still works;
-its roles have no alternate.
+A change needs two people: the person who proposes it, and one person who approves it. Anyone may propose a
+change. The approver comes from the **approver list** of the role that owns what the change touches, and may
+be anyone on that list except the person who proposed it.
 
-An alternate also stands in while its role is vacant, and that includes the framework's two roles. While
-the Policy Owner role is vacant, its alternate acts as the Policy Owner for approvals: it approves changes to
-who owns what and to `policies/governance.yaml`, and it takes every vacant role that has no alternate of its
-own. The role still needs a holder, and `gov doctor` keeps reporting it until it has one. With no alternate,
-a vacant role behaves as before.
+A role's approver list is its holder plus any number of named **alternates**. Every role, the framework's two
+included, should have at least one. An alternate is a full co-approver, not a stand-in: when a role has a
+holder and two alternates, any one of those three people can approve a change the other two wrote, and one
+approval is enough.
+
+Where the alternates are written down:
+
+- The Policy Owner's and the Check Owner's are `policy_owner.alternate` and `check_owner.alternate` in
+  `policies/governance.yaml`. Each takes one handle, such as `alternate: "ana"`, or a list, such as
+  `alternate: ["ana", "ben"]`. A file that names a single alternate keeps working as it is. gov also reads
+  the key spelled `alternates`, as the same thing.
+- Every other role's are in the Alternate column of the role table in
+  `policies/common/authorized-representatives.md`, as one or more handles separated by commas, such as
+  `@ana, @ben`. A role table written before the column existed still works; its roles have no alternate.
+
+A handle gov cannot read is reported, row by row, and that row or setting is read as naming no alternate
+until it is fixed. A mistyped name never quietly makes somebody an approver.
+
+While a role is vacant, its alternates are its approver list. That includes the framework's two roles. While
+the Policy Owner role is vacant, its alternates act as the Policy Owner for approvals: any one of them approves
+changes to who owns what and to `policies/governance.yaml`, and they approve for every role whose own list is
+empty. The role still needs a holder, and `gov doctor` keeps reporting it until it has one.
 
 The Policy Owner appoints an alternate by pull request, like any holder. An agent never appoints anybody.
-`gov doctor` lists every role that has no alternate, as advice rather than a failure.
+`gov doctor` shows every role's approver list, and lists every role that has no alternate, as advice rather
+than a failure.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §2`.*
 
@@ -313,7 +328,8 @@ Approval follows what the change touches.
 **Policy is approved section by section.** Your policy documents say, in plain English, who owns each
 section, for example *"Section 4 is owned by the Data Owner."* gov reads those sentences into
 `policies/ownership.yaml`. When a pull request changes a policy, gov works out which sections changed, asks
-each section's owner to review, and requires every one of them to approve. There are four guard rails:
+each owning role's approvers to review, and requires an approval for every one of those roles. There are four
+guard rails:
 
 - A section that names no owner belongs to the Policy Owner.
 - A change to who owns what always needs the Policy Owner. Nobody can hand a section to themselves.
@@ -322,15 +338,20 @@ each section's owner to review, and requires every one of them to approve. There
   glossary.
 - An executable action under `policies/actions/` needs the Check Owner (§2.2).
 
-**Nobody approves their own change.** When the person who must approve is the author, or the role has
-nobody in it, the role's **alternate** approves instead (§2.5), as long as one is named and is not the author.
-Without an alternate, a vacant role falls to the Policy Owner (or, while the Policy Owner role is vacant, to
-its alternate), and a change whose only approver is its author falls to the Policy Owner, then to the Check
-Owner. The request for review says which: for example, "its owner
-is the author, so its alternate approves". When nobody but the author holds any role or alternate, nobody can
-approve the change; §11.1 says what happens to it then.
+**One approval from the role's list, never from the author.** Each approval a change needs can be given by
+anyone on that role's approver list: its holder or any of its alternates (§2.5), except the person who
+proposed the change. One approval from the list is enough for that role. A change that touches sections owned
+by two roles needs one approval from each role's list. One person on both lists can give both.
 
-The approval check on the platform (§7.3) counts every role holder and every alternate as an authorized
+When a role's list is empty once the author is left out, because the role is vacant and has no alternates, or
+because the author is the only person on it, the approval falls to the Policy Owner's list, and then to the
+Check Owner's, again leaving the author out. The request for review goes to everyone on the list and names
+them, for example "any of @ana, @ben", and says why when it fell to another role. When nobody but the author
+is on any list that could approve the change, the check says so and says who to add: a second person as an
+alternate, for example in `policy_owner.alternate`. When nobody but the author holds any role or alternate at
+all, §11.1 says what happens to the change.
+
+The approval check on the platform (§7.3) counts everyone on every role's approver list as an authorized
 representative.
 
 **Knowledge is approved folder by folder.** gov generates `CODEOWNERS` from your role list:

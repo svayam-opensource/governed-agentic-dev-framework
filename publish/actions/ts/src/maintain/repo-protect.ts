@@ -138,9 +138,9 @@ export const WORKFLOW_DEST = path.posix.join(".github", "workflows", "approver-c
 export function approverLogins(governanceText: string | null | undefined, roleListText: string | null | undefined): readonly string[] {
   const gov = parseGovernance(governanceText ?? null);
   const owners = frameworkOwners(gov), alts = frameworkAlternates(gov);
-  // ALTERNATES APPROVE TOO (F143 A): in the role's place when its holder wrote the change, so they are on the list.
-  const handles = [owners.policyOwner, alts.policyOwnerAlternate, owners.checkOwner, alts.checkOwnerAlternate,
-    ...resolveRoles(roleListText).roles.flatMap((r) => [r.holder ?? "", r.alternate ?? ""])]
+  // ALTERNATES APPROVE TOO (F143 A, F163 B): each is in its role's approver pool, so every one is on the list.
+  const handles = [owners.policyOwner, ...alts.policyOwnerAlternates, owners.checkOwner, ...alts.checkOwnerAlternates,
+    ...resolveRoles(roleListText).roles.flatMap((r) => [r.holder ?? "", ...r.alternates])]
     .map((h) => h.trim().replace(/^@+/, "")).filter(Boolean);
   return [...new Set(handles)];
 }

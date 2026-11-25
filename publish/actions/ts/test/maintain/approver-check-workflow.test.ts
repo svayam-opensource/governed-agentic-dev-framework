@@ -140,6 +140,48 @@ describe("approver-check workflow — alternates and solo mode (F143 A, Q45 C)",
   });
 });
 
+// POLICY OWNER RULING F163 B (PRJ-121, 2026-11-25): a role's list is its holder plus any number of alternates; anyone
+// on any list, other than the author, is an authorized representative. Every form governance.yaml can write it in.
+describe("approver-check workflow — several alternates per role (F163 B)", function () {
+  beforeEach(function () { if (!hasTools && !this.currentTest?.title.startsWith("approverLogins")) this.skip(); });
+  const head = 'governance_posture: "hard"\n';
+  const forms: [string, string][] = [
+    ["a single string, as every file before F163 (e.g. a proposal adding one alternate)", 'policy_owner:\n  github: "polly"\n  alternate: "princy1511"\n'],
+    ["a flow list", 'policy_owner:\n  github: "polly"\n  alternate: ["ana", "princy1511"]\n'],
+    ["a block list", "policy_owner:\n  github: polly\n  alternate:\n    - ana\n    - princy1511   # the second\n"],
+    ["the `alternates:` spelling", "policy_owner:\n  github: polly\n  alternates: [ana, '@princy1511']\n"],
+    ["a comma-separated string", 'policy_owner:\n  github: "polly"\n  alternate: "ana, princy1511"\n'],
+    ["the flow form of the whole block", "policy_owner: { github: polly, email: a@b.example, alternate: [ana, princy1511] }\n"],
+  ];
+  for (const [what, yamlText] of forms) {
+    it(`governance.yaml, ${what}: every alternate is listed, and one of them approving passes`, () => {
+      const r = run({ governance: `${head}${yamlText}check_owner:\n  github: chuck\n` }, "polly", ["princy1511"]);
+      expect(r.code, r.out).to.equal(0);
+      expect(r.out).to.contain("approved by princy1511");
+      expect(r.out).to.not.match(/^\s+(a@b\.example|email|github|alternates?)$/m);
+    });
+  }
+
+  it("the Alternate column with several handles, comma-separated: any one of them approves", () => {
+    const roles = "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---|\n| Data Owner | @dana | `knowledge/data/` | @dev, `@dee` lee |\n";
+    for (const who of ["dev", "dee", "lee"]) {
+      const r = run({ governance: gov("hard", "polly"), roles }, "dana", [who]);
+      expect(r.code, r.out).to.equal(0);
+    }
+  });
+
+  it("the author is on the list but their own approval never counts", () => {
+    const r = run({ governance: `${head}policy_owner:\n  github: polly\n  alternate: [ana, ben]\n` }, "ana", ["ana"]);
+    expect(r.code).to.equal(1);
+  });
+
+  it("approverLogins (the GOV_APPROVERS line) carries every alternate, from both forms", () => {
+    expect(approverLogins(`${head}policy_owner:\n  github: polly\n  alternate: [ana, ben]\ncheck_owner:\n  github: chuck\n  alternates: cy\n`,
+      "| Role | GitHub handle | Owns | Alternate |\n|---|---|---|---|\n| Data Owner | @dana | — | @dev, @dee |\n"))
+      .to.deep.equal(["polly", "ana", "ben", "chuck", "cy", "dana", "dev", "dee"]);
+  });
+});
+
 // ── F153 A (Policy Owner, 2026-11-24): no installed workflow runs jq ─────────────────────────────────────────────
 // A bare self-hosted runner without jq killed the approver check with exit 127. The filter now runs inside the gh
 // call (`--jq`, gh's embedded gojq) and the per-reviewer grouping in sort and awk.

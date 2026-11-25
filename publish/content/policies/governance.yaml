@@ -12,16 +12,18 @@
 governance_posture: "soft"
 
 # THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
-# alternate: who approves in the Policy Owner's place when the Policy Owner wrote the change. Every role should
-# have one; the Policy Owner appoints them by pull request. `gov doctor` reports a role with none.
+# alternate: the Policy Owner's co-approvers — one handle, or a list such as ["ana", "ben"]. A change needs two
+# people: its author and one approver, who may be the Policy Owner or ANY alternate other than the author. Every
+# role should have one; the Policy Owner appoints them by pull request. `gov doctor` reports a role with none.
 policy_owner:
   email: ""
   github: ""
   alternate: ""
 
 # THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
-# Left empty, the role is vacant and its alternate (else the Policy Owner) approves that code. One person in both roles turns the
-# two-key review off; `gov doctor` says so. alternate: who approves when the Check Owner wrote the change.
+# Left empty, the role is vacant and its alternates (else the Policy Owner) approve that code. One person in both roles turns the
+# two-key review off; `gov doctor` says so. alternate: the Check Owner's co-approvers, one handle or a list; the
+# Check Owner or any one of them, other than the author, approves.
 check_owner:
   github: ""
   alternate: ""

@@ -34,7 +34,7 @@ describe("gov-work — the org-config split (upgrade migration `org-config-split
 
     const g = parseGovernance(r.governance);
     expect(g.problems).to.deep.equal([]);
-    expect(g.policyOwner).to.deep.equal({ email: "policy-owner@example.invalid", github: "svayam-rkant", alternate: "" });
+    expect(g.policyOwner).to.deep.equal({ email: "policy-owner@example.invalid", github: "svayam-rkant", alternates: [] });
     expect(g.posture.posture).to.equal("soft");
 
     const roles = parseRoleList(r.roleList!);

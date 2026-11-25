@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   GOVERNANCE_PATH, parseGovernance, readGovernance, modelSettings, renderGovernance, EMPTY_GOVERNANCE_VALUES,
-  readPosture, classifyPosture, frameworkOwners, governanceTokens, CI_ALLOWED_RETIRED_NOTE,
+  readPosture, classifyPosture, frameworkOwners, frameworkAlternates, describeGovernanceChanges, governanceTokens, CI_ALLOWED_RETIRED_NOTE,
 } from "../../src/config/governance.js";
 import { NO_APPROVED_MODEL } from "../../src/rules/propose/providers/index.js";
 
@@ -46,8 +46,8 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
   it("reads every field of the contract", () => {
     const g = parseGovernance(FULL);
     expect(g.posture.posture).to.equal("hard");
-    expect(g.policyOwner).to.deep.equal({ email: "po@acme.test", github: "@po", alternate: "" });
-    expect(g.checkOwner).to.deep.equal({ github: "checker", alternate: "" });
+    expect(g.policyOwner).to.deep.equal({ email: "po@acme.test", github: "@po", alternates: [] });
+    expect(g.checkOwner).to.deep.equal({ github: "checker", alternates: [] });
     expect(g.authorizedAgents).to.deep.equal({ kind: "agents", agents: [{ id: "claude-code", default: true }, { id: "cursor" }] });
     expect(g.problems).to.deep.equal([]);
   });
@@ -71,8 +71,8 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
     for (const text of [null, "", "# nothing\n"]) {
       const g = parseGovernance(text);
       expect(g.posture).to.deep.equal({ posture: "soft", raw: "", unrecognised: false });
-      expect(g.policyOwner).to.deep.equal({ email: "", github: "", alternate: "" });
-      expect(g.checkOwner).to.deep.equal({ github: "", alternate: "" });
+      expect(g.policyOwner).to.deep.equal({ email: "", github: "", alternates: [] });
+      expect(g.checkOwner).to.deep.equal({ github: "", alternates: [] });
       expect(g.authorizedAgents.kind).to.equal("unset");
       expect(modelSettings(g)).to.deep.equal({ provider: null, model: "", command: "" });
     }
@@ -166,5 +166,44 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
       expect(g.present).to.equal(true);
       expect(g.policyOwner.github).to.equal("@po");
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
+// POLICY OWNER RULING F163 B (PRJ-121, 2026-11-25): a role's list is its holder plus any number of alternates.
+describe("policies/governance.yaml — alternates: one handle or a list (F163 B)", () => {
+  const po = (alt: string) => `policy_owner:\n  github: "polly"\n${alt}\ncheck_owner:\n  github: "cora"\n`;
+
+  it("a single string — every file written before F163, e.g. a proposal adding one alternate — still reads", () => {
+    const g = parseGovernance(po('  alternate: "princy1511"'));
+    expect(g.policyOwner.alternates).to.deep.equal(["@princy1511"]);
+    expect(g.problems).to.deep.equal([]);
+  });
+
+  it("a YAML list, block or flow, under alternate: — the canonical key", () => {
+    expect(parseGovernance(po('  alternate: ["ana", "@ben"]')).policyOwner.alternates).to.deep.equal(["@ana", "@ben"]);
+    expect(parseGovernance(po("  alternate:\n    - ana\n    - ben")).policyOwner.alternates).to.deep.equal(["@ana", "@ben"]);
+  });
+
+  it("alternates: is read as the same thing, and merges with alternate:, once each", () => {
+    expect(parseGovernance(po("  alternates: [ana, ben]")).policyOwner.alternates).to.deep.equal(["@ana", "@ben"]);
+    expect(parseGovernance(po("  alternate: ana\n  alternates: [ben, ANA]")).policyOwner.alternates).to.deep.equal(["@ana", "@ben"]);
+  });
+
+  it("a comma-separated string reads as a list; the flow form of the block too", () => {
+    expect(parseGovernance(po('  alternate: "ana, ben"')).policyOwner.alternates).to.deep.equal(["@ana", "@ben"]);
+    const g = parseGovernance('check_owner: { github: "cora", alternate: [cy, dee] }\n');
+    expect(frameworkAlternates(g)).to.deep.equal({ policyOwnerAlternates: [], checkOwnerAlternates: ["@cy", "@dee"] });
+  });
+
+  it("a handle gov cannot use is a problem, and the value reads as no alternate", () => {
+    const g = parseGovernance(po('  alternate: ["ana", "not a handle!"]'));
+    expect(g.policyOwner.alternates).to.deep.equal([]);
+    expect(g.problems.join()).to.contain("policy_owner.alternate").and.contain('"handle!" is not a GitHub handle');
+    const m = parseGovernance(po("  alternate: { who: ana }"));
+    expect(m.problems.join()).to.contain("policy_owner.alternate: expected a handle or a list of handles");
+  });
+
+  it("describeGovernanceChanges names the whole list", () => {
+    expect(describeGovernanceChanges(po('  alternate: "ana"'), po("  alternate: [ana, ben]"))).to.deep.equal(["Policy Owner's alternates: @ana → @ana, @ben"]);
   });
 });

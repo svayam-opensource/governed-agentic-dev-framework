@@ -18,7 +18,7 @@
 import type { RuleRow } from "../model/rule-row.js";
 import type { CheckVerdict, EventContext, RuleSet } from "../model/contracts.js";
 import { handleKey } from "./payload.js";
-import { actingPolicyOwner, POLICY_OWNER, SELF_MERGED_SOLO, soloMode } from "./policy-actions.js";
+import { actingPolicyOwner, alternatesOf, POLICY_OWNER, SELF_MERGED_SOLO, soloMode } from "./policy-actions.js";
 import type { RedMerge } from "./gh-actions.js";
 
 export const VIOLATION_LABEL = "gov-violation";
@@ -298,7 +298,7 @@ export function closeSoloBanner(rules: RuleSet, ports: Pick<SoloModePorts, "find
   const found = ports.findBanner();
   if (found === null || found.found === null) return [];
   const n = found.found;
-  const named = [...new Set([...Object.values(rules.roles ?? {}), ...Object.values(rules.alternates ?? {})].map(handleKey).filter(Boolean))].sort().map((h) => `@${h}`);
+  const named = [...new Set([...Object.values(rules.roles ?? {}), ...Object.keys(rules.alternates ?? {}).flatMap((r) => alternatesOf(rules, r))].map(handleKey).filter(Boolean))].sort().map((h) => `@${h}`);
   const why = `Solo mode has ended: a second person now holds a role or is an alternate (named: ${named.join(", ")}). From here on a change is approved by someone other than its author, and a merge without that approval is a violation again.`;
   return [ports.closeBanner(n, why) ? `closed solo-mode issue #${n}: a second person now holds a role or alternate` : `  ! could not close solo-mode issue #${n} — close it by hand`];
 }
