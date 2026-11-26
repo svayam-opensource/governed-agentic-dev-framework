@@ -8,7 +8,7 @@
  * policy-actions.ts and gh-actions.ts, where they are tested without a network.
  */
 import type { EventContext } from "../model/contracts.js";
-import { VIOLATION_LABEL, redMergeMarker, type ViolationIssue, type ViolationPorts } from "./violation.js";
+import { SOLO_BANNER_MARKER, SOLO_LABEL, VIOLATION_LABEL, redMergeMarker, type SoloModePorts, type ViolationIssue, type ViolationPorts } from "./violation.js";
 
 /** `gh <args>` with optional stdin → stdout, or null when gh failed. Never throws. */
 export type Gh = (args: readonly string[], input?: string) => string | null;
@@ -58,5 +58,45 @@ export function githubOpenRedMergeRecord(gh: Gh, repo: string): (pr: number) => 
     const marker = redMergeMarker(pr);
     const hit = doc.find((i: { number?: unknown; body?: unknown }) => typeof i.body === "string" && i.body.includes(marker));
     return { found: hit ? Number((hit as { number: unknown }).number) : null };
+  };
+}
+
+/**
+ * SOLO MODE'S BANNER ON GITHUB (Q45 C): an open issue labelled `gov-solo-mode` whose body carries the banner marker;
+ * each self-merge a comment on it carrying the PR's marker. Read locally for the markers, like the red-merge record.
+ */
+export function githubSoloModePorts(gh: Gh, repo: string): SoloModePorts {
+  const json = (out: string | null): unknown => {
+    if (out === null) return null;
+    try { return JSON.parse(out); } catch { return null; /* not the answer asked for: the caller reports it */ }
+  };
+  return {
+    findBanner() {
+      const doc = json(gh(["issue", "list", "--repo", repo, "--label", SOLO_LABEL, "--state", "open", "--limit", "100", "--json", "number,body"]));
+      if (!Array.isArray(doc)) return null;
+      const hit = doc.find((i: { body?: unknown }) => typeof i.body === "string" && i.body.includes(SOLO_BANNER_MARKER));
+      return { found: hit ? Number((hit as { number: unknown }).number) : null };
+    },
+    openBanner(issue) {
+      gh(["label", "create", SOLO_LABEL, "--repo", repo, "--force", "--color", "FBCA04",
+        "--description", "Solo mode: nobody but one person holds a role — self-merges are recorded here, not as violations"]);
+      const base = ["issue", "create", "--repo", repo, "--title", issue.title, "--body-file", "-", "--label", SOLO_LABEL];
+      let url = gh([...base, ...issue.assignees.flatMap((a) => ["--assignee", a])], issue.body);
+      if (url === null && issue.assignees.length) url = gh(base, issue.body);
+      const n = url ? /\/issues\/(\d+)/.exec(url)?.[1] : undefined;
+      return n ? { number: Number(n) } : null;
+    },
+    recordedPrs(banner) {
+      // Every comment's body, one page after another; the entries are found by their markers in the text.
+      const out = gh(["api", "--paginate", `repos/${repo}/issues/${banner}/comments?per_page=100`, "--jq", ".[].body"]);
+      if (out === null) return null;
+      return [...new Set([...out.matchAll(/<!-- gov-self-merge pr=(\d+) -->/g)].map((m) => Number(m[1])))];
+    },
+    addEntry(banner, body) {
+      return gh(["issue", "comment", String(banner), "--repo", repo, "--body-file", "-"], body) !== null;
+    },
+    closeBanner(banner, body) {
+      return gh(["issue", "close", String(banner), "--repo", repo, "--comment", body]) !== null;
+    },
   };
 }

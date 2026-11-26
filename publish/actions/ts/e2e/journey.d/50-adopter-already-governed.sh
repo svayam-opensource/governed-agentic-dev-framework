@@ -13,14 +13,9 @@ export GH_STUB_GOVERNED="acme/acme-gov"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-# The two NAME questions now precede the org id (#215), so the probe fires one
-# question later than it used to. That is the documented cost of asking a human for
-# their organization's name before its GitHub identifier.
-> Q1 - What is full legal name
-< Acme Incorporated
-> Q2 - What is short name
-<
-> Q3 - What is the Github Organization ID
+# The organization is the FIRST question (F158), so the probe fires at the first answer and a would-be joiner
+# answers nothing else.
+> Q1 - What is the GitHub organization
 < acme
 ~ 120
 > Join acme/acme-gov now
@@ -35,7 +30,7 @@ saw "it says so, and names the repository" "acme is already governed"
 saw "which makes the claim checkable" "acme/acme-gov"
 says "and explains why a second one is not offered" "would fork its policy"
 never "#197 — never a shell command that lands the clone where gov does not look" "git clone"
-never "and the questions only a CREATOR could answer are never reached" "Q4 - What would you like the name"
+never "and the questions only a CREATOR could answer are never reached" "Q2 - What would you like the identifier"
 saw "it joins instead" "Joining acme."
 exists "and the workspace is where every other tool expects it" "$HOME/.gov/acme/gov_repo/org-config.yaml"
 saw "the run ends as a JOINER, because that is what happened" "Install complete — for JOINERS"

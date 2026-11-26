@@ -14,8 +14,8 @@ import { finishPolicyChange } from "../../../src/rules/propose/write-result.js";
 import { memTree } from "../../../src/rules/policy-pr/tree.js";
 
 const GOV = renderGovernance({ ...EMPTY_GOVERNANCE_VALUES, policyOwnerGithub: "polly", policyOwnerEmail: "p@x.org" });
-const withModel = (text: string, provider: string, model: string, ci: boolean): string =>
-  text.replace(/provider: ""/, `provider: "${provider}"`).replace(/model: ""/, `model: "${model}"`).replace(/ci_allowed: false/, `ci_allowed: ${ci}`);
+const withModel = (text: string, provider: string, model: string): string =>
+  text.replace(/provider: ""/, `provider: "${provider}"`).replace(/model: ""/, `model: "${model}"`);
 
 function files(gov: string): Record<string, string> {
   return {
@@ -35,10 +35,17 @@ describe("governance.yaml changes — named in plain words", () => {
   });
 
   it("an approved model, in the words the changelog uses", () => {
-    expect(describeGovernanceChanges(GOV, withModel(GOV, "gemini", "gemini-3.8-flash", true)))
-      .to.deep.equal(["Approved model for propose: gemini · gemini-3.8-flash; CI may use it"]);
-    expect(describeGovernanceChanges(withModel(GOV, "gemini", "gemini-3.8-flash", true), GOV))
-      .to.deep.equal(["Approved model for propose: none; CI may not use it"]);
+    expect(describeGovernanceChanges(GOV, withModel(GOV, "gemini", "gemini-3.8-flash")))
+      .to.deep.equal(["Approved model for propose: gemini · gemini-3.8-flash"]);
+    expect(describeGovernanceChanges(withModel(GOV, "gemini", "gemini-3.8-flash"), GOV))
+      .to.deep.equal(["Approved model for propose: none"]);
+  });
+
+  it("Q68 A: adding or dropping the retired models.ci_allowed changes no choice", () => {
+    const withCi = GOV.replace('\n  command: ""\n', '\n  command: ""\n  ci_allowed: true\n');
+    expect(withCi).to.contain("ci_allowed: true");
+    expect(describeGovernanceChanges(GOV, withCi)).to.deep.equal([]);
+    expect(describeGovernanceChanges(withCi, GOV)).to.deep.equal([]);
   });
 
   it("posture, owners and agents each get a line; the retired knowledge_publication gets none", () => {
@@ -60,13 +67,13 @@ describe("governance.yaml changes — named in plain words", () => {
 
 describe("governance.yaml changes — the planner, the gate and the changelog agree", () => {
   const base = () => memTree(files(GOV));
-  const changed = () => files(withModel(GOV, "gemini", "gemini-3.8-flash", true));
+  const changed = () => files(withModel(GOV, "gemini", "gemini-3.8-flash"));
 
   it("planPolicyPr requires GOVERNANCE_CHANGE_BUMP and carries the plain-words lines", () => {
     const plan = planPolicyPr(base(), memTree(changed()));
     if ("unreadable" in plan) throw new Error(plan.unreadable);
     expect(plan.required).to.equal(GOVERNANCE_CHANGE_BUMP);
-    expect(plan.governance).to.deep.equal(["Approved model for propose: gemini · gemini-3.8-flash; CI may use it"]);
+    expect(plan.governance).to.deep.equal(["Approved model for propose: gemini · gemini-3.8-flash"]);
   });
 
   it("a comment-only edit to governance.yaml is prose: patch, nothing named", () => {
@@ -78,10 +85,10 @@ describe("governance.yaml changes — the planner, the gate and the changelog ag
 
   it("the changelog entry names the change and never says 'prose only'", () => {
     const text = renderChangelogEntry({ version: "1.5.0", date: "2026-10-07", pr: 7, author: "a", approver: null, rules: [], qa: [],
-      governance: ["Approved model for propose: gemini · gemini-3.8-flash; CI may use it"] });
+      governance: ["Approved model for propose: gemini · gemini-3.8-flash"] });
     expect(text).to.not.contain("prose only");
     expect(text).to.contain("**Governance choices** (`policies/governance.yaml`)");
-    expect(text).to.contain("- Approved model for propose: gemini · gemini-3.8-flash; CI may use it");
+    expect(text).to.contain("- Approved model for propose: gemini · gemini-3.8-flash");
   });
 
   it("finishPolicyChange writes a minor bump and the named entry, and the gate passes it", () => {
@@ -89,7 +96,7 @@ describe("governance.yaml changes — the planner, the gate and the changelog ag
     const fin = finishPolicyChange({ base: base(), head, pr: 7, today: "2026-10-07", author: "alice" });
     expect(fin.ok).to.equal(true);
     expect(fin.version).to.equal("1.5.0");
-    expect(head.read("policies/CHANGELOG.md")).to.contain("Approved model for propose: gemini · gemini-3.8-flash; CI may use it")
+    expect(head.read("policies/CHANGELOG.md")).to.contain("Approved model for propose: gemini · gemini-3.8-flash")
       .and.not.contain("prose only");
     const j = judgePolicyPr({ base: base(), head, pr: 7, today: "2026-10-07" });
     expect(j.findings).to.deep.equal([]);
@@ -107,6 +114,6 @@ describe("governance.yaml changes — the planner, the gate and the changelog ag
     f["policies/CHANGELOG.md"] = f["policies/CHANGELOG.md"]!.replace("## 1.4.1", "## 1.5.0");
     const j2 = judgePolicyPr({ base: base(), head: memTree(f), pr: 7, today: "2026-10-07" });
     expect(j2.findings.map((x) => x.message)).to.include(
-      "the policies/CHANGELOG.md entry for 1.5.0 does not name the governance change: Approved model for propose: gemini · gemini-3.8-flash; CI may use it");
+      "the policies/CHANGELOG.md entry for 1.5.0 does not name the governance change: Approved model for propose: gemini · gemini-3.8-flash");
   });
 });

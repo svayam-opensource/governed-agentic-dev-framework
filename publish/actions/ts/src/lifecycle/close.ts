@@ -68,6 +68,14 @@ export interface CloseDeps {
    * or deleting a clause on your own branch would remove the gate meant to hold you (GOV-FRM-086).
    */
   readonly policyGate?: (projectDir: string) => { readonly ok: boolean; readonly failures: readonly { readonly message: string }[] };
+  /**
+   * THE POLICY CHANGE'S PULL REQUEST NUMBER, WRITTEN BY THE AUTHOR (F154 A). `gov rules propose` wrote the policy
+   * change's paperwork before this pull request existed; only its number was missing — the rows' stamps and the
+   * changelog entry's Pull request cell. Called with the number once the pull request is open, it writes it into
+   * `policies/` in the governance clone (the deterministic writers: no model) and says what it wrote; close then
+   * commits that as the author and pushes. Absent, or `policies/` untouched → nothing to write.
+   */
+  readonly numberPolicyPr?: (pr: number) => { readonly wrote: readonly string[] } | { readonly error: string };
   /** Best-effort workspace teardown (worktree detach + rm); deferred if absent. */
   readonly cleanup?: () => void;
   readonly log?: (msg: string) => void;
@@ -89,6 +97,11 @@ export interface CloseSuccess {
   readonly awaitingReview?: true;
   /** This run only archived the governance branch, because a previous run had done everything else. */
   readonly archivedOnly?: true;
+  /**
+   * The policy change's pull request number, written after the pull request opened (F154 A): what was committed
+   * and pushed, or why it was not — then the author runs `gov rules propose` on the branch. Absent: nothing to write.
+   */
+  readonly policyNumbered?: { readonly ok: true; readonly pr: number; readonly wrote: readonly string[] } | { readonly ok: false; readonly pr: number | null; readonly why: string };
 }
 
 export type CloseFailReason =
@@ -256,6 +269,7 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   // becomes organizational standard only when a person with the authority merges it. close used to merge it
   // itself, with `--admin`, seconds after opening it.
   log(`Close PR opened${prUrl ? `: ${prUrl}` : ""} — a human merges it. Re-run \`gov close\` afterwards to archive '${projectBranch}'.`);
+  const policyNumbered = numberPolicyChange(deps, input.govClone, remote, projectBranch, prUrl);
 
   // ── Close the board (THIS marks the project completed), then archive ────────
   //
@@ -274,5 +288,29 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   // ── Best-effort workspace teardown (deferred if not provided) ───────────────
   deps.cleanup?.();
 
-  return { ok: true, projectId, projectBranch, boardNumber, prUrl, reposMerged: merged, boardClosed, awaitingReview: true };
+  return { ok: true, projectId, projectBranch, boardNumber, prUrl, reposMerged: merged, boardClosed, awaitingReview: true, ...(policyNumbered ? { policyNumbered } : {}) };
+}
+
+/**
+ * The pull request is open, so its number is known: write it into the policy change (stamps + changelog entry) and
+ * push it in the AUTHOR's commit — never left for CI, whose commit would hold the pull request's workflows at
+ * "waiting for approval to run" (F154 A). Nothing to write → undefined. A failure is reported, never thrown: the
+ * project is closed either way, and the policy check names the same fix.
+ */
+function numberPolicyChange(deps: CloseDeps, govClone: string, remote: string, branch: string, prUrl: string | null): CloseSuccess["policyNumbered"] {
+  if (!deps.numberPolicyPr) return undefined;
+  const m = prUrl ? /\/pull\/(\d+)\b/.exec(prUrl) : null;
+  if (!m) return { ok: false, pr: null, why: "the pull request's number could not be read" };
+  const pr = Number(m[1]);
+  try {
+    const r = deps.numberPolicyPr(pr);
+    if ("error" in r) return { ok: false, pr, why: r.error };
+    if (!r.wrote.length) return undefined;
+    deps.vcs.addPath(govClone, "policies");
+    deps.vcs.commit(govClone, `gov close: name pull request #${pr} in the policy change\n\nThe rows' stamps and the policies/CHANGELOG.md entry, written by gov rules propose before the\npull request was open, now carry its number (F154 A).`);
+    deps.vcs.push(govClone, remote, branch);
+    return { ok: true, pr, wrote: r.wrote };
+  } catch (e) {
+    return { ok: false, pr, why: (e as Error).message.split("\n")[0] ?? "git failed" };
+  }
 }

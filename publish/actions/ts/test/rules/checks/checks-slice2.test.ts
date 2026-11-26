@@ -15,7 +15,7 @@ import type { RuleSet, EventContext, CheckVerdict } from "../../../src/rules/mod
 import { lintCatalog, validateParams } from "../../../src/rules/checks/params.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
-import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rules/checks/gh-actions.js";
+import { landedByPr, githubPullsForCommit, githubCommitFacts, isSetupCommit, SETUP_COMMIT_SUBJECT, type CommitFacts, type PullRef } from "../../../src/rules/checks/gh-actions.js";
 import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { renderWorkflow, digestHolds } from "../../../src/rules/checks/render-github.js";
@@ -103,6 +103,44 @@ describe("check engine slice 2 — gh-action/landed-by-pr", () => {
     expect(calls[0]).to.deep.equal(["api", "repos/acme/acme-gov/commits/abc/pulls"]);
     expect(githubPullsForCommit(() => null, "a/b")("x"), "gh failed → could not tell").to.equal(null);
     expect(githubPullsForCommit(() => "not json", "a/b")("x")).to.equal(null);
+  });
+
+  describe("the setup commit is exempt — exactly that one (F136 G2, Q42 C)", () => {
+    const commits: Record<string, CommitFacts> = {
+      root: { message: "Initial commit", parents: [] },
+      setup: { message: `${SETUP_COMMIT_SUBJECT}\n\nbody`, parents: ["root"] },
+      later: { message: SETUP_COMMIT_SUBJECT, parents: ["setup"] },
+      merge: { message: SETUP_COMMIT_SUBJECT, parents: ["root", "setup"] },
+      other: { message: "fix a typo", parents: ["root"] },
+    };
+    const read = (sha: string): CommitFacts | null => commits[sha] ?? null;
+
+    it("the setup subject, one parent, and that parent the repository's root — and nothing else", () => {
+      expect(isSetupCommit("setup", read)).to.equal(true);
+      expect(isSetupCommit("later", read), "same subject, not on the root").to.equal(false);
+      expect(isSetupCommit("merge", read), "two parents").to.equal(false);
+      expect(isSetupCommit("other", read), "on the root, another subject").to.equal(false);
+      expect(isSetupCommit("root", read), "the root itself").to.equal(false);
+      expect(isSetupCommit("gone", read), "GitHub could not say").to.equal(null);
+    });
+
+    it("landed-by-pr passes the setup push, and still misses any other direct commit in it", () => {
+      const p = { pullsForCommit: (): PullRef[] => [], isSetupCommit: (sha: string) => isSetupCommit(sha, read) };
+      const ok = landedByPr({ ruleId: "GOV-FRM-040", params: {}, ctx: push({ branch: "main", defaultBranch: "main", commits: ["setup"] }) }, p);
+      expect(ok.verdict).to.equal("pass");
+      const bad = landedByPr({ ruleId: "GOV-FRM-040", params: {}, ctx: push({ branch: "main", defaultBranch: "main", commits: ["setup", "other"] }) }, p);
+      expect(bad.verdict).to.equal("miss");
+      expect(bad.findings.join()).to.contain("other").and.not.contain("commit setup ");
+    });
+
+    it("the GitHub adapter reads `GET /repos/{repo}/commits/{sha}`", () => {
+      const calls: string[][] = [];
+      const facts = githubCommitFacts((args) => { calls.push([...args]); return JSON.stringify({ commit: { message: "m" }, parents: [{ sha: "p1" }] }); }, "acme/acme-gov");
+      expect(facts("abc")).to.deep.equal({ message: "m", parents: ["p1"] });
+      expect(calls[0]).to.deep.equal(["api", "repos/acme/acme-gov/commits/abc"]);
+      expect(githubCommitFacts(() => null, "a/b")("x")).to.equal(null);
+      expect(githubCommitFacts(() => "not json", "a/b")("x")).to.equal(null);
+    });
   });
 
   it("through the runner: the port is injected; without it, cannot-tell", () => {
@@ -523,35 +561,28 @@ ${steps("GOV-FRM-086", "vcs.gov-repo", "pull_request", true)}  GOV-FRM-466_push:
       issues: write
 ${steps("GOV-FRM-466", "vcs.gov-repo", "push", true)}`;
 
-// Policy Owner, 2026-10-06 (option B): the App stays read-only; the propose job alone writes, with the built-in token.
-describe("the propose job's permissions", () => {
-  it("only the rules-propose job gets contents: write and pull-requests: write; every other job reads", () => {
+// F154 A (Policy Owner, 2026-11-24): the policy check only checks — the propose job reads like every other job. A
+// bot's commit on a private repository's pull request held every workflow at "waiting for approval to run".
+describe("the propose job's permissions (F154 A: it never writes)", () => {
+  it("no job gets contents: write — the rules-propose job reads the repository, and needs no pull-requests access", () => {
     const [f] = renderWorkflow([
       { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
       { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
     ]);
     const jobs = f!.text.split(/\n {2}(?=\S)/);
     const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
-    expect(propose).to.contain("contents: write").and.contain("pull-requests: write");
-    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("contents: write");
+    expect(propose).to.contain("contents: read").and.not.contain("pull-requests:");
+    for (const j of jobs) expect(j).to.not.contain("contents: write");
   });
-  // Policy Owner, 2026-10-07: the model keys reach the job that calls the model, and no other job.
-  it("only the rules-propose job's gov step gets the model keys, ANTHROPIC_API_KEY and GEMINI_API_KEY", () => {
+  it("no job gets the model keys: the check never calls a model", () => {
     const [f] = renderWorkflow([
       { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
       { id: "GOV-FRM-086", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/section-owner-approval", on_miss: "fail" } },
       { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
     ]);
-    const jobs = f!.text.split(/\n {2}(?=\S)/);
-    const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
-    expect(propose).to.contain([
-      "        env:",
-      "          GH_TOKEN: ${{ github.token }}",
-      "          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
-      "          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}",
-      "        run: gov check run GOV-FRM-468",
-    ].join("\n"));
-    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("API_KEY");
+    expect(f!.text).to.not.contain("API_KEY");
+    const propose = f!.text.split(/\n {2}(?=\S)/).find((j) => j.includes("GOV-FRM-468"))!;
+    expect(propose).to.contain("run: gov check run GOV-FRM-468").and.not.contain("GH_TOKEN");
   });
 });
 

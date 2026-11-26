@@ -11,6 +11,8 @@ import { runEvidence } from "./evidence-run.js";
 import { licenceModuleLoader, runLicence } from "./licence-run.js";
 import { helpRequest } from "./help-request.js";
 import { helpJson, topicOf } from "./help-render.js";
+import { advanceSetup, noteSetup } from "./setup-progress.js";
+import { resumeLine } from "../setup/setup-state.js";
 
 /** A concept page (gov help projects) is as valid an answer as a command page. */
 const isTopic = (name: string): boolean => topicOf(name) !== undefined;
@@ -57,10 +59,26 @@ async function dispatch(): Promise<number> {
   // find out. A command whose whole purpose is to answer "what state am I in?" must never be replaced by
   // a question that presumes the answer.
   const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "check", "evidence", "licence", "help", "--help", "-h", "--version", "-v"]);
-  if (process.stdin.isTTY && !NO_FIRST_RUN.has(argv[0] ?? "")) {
-    const first = await runFirstRunIfNeeded();
-    if (first !== null) return first;   // null = already set up; anything else is this invocation's answer
+
+  // THE SET-UP BREADCRUMB (#391), on EVERY run — including `doctor`, which is all install.ps1 and a terminal-less
+  // install.sh ever run. That is how the installer hands gov web's one-time code over: in the environment, taken
+  // into `~/.gov/setup-state.json` by whichever gov runs first. While the trail is unfinished it is re-detected
+  // from the machine here; once settled this is one file read. Never prints the code, never fails the run.
+  const firstRunHere = process.stdin.isTTY === true && !NO_FIRST_RUN.has(argv[0] ?? "");
+  const setup = noteSetup(process.env, { create: firstRunHere });
+  if (firstRunHere && setup.before.steps.length > 0) {
+    const resume = resumeLine(setup.after);
+    if (resume) process.stderr.write(`${resume}\n`);
   }
+  let first: number | null = null;
+  if (firstRunHere) first = await runFirstRunIfNeeded();
+  // AND WHEN THE STEPS ARE DONE, TELL gov web — once. First-run already did this at its own milestone, before the
+  // closing offer; here it covers a machine that was set up before the code arrived, and a re-run after a refusal.
+  // Not for the diagnostics and the manual registry verbs: they report and repair, they do not send.
+  if (!NO_FIRST_RUN.has(argv[0] ?? "")) {
+    await advanceSetup({ print: (l) => process.stderr.write(`${l}\n`), clientVersion: readCliVersion(), create: firstRunHere });
+  }
+  if (first !== null) return first;   // null = already set up; anything else is this invocation's answer
 
   // context banner + prompt-on-context-change (bail = 0), then dispatch.
   if (!(await confirmContextOrBail(argv))) return 0;

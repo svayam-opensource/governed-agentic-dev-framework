@@ -44,35 +44,15 @@ else
 > Select \(A/B/C\)
 < A
 ~ 240
-> Q1 - What is full legal name
-< Older Template Ltd
-> Q2 - What is short name
-<
-> Q3 - What is the Github Organization ID
+> Q1 - What is the GitHub organization
 < acme
 ~ 240
-> Q4 - What would you like the name of your new governance repo
-< acme-gov
-> Q5 - What would you like the identifier
+> Q2 - What would you like the identifier
 < ACME
-> Q6 - Default branch to be used for production
-<
-> Q7 - Default branch to be used for development
-<
-> Q8 - Who is the Policy Owner
-< adopter
-> Q9 - Who is the Check Owner
-< adopter
-> Q10 - What contact email
-< adopter@acme.test
-> Q11 - What governance posture
-<
 ~ 240
 > default for your organization
 < none
 > happy with this
-< y
-> Create it\? \[y/N\]
 < y
 ~ 240
 > review its policies now

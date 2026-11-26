@@ -70,4 +70,24 @@ describe("prj-work Phase 2 — join (co-dev checkout)", () => {
     const r = join({ board: board(), vcs, fs: fsPresent(true), cloneRepo: () => {}, authorize: () => false }, CONFIG, INPUT);
     expect(r).to.include({ ok: false, reason: "unauthorized" });
   });
+  it("F135: a missing remote project branch is a clear refusal naming `gov seed`, not git's exit 128", () => {
+    const { vcs, log } = fakeVcs();
+    const asked: string[] = [];
+    const noBranch: Vcs = { ...vcs, remoteBranchExists: (_d, rm, b) => { asked.push(`${rm}/${b}`); return false; } };
+    const r = join({ authorize: () => true, board: board(), vcs: noBranch, fs: fsPresent(false), cloneRepo: () => {} }, CONFIG, INPUT);
+    expect(r).to.include({ ok: false, reason: "branch-missing", code: 1 });
+    if (r.ok) return;
+    expect(r.message).to.contain("BRNCH-43-governance-common-project").and.contain(`gov seed ${INPUT.boardUrl}`).and.contain("not been seeded");
+    expect(asked).to.deep.equal(["origin/BRNCH-43-governance-common-project"]);   // stopped at the governance repo
+    expect(log.some((l) => l.startsWith("worktreeAdd"))).to.equal(false);         // nothing cut from a ref that is not there
+  });
+
+  it("F135: governance branch present but a linked code repo has none → refusal names that repo", () => {
+    const { vcs } = fakeVcs();
+    const partial: Vcs = { ...vcs, remoteBranchExists: (d) => !px(d).endsWith("911-SVM-LIB-SVC") };
+    const r = join({ authorize: () => true, board: board(), vcs: partial, fs: fsPresent(false), cloneRepo: () => {} }, CONFIG, INPUT);
+    expect(r).to.include({ ok: false, reason: "branch-missing" });
+    if (r.ok) return;
+    expect(r.message).to.contain(CODE_REPO).and.contain("gov seed");
+  });
 });

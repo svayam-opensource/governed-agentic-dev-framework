@@ -51,6 +51,12 @@ export interface RuleSet {
   readonly ownership?: readonly SectionOwnership[];
   /** Role → GitHub handle, from the org's role list and org-config (Policy Owner, Check Owner always present). */
   readonly roles?: Readonly<Record<string, string>>;
+  /**
+   * Role → its alternates' GitHub handles (F143 A, F163 B): the role's co-approvers. The role's pool is its holder
+   * plus these; any one of the pool other than the author approves for the role. A role with none is absent. From
+   * governance.yaml and the role list's Alternate column. A single string (a rule set built before F163) reads as one.
+   */
+  readonly alternates?: Readonly<Record<string, string | readonly string[]>>;
   /** `governance_posture` from policies/governance.yaml; absent → soft (W2-Q6). Decides prevented vs detected. */
   readonly posture?: "hard" | "soft";
 }

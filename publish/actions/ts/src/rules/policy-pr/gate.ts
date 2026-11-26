@@ -7,17 +7,19 @@
  *
  *   its RULES      every in-force row cites its section at the section's current sha; the store validates; the
  *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused) —
- *                  save the in-place edits allowed: an open row's `source.sha` refreshed, nothing else (Q17), and
- *                  an open row relocated by a declared move or a specification split (T8, relocation.ts);
+ *                  save the in-place edits allowed: an open row's `source.sha` refreshed, nothing else (Q17), an
+ *                  open row's plain-English `statement` or `chapter` filled in (F127), and an open row relocated
+ *                  by a declared move or a specification split (T8, relocation.ts);
  *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows were added, revised or
  *                  retired, or who-owns-what changed (`policies/ownership.yaml`: a row added, removed or re-pointed),
  *                  or a governance choice changed (`policies/governance.yaml` — GOVERNANCE_CHANGE_BUMP);
- *                  patch when only prose did (a rule's or an ownership row's sha refresh included); major whenever
+ *                  patch when only prose did (a rule's or an ownership row's sha refresh, or a statement or
+ *                  chapter filled in, included); major whenever
  *                  the org chooses — and not at all when `policies/` is untouched;
  *   its SNAPSHOT   `policies/history/<prev>/` is the base's `policies/` byte for byte (minus `history/` and
  *                  `actions/`), and nothing already frozen there was edited or deleted — moving the snapshots
  *                  byte for byte from their old folder, `policies/version/`, is a rename, not an edit;
- *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired — and, under
+ *   its CHANGELOG  an entry for the new version naming this pull request and every rule added, revised or retired — and, under
  *                  "Sections reviewed", every policy section the change ADDED or CHANGED, at its new sha, with what
  *                  propose settled for it (reviewed.ts). THE GATE STARTS FROM THE PROSE (Policy Owner, 2026-10-07):
  *                  a changed section with no rule rows is still a changed section, and someone — propose and its
@@ -30,7 +32,7 @@
  * Pure over two {@link TreeReader}s.
  */
 import { isStoreWarning, loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store-io.js";
-import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
+import { openRows, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { changedSections, sectionShas } from "../checks/sections.js";
 import { LEGACY_POLICY_HISTORY_DIR, MACHINE_WRITTEN_POLICY_PATHS, POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
 import { matchesAny } from "../glob.js";
@@ -79,6 +81,8 @@ export interface RuleChanges {
   readonly refreshed: readonly string[];
   /** Rows re-sourced in place because the file they cite moved, the text unchanged (T8, relocation.ts) — a patch. */
   readonly relocated: readonly string[];
+  /** Rows whose plain-English `statement` or `chapter` was filled in place (F127) — the rule did not change; a patch. */
+  readonly annotated: readonly string[];
   /** Any row added, edited or removed, a sha refresh aside — the bump is then at least minor. */
   readonly rowsChanged: boolean;
 }
@@ -219,6 +223,22 @@ const withoutSha = (r: RuleRow): string => canon({ ...r, source: { ...r.source, 
 export function isShaRefresh(was: RuleRow, now: RuleRow): boolean {
   return was.end === null && now.end === null && was.source?.sha !== now.source?.sha && withoutSha(was) === withoutSha(now);
 }
+const withoutPresentation = (r: RuleRow): string => canon({ ...r, statement: undefined, chapter: undefined, source: { ...r.source, sha: undefined } });
+
+/**
+ * Is `now` the open row `was` with its plain-English `statement` or `chapter` filled in or reworded, and nothing else
+ * changed — save, at most, its `source.sha` refreshed in the same change (F127, 2026-11-20)? Both are how the
+ * policy document presents the rule, never what a check reads, so the rule itself is untouched: like a sha
+ * refresh it is an in-place edit, and a patch.
+ */
+export function isAnnotationFill(was: RuleRow, now: RuleRow): boolean {
+  return was.end === null && now.end === null
+    && (canon(was.statement) !== canon(now.statement) || canon(was.chapter) !== canon(now.chapter))
+    && withoutPresentation(was) === withoutPresentation(now);
+}
+
+/** Is `now` the open row `was` edited only in a way the store allows in place: a sha refresh, or a statement or chapter filled? */
+export const isInPlaceEdit = (was: RuleRow, now: RuleRow): boolean => isShaRefresh(was, now) || isAnnotationFill(was, now);
 const rowKey = (r: RuleRow): string => `${r.id}@${r.start?.version}`;
 
 /**
@@ -254,9 +274,11 @@ export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[], 
   const baseIds = new Set(base.map((r) => r.id));
   const added = [...new Set(fresh.map((h) => head[h]!.id).filter((id) => !baseIds.has(id)))];
   const revised: string[] = [], retired: string[] = [];
-  const refreshed = [...pairs].filter(([h, b]) => isShaRefresh(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
+  const refreshed = [...pairs].filter(([h, b]) => isShaRefresh(base[b]!, head[h]!)
+    || (isAnnotationFill(base[b]!, head[h]!) && base[b]!.source?.sha !== head[h]!.source?.sha)).map(([h]) => head[h]!.id);
+  const annotated = [...pairs].filter(([h, b]) => isAnnotationFill(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
   const relocated = [...pairs].filter(([h, b]) => moved(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
-  const headOpen = new Set(inForce(head).map((r) => r.id));
+  const headOpen = new Set(openRows(head).map((r) => r.id));
   for (const [h, b] of pairs) {
     if (base[b]!.end === null && head[h]!.end !== null) {
       const successor = fresh.some((f) => head[f]!.id === base[b]!.id && head[f]!.end === null) && headOpen.has(base[b]!.id);
@@ -264,8 +286,8 @@ export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[], 
     }
   }
   const rowsChanged = fresh.length > 0 || pairs.size !== base.length
-    || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]) && !isShaRefresh(base[b]!, head[h]!) && !moved(base[b]!, head[h]!));
-  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], refreshed, relocated, rowsChanged };
+    || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]) && !isInPlaceEdit(base[b]!, head[h]!) && !moved(base[b]!, head[h]!));
+  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], refreshed, relocated, annotated, rowsChanged };
 }
 
 function readRows(tree: TreeReader): RuleRow[] | string {
@@ -336,7 +358,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     return {
       verdict: "cannot-tell", findings: [{ check: "unreadable", message: `${plan.unreadable}, so nothing was checked.` }],
       touched: false, required: "none", baseVersion: NO_ORG_VERSION, headVersion: NO_ORG_VERSION,
-      changes: { added: [], revised: [], retired: [], refreshed: [], relocated: [], rowsChanged: false }, ownershipChanged: false, governance: [],
+      changes: { added: [], revised: [], retired: [], refreshed: [], relocated: [], annotated: [], rowsChanged: false }, ownershipChanged: false, governance: [],
     };
   }
   // (a) Nothing under policies/ changed: nothing to carry, nothing to bump.
@@ -355,7 +377,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
   }
   checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
-    checkChangelog(base, head, headVersion, plan.changes, f, plan.governance);
+    checkChangelog(base, head, headVersion, plan.changes, f, plan.governance, pr);
     checkReviewed(base, head, baseVersion, headVersion, f);
     const cannot = checkSnapshot(base, head, baseVersion, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
@@ -372,7 +394,7 @@ type Emit = (check: GateCheck, message: string) => void;
 /** (b) Every row in force cites its section at the section's sha in the head's text. */
 function checkShas(head: TreeReader, rows: readonly RuleRow[], f: Emit): void {
   const shas = new Map<string, Map<string, string> | null>();
-  for (const r of inForce(rows)) {
+  for (const r of openRows(rows)) {
     const doc = r.source?.doc;
     if (!doc) continue; // the store check reports a row with no source
     if (!shas.has(doc)) { const t = head.read(doc); shas.set(doc, t === null ? null : sectionShas(t)); }
@@ -399,8 +421,8 @@ function checkStores(head: TreeReader, f: Emit): string | null {
 }
 
 /**
- * (d) The org store only grew: no base row removed or edited — save an open row's sha refreshed ({@link isShaRefresh})
- * or an open row relocated by a declared move (T8, {@link isRelocation}); a row closes only at the new version; no id
+ * (d) The org store only grew: no base row removed or edited — save an open row's sha refreshed ({@link isShaRefresh}),
+ * its statement or chapter filled ({@link isAnnotationFill}), or an open row relocated by a declared move (T8, {@link isRelocation}); a row closes only at the new version; no id
  * reused.
  */
 function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], version: string, f: Emit, moved: IsMoved = NEVER_MOVED): void {
@@ -413,7 +435,7 @@ function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], ver
     const was = base[b]!, now = head[h]!;
     if (canon(was) === canon(now)) continue;
     if (was.end !== null) { f("append-only", `${was.id} (from ${was.start.version}) is already closed and was edited — history is never rewritten`); continue; }
-    if (isShaRefresh(was, now) || moved(was, now)) continue;
+    if (isInPlaceEdit(was, now) || moved(was, now)) continue;
     if (withoutEnd(was) !== withoutEnd(now)) { f("append-only", `${was.id} was edited in place — revise it instead: close it and open a successor`); continue; }
     if (now.end && now.end.version !== version) f("append-only", `${was.id} is closed at ${now.end.version}; it must close at the new version ${version}`);
   }
@@ -442,7 +464,7 @@ function checkVersion(base: string, head: string, required: RequiredBump, f: Emi
  * ONLY entry the pull request adds: one pull request, one version jump, one entry (a second run that bumped again
  * replaces its earlier entry; it never leaves it behind).
  */
-function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = []): void {
+function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = [], pr?: number): void {
   const text = head.read(POLICY_PR_PATHS.changelog);
   if (text !== null) {
     const was = base.read(POLICY_PR_PATHS.changelog);
@@ -454,6 +476,11 @@ function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: 
   }
   const entry = text === null ? null : changelogEntry(text, version);
   if (entry === null) { f("changelog", `${POLICY_PR_PATHS.changelog} has no entry for ${version}`); return; }
+  // THE ENTRY NAMES ITS PULL REQUEST (F154 A): propose writes the entry before the pull request is open, and the
+  // number follows in the author's commit (`gov close`, or `gov rules propose` once it is open) — never in CI's.
+  if (pr !== undefined && !entry.includes(`| #${pr} | `)) {
+    f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name this pull request (#${pr}) — run gov rules propose on this branch (it finds the open pull request), commit and push`);
+  }
   for (const [ids, change] of [[c.added, "added"], [c.revised, "revised"], [c.retired, "retired"]] as const) {
     for (const id of ids) if (!mentions(entry, id)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name ${id} (${change})`);
   }
@@ -535,14 +562,17 @@ function checkFrozen(base: TreeReader, head: TreeReader, prev: string | null, f:
   return null;
 }
 
-/** (i) New rows start, and newly closed rows end, at the new version, today, this PR. */
+/**
+ * (i) New rows start, and newly closed rows end, at the new version, today, this PR — save that a new row may start
+ * on a LATER date (F127: approved now, "Active from <date>"; not in force until then, rule-row.ts inForce).
+ */
 function checkStamps(base: readonly RuleRow[], head: readonly RuleRow[], at: { version: string; date: string; pr: number }, f: Emit): void {
   const { pairs, fresh } = pairRows(base, head);
   const show = (s: { version?: string; date?: string; pr?: number } | null) => (s ? `${s.version} · ${s.date} · #${s.pr ?? "?"}` : "none");
   const want = `${at.version} · ${at.date} · #${at.pr}`;
   for (const h of fresh) {
     const r = head[h]!, s = r.start;
-    if (!s || s.version !== at.version || s.date !== at.date || s.pr !== at.pr) f("stamp", `${r.id} starts at ${show(s)}; a row this change opens starts at ${want}`);
+    if (!s || s.version !== at.version || typeof s.date !== "string" || s.date < at.date || s.pr !== at.pr) f("stamp", `${r.id} starts at ${show(s)}; a row this change opens starts at ${want} (or on a later date)`);
   }
   for (const [h, b] of pairs) {
     const e = head[h]!.end;

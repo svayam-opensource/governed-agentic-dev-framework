@@ -18,17 +18,8 @@ const CTX = { originUrl: "", ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-
 
 /** The answer an adopter gives at each question when nothing goes wrong. */
 const GOOD: ReadonlyArray<[RegExp, string]> = [
-  [/^Q1 /, "Acme Inc"],
-  [/^Q2 /, ""],
-  [/^Q3 /, "acme"],
-  [/^Q4 /, "acme-gov"],
-  [/^Q5 /, "ACME"],
-  [/^Q6 /, "1"],
-  [/^Q7 /, "dev"],
-  [/^Q8 /, "rk"],
-  [/^Q9 /, "dave"],
-  [/^Q10 /, "rk@acme.io"],
-  [/^Q11 /, "1"],
+  [/^Q1 /, "acme"],
+  [/^Q2 /, "ACME"],
 ];
 
 interface Row {
@@ -41,15 +32,8 @@ interface Row {
 }
 
 const ROWS: readonly Row[] = [
-  { q: 3, bad: "acme/acme-gov", says: /Just the organization/, check: (r) => expect(r.org).to.equal("acme") },
-  { q: 4, bad: "acme gov!", says: /not a repository name/, check: (r) => expect(r.repo).to.equal("acme-gov") },
-  { q: 5, bad: "FRM", says: /reserved for the framework/, check: (r) => expect(r.answers.orgSlug).to.equal("ACME") },
-  { q: 6, bad: "3", says: /./, check: (r) => expect(r.answers.defaultBranch).to.equal("main") },
-  { q: 7, bad: "bad..branch", says: /./, check: (r) => expect(r.answers.defaultCodeBranch).to.equal("dev") },
-  { q: 8, bad: "not a handle!", says: /not a GitHub handle/, check: (r) => expect(r.answers.policyOwnerGithub).to.match(/rk$/) },
-  { q: 9, bad: "-dave-", says: /not a GitHub handle/, check: (r) => expect(r.answers.checkOwnerGithub).to.match(/dave$/) },
-  { q: 10, bad: "rk-at-acme", says: /does not look like an email/, check: (r) => expect(r.answers.policyOwnerEmail).to.equal("rk@acme.io") },
-  { q: 11, bad: "7", says: /./, check: (r) => expect(r.answers.governancePosture).to.equal("soft") },
+  { q: 1, bad: "acme/acme-gov", says: /Just the organization/, check: (r) => expect(r.org).to.equal("acme") },
+  { q: 2, bad: "FRM", says: /reserved for the framework/, check: (r) => expect(r.answers.orgSlug).to.equal("ACME") },
 ];
 
 describe("gov-work — the founding interview re-asks every refusable question (#192)", () => {
@@ -77,7 +61,7 @@ describe("gov-work — the founding interview re-asks every refusable question (
       expect(refusal, "and the reason was shown").to.not.equal(undefined);
       expect(refusal).to.match(row.says);
       // It carried on to the last question rather than stopping at the corrected one.
-      expect(asked.some((q) => /^Q11 /.test(q)), "the interview reached Q11").to.equal(true);
+      expect(asked.some((q) => /^Q2 /.test(q)), "the interview reached its last typed question").to.equal(true);
       row.check(r!);
     });
   }

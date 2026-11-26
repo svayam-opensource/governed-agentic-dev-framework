@@ -18,6 +18,11 @@ import { createIdIssuer } from "../../../src/rules/model/store-io.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import type { RuleSet } from "../../../src/rules/model/contracts.js";
+import { commitDayUtc } from "../../../src/cli/check-verb.js";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const DOC = "policies/org-policy.md";
 const TODAY = "2026-10-06";
@@ -267,6 +272,69 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
   });
 
+  describe("(d) a statement or chapter filled in place (F127, 2026-11-20) — presentation, not the rule", () => {
+    /** Base + GOV-SVM-002 given its plain-English statement and chapter, in place; then the writers. */
+    function fillPr(edit: (r: RuleRow) => RuleRow = (r) => ({ ...r, statement: "Nobody may commit a secret.", chapter: 6 })): { base: TreeReader; head: ReturnType<typeof memTree>; files: Record<string, string> } {
+      const base = memTree(baseFiles());
+      const files = baseFiles();
+      const head = memTree(files);
+      files["policies/rules/rules.yaml"] = dump(BASE_ROWS.map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
+      const w = policyPrWriter({ base, head });
+      const plan = planPolicyPr(base, head);
+      if ("unreadable" in plan) throw new Error(plan.unreadable);
+      const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
+      w.writeSnapshot(plan.baseVersion);
+      w.stampRows(version, TODAY, PR);
+      w.writeChangelogEntry(ENTRY(version, []));
+      return { base, head, files };
+    }
+
+    it("passes, and is a PATCH: no rule was added, revised or retired", () => {
+      const { base, head } = fillPr();
+      const j = judge(base, head);
+      expect(j.findings).to.deep.equal([]);
+      expect(j).to.deep.include({ verdict: "pass", required: "patch", headVersion: "1.4.1" });
+      expect(j.changes).to.deep.include({ added: [], revised: [], retired: [], rowsChanged: false, annotated: ["GOV-SVM-002"] });
+    });
+
+    it("the writers leave the filled row's start alone — it is the same row", () => {
+      const { files } = fillPr();
+      const r = parseRuleStore(files["policies/rules/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
+      expect(r.start).to.deep.equal(BASE_ROWS[1]!.start);
+      expect(r).to.deep.include({ statement: "Nobody may commit a secret.", chapter: 6 });
+    });
+
+    it("a reworded statement on a row that already has one is also in place, and a patch", () => {
+      const withStatement = (words: string): Record<string, string> =>
+        ({ ...baseFiles(), "policies/rules/rules.yaml": dump(BASE_ROWS.map((r) => (r.id === "GOV-SVM-002" ? { ...r, statement: words } : r))) });
+      const plan = planPolicyPr(memTree(withStatement("Old words.")), memTree(withStatement("New words.")));
+      expect(plan).to.deep.include({ required: "patch" });
+      expect("changes" in plan && plan.changes.annotated).to.deep.equal(["GOV-SVM-002"]);
+    });
+
+    it("a minor bump is refused for a fill alone", () => {
+      const { base, head, files } = fillPr();
+      files["policies/VERSION"] = "1.5.0\n";
+      expect(checksOf(judge(base, head))).to.include("version");
+    });
+
+    it("refuses the statement and the expectation changed in place", () => {
+      const { base, head } = fillPr((r) => ({ ...r, statement: "Nobody may commit a secret.", expectation: "Changed." }));
+      expect(checksOf(judge(base, head))).to.include("append-only");
+    });
+
+    it("refuses a statement filled on a CLOSED row — history is never rewritten", () => {
+      const { base, head, files } = fillPr();
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, statement: "Too late." } : r)));
+      expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) is already closed and was edited — history is never rewritten");
+    });
+
+    it("refuses a chapter outside 1–8 (the store does not validate)", () => {
+      const { base, head } = fillPr((r) => ({ ...r, chapter: 9 as never }));
+      expect(checksOf(judge(base, head))).to.include("store");
+    });
+  });
+
   describe("(e) an ownership change is MINOR; an ownership sha refresh is a patch (Policy Owner, 2026-10-06)", () => {
     const OWN = "policies/ownership.yaml";
     const ROW = (over = "") => `- { doc: ${DOC}, section: "3", role: Data Owner, sha: "${sha(POLICY, "3")}"${over} }\n`;
@@ -459,7 +527,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r, i, all) =>
         (i === all.length - 1 ? { ...r, start: { version: "1.5.0", date: "2026-10-05", pr: 90 } } : r)));
       expect(judge(base, head).findings.filter((x) => x.check === "stamp").map((x) => x.message)).to.deep.equal([
-        "GOV-SVM-001 starts at 1.5.0 · 2026-10-05 · #90; a row this change opens starts at 1.5.0 · 2026-10-06 · #91",
+        "GOV-SVM-001 starts at 1.5.0 · 2026-10-05 · #90; a row this change opens starts at 1.5.0 · 2026-10-06 · #91 (or on a later date)",
       ]);
     });
     it("fails a closed row whose end lacks the PR", () => {
@@ -470,6 +538,51 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
         "GOV-SVM-001 ends at 1.5.0 · 2026-10-06 · #?; a row this change closes ends at 1.5.0 · 2026-10-06 · #91",
       ]);
     });
+  });
+});
+
+// ONE CLOCK, UTC (Q66 A, F151). `gov rules propose` stamps the UTC date; the gate's "today" is the head commit's
+// committer date as a UTC day — never `%cs`, the day in the committer's own timezone. Real git, real commits.
+describe("(i) stamps against the head commit's UTC day — a committer east of UTC just after local midnight", () => {
+  let dir = "";
+  const commitAt = (date: string): string => {
+    const env = { ...process.env, GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date };
+    const g = (...a: string[]) => execFileSync("git", ["-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { env, encoding: "utf8", stdio: "pipe" });
+    g("commit", "-q", "--allow-empty", "-m", date);
+    return g("rev-parse", "HEAD").trim();
+  };
+  const realGit = (repo: string, args: readonly string[]): string | null => {
+    try { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+  };
+  const stampFindings = (today: string) => {
+    const { base, head } = goodPr();   // every row stamped 1.5.0 · TODAY (2026-10-06, the UTC date) · #91
+    return judgePolicyPr({ base, head, pr: PR, today }).findings.filter((x) => x.check === "stamp");
+  };
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-utc-day-"));
+    execFileSync("git", ["init", "-q", dir], { stdio: "pipe" });
+  });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("+0530 at 00:30 local is the previous UTC day: a row stamped with the UTC date PASSES", () => {
+    const sha = commitAt("2026-10-07T00:30:00+05:30");   // = 2026-10-06T19:00Z
+    expect(realGit(dir, ["show", "-s", "--format=%cs", sha])?.trim(), "the committer's own day — what F151 read").to.equal("2026-10-07");
+    const today = commitDayUtc(realGit, dir, sha);
+    expect(today).to.equal(TODAY);
+    expect(stampFindings(today!)).to.deep.equal([]);
+  });
+
+  it("the converse still FAILS: a row stamped earlier than the commit's UTC day", () => {
+    const sha = commitAt("2026-10-07T06:00:00+05:30");   // = 2026-10-07T00:30Z
+    const today = commitDayUtc(realGit, dir, sha);
+    expect(today).to.equal("2026-10-07");
+    expect(stampFindings(today!).map((x) => x.message)).to.include(
+      "GOV-SVM-001 starts at 1.5.0 · 2026-10-06 · #91; a row this change opens starts at 1.5.0 · 2026-10-07 · #91 (or on a later date)");
+  });
+
+  it("no readable committer time → null (the gate then says cannot-tell)", () => {
+    expect(commitDayUtc(() => null, dir, "HEAD")).to.equal(null);
+    expect(commitDayUtc(() => "not-a-time\n", dir, "HEAD")).to.equal(null);
   });
 });
 

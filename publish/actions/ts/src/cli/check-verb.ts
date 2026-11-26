@@ -34,10 +34,10 @@ import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
 import { createCheckRunner } from "../rules/checks/runner.js";
-import { githubCheckRunsForCommit, githubPullsForCommit, redMerges } from "../rules/checks/gh-actions.js";
+import { githubCheckRunsForCommit, githubCommitFacts, githubFailureAnnotations, githubPullsForCommit, isSetupCommit, redMerges } from "../rules/checks/gh-actions.js";
 import { buildPayload } from "../rules/checks/event-payload.js";
-import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
-import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
+import { githubOpenRedMergeRecord, githubSoloModePorts, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
+import { closeSoloBanner, recordRedMerges, recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { githubActionsRenderer, GOV_APP_SECRETS, pinnedGovPackage, WORKFLOW_PATH } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
@@ -132,7 +132,8 @@ export interface CheckVerbConfig {
   /** `<agent_work_root>` — where `--project <id>` finds `<id>/<repo>/` clones. Absent → `--project` cannot be resolved. */
   readonly agentWorkRoot?: string;
   /**
-   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the published gov. A pre-release
+   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the installed copy's pin, else this gov
+   * (`govVersion`), pinned. A pre-release
    * test (the sandbox journey, the live CI tier) points it at a packed tarball, so the runners run the commit under
    * test rather than whatever npm last published.
    */
@@ -301,7 +302,12 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ...(policyPr ? { policyPr } : {}),
     ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
     ...(deps.paidOutcomes ? { paidOutcomes: deps.paidOutcomes } : {}),
-    ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
+    ...(repository ? { github: {
+      pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
+      // The one commit setup pushed on a new GOVERNANCE repository (F136 G2, Q42 C) — exempt from landed-by-pr. Setup
+      // never makes a code repository, so no commit there is exempt.
+      ...(resource === "vcs.gov-repo" ? { isSetupCommit: (sha: string) => isSetupCommit(sha, githubCommitFacts((a) => deps.gh(a), repository)) } : {}),
+    } } : {}),
   });
   const verdict = runner.run(id, ctx);
 
@@ -329,19 +335,25 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
     ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
   // SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07). On the landed-by-pr binding, the push also reads the check
-  // runs of each PR it merged: a gov check red there opens one record per PR. Under hard posture those checks were
-  // required, so this cannot happen and gov does not look.
+  // runs of each PR it merged: a gov check red there opens one record per PR. It looks under EVERY posture (Q43 A,
+  // 2026-11-23): hard posture asks for protection, but a private repo on GitHub Free cannot have it (GOV-FRM-449), so
+  // a red merge can still happen there. Where main is protected the checks were required and nothing is found.
   const landed = row?.checks?.find((b) => b.action === "gh-action/landed-by-pr" && b.on.resource === resource && b.on.event === eventFlag);
-  if (landed && cfg.posture !== "hard" && repository) {
+  if (landed && repository) {
     const found = redMerges({ ruleId: id, params: landed.with ?? {}, ctx }, {
       pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
       checkRunsForCommit: githubCheckRunsForCommit((a) => deps.gh(a), repository),
+      failureAnnotations: githubFailureAnnotations((a) => deps.gh(a), repository),
     });
+    // SOLO MODE (Q45 C): a red check that was solo mode is a self-merge, recorded on the one solo-mode issue; and once
+    // a second person is named, that issue closes — checked on every push, from the rules the push just merged.
+    const solo = githubSoloModePorts(deps.gh, repository);
     const recorded = recordRedMerges(found.merges, rules, {
       openIssue: (issue) => githubViolationPorts(deps.gh, repository).openIssue(issue),
       findOpenRecord: githubOpenRedMergeRecord(deps.gh, repository),
+      solo,
     }, runUrl);
-    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines);
+    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines, ...closeSoloBanner(rules, solo));
   }
   const say = (): string[] => (row ? humanGateMessage(row, verdict).split("\n") : [`${id} — ${verdict.verdict}`, ...verdict.findings.map((f) => `  - ${f}`)]);
 
@@ -374,8 +386,9 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
 /**
  * The policy PR gate's inputs (GOV-FRM-467, W5) for a pull request in `repo`: the tree at the MERGE-BASE (what the
  * pull request changes, as the changeset in event-payload.ts reads it — not what the base branch moved on to since)
- * and at the head, the PR number from the event, and the HEAD COMMIT's committer date as "today" — deterministic,
- * so a re-run judges the same inputs the same way, never by the day it happened to run. Null when this is not a pull
+ * and at the head, the PR number from the event, and the HEAD COMMIT's committer date — its UTC day, {@link
+ * commitDayUtc} — as "today": deterministic, so a re-run judges the same inputs the same way, never by the day it
+ * happened to run. Null when this is not a pull
  * request or any of those cannot be established; the gate then reports `cannot-tell`, never a pass.
  */
 export function policyPrFromEvent(git: GitRead, repo: string, eventName: string, event: unknown): PolicyPrInput | null {
@@ -385,9 +398,23 @@ export function policyPrFromEvent(git: GitRead, repo: string, eventName: string,
   const base = o(pr.base).sha, head = o(pr.head).sha, number = pr.number;
   if (typeof base !== "string" || typeof head !== "string" || !base || !head || typeof number !== "number") return null;
   const mb = git(repo, ["merge-base", base, head])?.trim();
-  const today = git(repo, ["show", "-s", "--format=%cs", head])?.trim();
-  if (!mb || !today || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  const today = commitDayUtc(git, repo, head);
+  if (!mb || !today) return null;
   return { base: gitTree(git, repo, mb), head: gitTree(git, repo, head), pr: number, today };
+}
+
+/**
+ * The UTC calendar day (`YYYY-MM-DD`) of commit `sha`'s committer time — ONE CLOCK, UTC (Q66 A, F151): `gov rules
+ * propose` stamps rows with the UTC date, so the gate's "today" is the UTC date too. Never `%cs`, which is the day in
+ * the committer's own timezone: a committer at +0530 just after local midnight is still on the previous UTC day, and
+ * a row stamped with the UTC date then read as "earlier than today". Computed from the epoch seconds (`%ct`), with no
+ * dependence on the runner's TZ. Null when the date cannot be read.
+ */
+export function commitDayUtc(git: GitRead, repo: string, sha: string): string | null {
+  const ct = git(repo, ["show", "-s", "--format=%ct", sha])?.trim();
+  if (!ct || !/^\d+$/.test(ct)) return null;
+  const d = new Date(Number(ct) * 1000);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 /**
@@ -451,10 +478,17 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
  * `gov check install` would swap the pin for whatever npm calls `latest`, and `status` would call the copy stale.
  */
 export function withInstalledPin(cfg: CheckVerbConfig, installed: string | null): CheckVerbConfig {
-  if (cfg.govPackage || installed === null) return cfg;
-  const pin = pinnedGovPackage(installed);
-  return pin ? { ...cfg, govPackage: pin } : cfg;
+  if (cfg.govPackage) return cfg;
+  const pin = installed === null ? null : pinnedGovPackage(installed);
+  if (pin) return { ...cfg, govPackage: pin };
+  // No pin to keep (first install, or a hand-unpinned copy): pin the gov that is writing it, as `gov upgrade` does.
+  // Unpinned, the runner gets whatever npm calls `latest` — which can be an older major than this repo's content (gadf#388).
+  return isPublishedVersion(cfg.govVersion) ? { ...cfg, govPackage: `${GOV_PACKAGE}@${cfg.govVersion}` } : cfg;
 }
+
+const GOV_PACKAGE = "@svayam-opensource/gov";
+/** A version npm could have published — not the `?` / `0.0.0` stand-ins a source checkout reports. */
+const isPublishedVersion = (v: string | undefined): v is string => !!v && v !== "0.0.0" && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(v);
 
 export const govRepoOf = (cfg: CheckVerbConfig): string => (cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "");
 

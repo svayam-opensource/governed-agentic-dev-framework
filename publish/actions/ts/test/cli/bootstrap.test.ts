@@ -13,6 +13,7 @@ import {
   type FirstRunIo, type OrgIdentity,
 } from "../../src/cli/bootstrap.js";
 import { px, pxAll } from "../helpers/paths.js";
+import type { OrgConfigValues } from "../../src/setup/setup.js";
 
 describe("gov-work — first run: which rung is this machine on", () => {
   it("an active, registered org → nothing to do", () => {
@@ -120,6 +121,8 @@ function io(over: Partial<FirstRunIo> = {}) {
     createWorkspace: async () => 0,
     register: () => ({ ok: true }),
     activate: () => ({ ok: true }),
+    // The signed-in GitHub login, which the interview takes as the Policy Owner (F158).
+    deriveOrgDefaults: (p) => ({ policyOwnerGithub: "@rk", ...p }) as OrgConfigValues,
     ...over,
   };
   return { w, out, acts };
@@ -132,13 +135,8 @@ function io(over: Partial<FirstRunIo> = {}) {
  * `expect` harness drives it.
  */
 const INTERVIEW_ANSWERS: Record<string, string> = {
-  Q1: "Acme Incorporated", Q2: "Acme", Q3: "svm-geneva", Q4: "svm-geneva-gov",
-  Q5: "GENEVA", Q6: "1", Q7: "dev",
-  // Both roles by GitHub handle, then the contact email (adoption walk #1, 2026-10-07).
-  Q8: "@rk", Q10: "rk@acme.io",
-  // The Check Owner (rule-model, 2026-10-06): who reviews the code of the org's check actions. (No effective-date
-  // question since the org-config split retired policy_effective_date.)
-  Q9: "@rk",
+  // THREE questions since F158: the organization, its identifier; the agents are Q3 (not asked without the hook).
+  Q1: "svm-geneva", Q2: "GENEVA",
 };
 const interviewAnswer = (q: string): string | undefined => {
   const m = /^Q(\d+) - /.exec(q);
@@ -212,15 +210,29 @@ describe("gov-work — first run: the flow", () => {
       // The repository name is still defaulted, so Enter remains the right answer to Q4.
       prompt: async (q: string, def: string) => {
         if (/Select \(A\/B\/C\)/.test(q)) return "A";
-        if (/^Q3 - /.test(q)) return "acme-corp";
-        if (/^Q4 - /.test(q)) return def;                 // the point of this test
+        if (/^Q1 - /.test(q)) return "acme-corp";
         return interviewAnswer(q) ?? def;
       },
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);
-    expect(created, "the repo name defaults to <org>-gov").to.deep.equal(["acme-corp/acme-corp-gov"]);
+    expect(created, "the repo name is gov_repo for every new organization (F158)").to.deep.equal(["acme-corp/gov_repo"]);
     expect(acts, "nothing is cloned on the adopter path").to.deep.equal([]);
+  });
+
+  it("ADOPTER: a `gov_repo` that exists and is not a governance repo stops the run before anything is created (F158)", async () => {
+    const created: string[] = [];
+    const { w, out } = io({
+      prompt: async (q: string, def: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : interviewAnswer(q) ?? def),
+      checkRepoName: (o, r) => [`${o}/${r} already exists and is not a governance repository.`],
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(1);
+    expect(created, "nothing was created").to.deep.equal([]);
+    const text = out.join("\n");
+    expect(text).to.contain("svm-geneva/gov_repo already exists and is not a governance repository.");
+    expect(text).to.contain("Nothing was created.");
+    expect(text, "re-running interactively would not help, so it is not suggested").to.not.contain("answer interactively");
   });
 
   it("ADOPTER: a URL where an organization belongs is explained, then asked again (#192)", async () => {
@@ -231,8 +243,7 @@ describe("gov-work — first run: the flow", () => {
     const { w, out } = io({
       prompt: async (q: string, def: string) => {
         if (/Select \(A\/B\/C\)/.test(q)) return "A";
-        if (/^Q3 - /.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
-        if (/^Q4 - /.test(q)) return def;
+        if (/^Q1 - /.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
         return interviewAnswer(q) ?? def;
       },
       createWorkspace: async (t) => { created.push(t); return 0; },
@@ -240,7 +251,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(0);
     expect(asked, "asked a second time").to.equal(2);
     expect(out.join("\n"), "and said which half belongs here").to.match(/Just the organization here/);
-    expect(created).to.deep.equal(["acme-corp/acme-corp-gov"]);
+    expect(created).to.deep.equal(["acme-corp/gov_repo"]);
   });
 
   it("ADOPTER: a stream that never gives a usable answer stops, it does not spin", async () => {
@@ -248,7 +259,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     // The interview names the question that could not be answered (Q3, the GitHub
     // organization — a URL is not one) rather than the old single-question wording.
-    expect(out.join("\n")).to.match(/Q3: the same answer came back three times/);
+    expect(out.join("\n")).to.match(/Q1: the same answer came back three times/);
     expect(out.join("\n")).to.match(/Nothing was created/);
   });
 
@@ -397,7 +408,7 @@ describe("gov-work — first run: an adopter whose org is already governed", () 
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);
-    expect(created, "the create still runs, and preflight is what refuses").to.deep.equal(["svm-geneva/svm-geneva-gov"]);
+    expect(created, "the create still runs, and preflight is what refuses").to.deep.equal(["svm-geneva/gov_repo"]);
     expect(out.join("\n")).to.not.match(/already governed/);
   });
 
@@ -409,7 +420,7 @@ describe("gov-work — first run: an adopter whose org is already governed", () 
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);
-    expect(created).to.deep.equal(["svm-geneva/svm-geneva-gov"]);
+    expect(created).to.deep.equal(["svm-geneva/gov_repo"]);
   });
 
   it("the offered URL is https — the one that works on a machine that only ran `gh auth login`", () => {
@@ -426,7 +437,7 @@ describe("gov-work — adoption offers to start the policy review", () => {
   const adopter = (extra: (q: string) => string | undefined) =>
     async (q: string, def: string): Promise<string> => {
       if (/Select \(A\/B\/C\)/.test(q)) return "A";
-      if (/^Q3 - /.test(q)) return "acme-corp";
+      if (/^Q1 - /.test(q)) return "acme-corp";
       return extra(q) ?? interviewAnswer(q) ?? def;
     };
 
@@ -480,6 +491,32 @@ describe("gov-work — adoption offers to start the policy review", () => {
     expect(await runFirstRun(w)).to.equal(0);
     expect(roles, "the picker, not the starter project — only they know which is theirs").to.deep.equal(["joiner"]);
     expect(asked.at(-1)).to.match(/start work now.*projects you are assigned to/);
+  });
+
+  it("F136: the ADOPTER's practice project is made without a question, and its lines are printed before the offer", async () => {
+    let made = 0;
+    const asked: string[] = [];
+    const { w, out } = io({
+      prompt: async (q, def) => { asked.push(q); return adopter(() => undefined)(q, def); },
+      createWorkspace: async () => 0,
+      createStarterProject: async () => { made++; return ["Your practice project — \"Make the policy ours\":"]; },
+      reviewNow: async () => 0,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(made).to.equal(1);
+    expect(asked.join("\n"), "the old starter question is gone").to.not.match(/Create it\?/);
+    expect(out.join("\n")).to.contain("Make the policy ours");
+  });
+
+  it("F136: a JOINER never gets the practice project", async () => {
+    let made = 0;
+    const { w } = io({
+      prompt: async (q, def) => (/Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : (joinerAnswer(q) ?? URL))),
+      createStarterProject: async () => { made++; return []; },
+      reviewNow: async () => 0,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(made).to.equal(0);
   });
 
   it("without the hook, adoption ends exactly as it did", async () => {
@@ -598,5 +635,25 @@ describe("gov-work — gov setup --join (no terminal)", () => {
     expect(await joinNamed(w, "Svayamtech/svm-prj-work")).to.equal(1);
     expect(out.join("\n")).to.match(/already exists — register it instead/);
     expect(acts.some((a) => a.startsWith("place"))).to.equal(false);
+  });
+});
+
+describe("gov-work — first run: the set-up milestone (#391)", () => {
+  it("JOINING: the breadcrumb is advanced once, after the repository is registered and before the closing offer", async () => {
+    const order: string[] = [];
+    const { w } = io({
+      register: () => { order.push("register"); return { ok: true }; },
+      setupMilestone: async () => { order.push("milestone"); },
+      reviewNow: async () => { order.push("review"); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(order).to.deep.equal(["register", "milestone", "review"]);
+  });
+
+  it("a failed clone never reaches the milestone — nothing is in place to report", async () => {
+    let called = 0;
+    const { w } = io({ clone: () => { throw new Error("no such repo"); }, setupMilestone: async () => { called++; } });
+    expect(await runFirstRun(w)).to.equal(1);
+    expect(called).to.equal(0);
   });
 });

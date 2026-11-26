@@ -16,6 +16,7 @@ scenario "32 · adopter founds an org that uses NO AI agents (structure-only)"
 
 export GH_STUB_LOGIN="acme"          # the org we adopt for, and the board owner
 export GH_STUB_GOVERNED=""           # nobody has adopted for it yet
+export GH_STUB_REPOS="acme/gov_repo"  # the governance repo, readable once made — so the practice project is made (Q44 A asserts its task)
 
 # NO `curl` DOUBLE, AND NO AGENT ON PATH — deliberately, because this run must never reach an
 # installer. 30 needs one; if this scenario ever does, something offered an install it should not
@@ -25,35 +26,14 @@ drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
 ~ 240
-> Q1 - What is full legal name
-< Fixed Process Ltd
-> Q2 - What is short name
-<
-> Q3 - What is the Github Organization ID
+# THREE QUESTIONS (F158): the organization, its identifier, its agents.
+> Q1 - What is the GitHub organization
 < acme
 ~ 240
-> Q4 - What would you like the name of your new governance repo
-< acme-gov
-> Q5 - What would you like the identifier
+> Q2 - What would you like the identifier
 < ACME
-> Q6 - Default branch to be used for production
-<
-> Q7 - Default branch to be used for development
-<
-# Q8–Q10 — BOTH ROLES BY GITHUB HANDLE, THEN AN OPTIONAL CONTACT (adoption walk #1, 2026-10-07).
-# Answered, not defaulted: the defaults are the gh login (which the container may not have) and the
-# git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
-> Q8 - Who is the Policy Owner
-< adopter
-> Q9 - Who is the Check Owner
-< adopter
-> Q10 - What contact email
-< adopter@acme.test
-# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q11 - What governance posture
-<
 ~ 240
-# Q12 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
+# Q3 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
 # it must work for the same reason `ibm-bob` does.
 > default for your organization
@@ -62,15 +42,20 @@ drive "$(conv <<'C'
 # agent?", which would suggest the answer had not taken.
 > happy with this
 < y
-> Create it\? \[y/N\]
-< y
 ~ 240
 > review its policies now
 < n
 C
 )" gov
 
-info "Q12 offers 'none' as an ANSWER, not as a way past the question"
+info "Q3 offers 'none' as an ANSWER, not as a way past the question"
+info "F158 — no second person and no posture are asked: soft, and the practice task says how to name a Check Owner"
+never "the posture is not asked" "What governance posture"
+runs grep -qE '^governance_posture: "?soft"?' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "governance.yaml records soft" || fail "governance.yaml does not record soft"
+gh_ran "the practice task says nobody else was named" "so the check asks the **Check Owner** to approve it instead. You named nobody else at setup,"
+gh_ran "and under soft, that both pull requests merge only past a red check, recorded as a self-merge" "solo-mode issue, not as a violation."
+
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"

@@ -12,7 +12,7 @@
 #
 # #194 wrote this lesson down — "two readers of the same terminal is how the first two attempts
 # at this question answered themselves" — and it was walked into again one function over. The
-# fix is /dev/tty, which `createStarterProject` already uses for exactly this reason. This
+# fix is /dev/tty, which the old starter-project question used for exactly this reason. This
 # scenario is the one that can tell.
 scenario "62 · the work flow installs and signs in — with a readline already on stdin (#213)"
 

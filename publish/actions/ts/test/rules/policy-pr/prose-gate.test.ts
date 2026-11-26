@@ -101,7 +101,7 @@ describe("GOV-FRM-467 the policy PR gate starts from the prose — every added o
     const machine = Object.fromEntries(MACHINE_WRITTEN_POLICY_PATHS.map((p) => [p.replace("**", "0.9.0/org-policy.md"), "# x\n\n## 1 X\n\nx\n"]));
     const docs = policyDocPaths(memTree({ ...baseFiles(), ...machine, "policies/actions/a/README.md": "## 1 Y\n" }));
     expect(docs).to.deep.equal([DOC]);
-    const gov = judge(prepared({ "policies/governance.yaml": "policy_owner: { github: \"polly\" }\nmodels: { ci_allowed: true }\n" }, []));
+    const gov = judge(prepared({ "policies/governance.yaml": "policy_owner: { github: \"polly\" }\nmodels: { command: \"x\" }\n" }, []));
     expect(checksOf(gov)).to.not.include("unreviewed");
   });
 

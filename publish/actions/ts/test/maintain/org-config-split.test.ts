@@ -34,7 +34,7 @@ describe("gov-work — the org-config split (upgrade migration `org-config-split
 
     const g = parseGovernance(r.governance);
     expect(g.problems).to.deep.equal([]);
-    expect(g.policyOwner).to.deep.equal({ email: "policy-owner@example.invalid", github: "svayam-rkant" });
+    expect(g.policyOwner).to.deep.equal({ email: "policy-owner@example.invalid", github: "svayam-rkant", alternates: [] });
     expect(g.posture.posture).to.equal("soft");
 
     const roles = parseRoleList(r.roleList!);
@@ -162,7 +162,7 @@ describe("gov-work — `gov upgrade --apply` on a Svayam-shaped workspace (end t
 
   it("refuses the whole migration — org-config untouched — when a value would be lost", () => {
     fs.mkdirSync(path.join(ws, "policies"), { recursive: true });
-    fs.writeFileSync(path.join(ws, GOVERNANCE_PATH), TEMPLATE_GOV.replace('github: ""\n\n# THE CHECK', 'github: "not-svayam"\n\n# THE CHECK'));
+    fs.writeFileSync(path.join(ws, GOVERNANCE_PATH), TEMPLATE_GOV.replace('github: ""\n  alternate: ""\n\n# THE CHECK', 'github: "not-svayam"\n  alternate: ""\n\n# THE CHECK'));
     const dry = runUpgradeSync(CONTENT, ws, { apply: false, userHome: home });
     expect(dry.lines.join("\n")).to.match(/refuse/);
     const res = runUpgradeSync(CONTENT, ws, { apply: true, userHome: home });

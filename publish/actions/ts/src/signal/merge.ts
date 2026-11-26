@@ -60,7 +60,7 @@ export async function mergeProjects(env: SignalEnv, deps: MergeDeps, req: { to: 
   if (anchor) {
     const c = await env.tracker.comment(anchor, pointer);
     const cl = c.ok ? await env.tracker.close(anchor) : c;
-    lines.push(cl.ok ? `  anchor closed: ${anchor.url}` : `  ✗ anchor not closed: ${cl.ok ? "" : cl.reason}`);
+    lines.push(cl.ok ? `  anchor closed: ${anchor.url}` : `  ✗ anchor not closed: ${cl.ok ? "" : cl.reason} — finish by hand: gh issue comment ${anchor.url} --body "${pointer}" && gh issue close ${anchor.url}`);
     if (!cl.ok) ok = false;
   } else lines.push(`  ⚠ ${env.project} has no anchor on its board — nothing to close with the pointer`);
   const cp = await env.tracker.closeProject(from, pointer);

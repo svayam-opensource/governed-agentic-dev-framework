@@ -34,7 +34,7 @@ export async function recordAct(env: SignalEnv, kind: "handover" | "merge", req:
     if (!a.ok) lines.push(`  ⚠ the record is not on ${name}'s board: ${a.reason}`);
   }
   const cl = await env.tracker.close(c.value);
-  if (!cl.ok) lines.push(`  ⚠ the record could not be closed: ${cl.reason}`);
+  if (!cl.ok) lines.push(`  ⚠ the record could not be closed: ${cl.reason} — finish by hand: gh issue close ${c.value.url}`);
   return { url: c.value.url, lines };
 }
 

@@ -28,11 +28,11 @@ import { readTopLevelScalar } from "../../resolve/node-env.js";
 import type { GitRead } from "../../cli/policy-gate-io.js";
 import { log } from "../../log.js";
 import { FRAMEWORK_SCOPE, isScope, issueId } from "./gov-id.js";
-import { parseRuleStore, validateRuleStore, inForce, ROW_WARNINGS, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
+import { parseRuleStore, validateRuleStore, openRows, ROW_WARNINGS, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
 import { parseCatalog, mergeCatalogs, validateBindings, type Catalog, type BindingDiagnosticKind } from "./catalog.js";
 import type { RuleSet, RuleStoreReader, IdIssuer } from "./contracts.js";
-import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
-import { GOVERNANCE_PATH, frameworkOwners, parseGovernance } from "../../config/governance.js";
+import { resolveRoles, roleAlternates, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
+import { GOVERNANCE_PATH, frameworkAlternates, frameworkOwners, parseGovernance } from "../../config/governance.js";
 
 /** Where each piece lives, repo-relative. One table, so a layout change is one edit. */
 export const RULE_STORE_PATHS = {
@@ -151,7 +151,7 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
     for (const d of validateRuleStore(rows, { scope })) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
     // Bindings of the rows IN FORCE only: a retired revision may name an action the catalog has since dropped,
     // and that is history, not a fault.
-    for (const row of inForce(rows)) for (const d of validateBindings(row, catalog)) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
+    for (const row of openRows(rows)) for (const d of validateBindings(row, catalog)) diagnostics.push({ store, kind: d.kind, id: d.id, message: d.message });
   }
 
   log("debug", "rule stores loaded", "gov-work:rules:store-io", "loadRuleStores", {
@@ -160,9 +160,11 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
   // WHO HOLDS EACH ROLE, at the same ref: the Policy Owner and Check Owner from policies/governance.yaml, every other
   // role from the org's role list.
   const gov = parseGovernance(texts.governance ?? null);
-  const roles = roleHandles(frameworkOwners(gov), resolveRoles(texts.roleList).roles);
+  const roleList = resolveRoles(texts.roleList).roles;
+  const roles = roleHandles(frameworkOwners(gov), roleList);
+  const alternates = roleAlternates(frameworkAlternates(gov), roleList);
   const posture = gov.posture.posture === "hard" ? "hard" : "soft";
-  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles, posture }, diagnostics };
+  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles, alternates, posture }, diagnostics };
 }
 
 /** The three notes that describe a layout, not a fault in a row: they never stop a build. */

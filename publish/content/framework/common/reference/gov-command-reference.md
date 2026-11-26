@@ -23,7 +23,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 
 - [gov work](#gov-work) — start or continue a project, and open your agent in it
 - [gov org](#gov-org) — the governance workspaces on this machine, and which one is active
-- [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions
+- [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions, and the set-up trail
 - [gov setup](#gov-setup) — set this machine up for an organization — the first `gov` run does this for you
 - [gov self-update](#gov-self-update) — install a newer gov, in the same place this one was installed
 - [gov upgrade](#gov-upgrade) — bring this org's framework content to the content this gov carries (newer content: install a newer gov)
@@ -171,7 +171,7 @@ gov org add acme --home ~/.gov/acme/gov_repo
 
 ### gov doctor
 
-check this machine: git, gh, the workspace, the active org, versions
+check this machine: git, gh, the workspace, the active org, versions, and the set-up trail
 
 ```text
 gov doctor [--fix] [--gov-home <path>]
@@ -193,7 +193,7 @@ gov doctor
 gov doctor --fix
 ```
 
-**Changes.** nothing, unless `--fix` is given and you agree to a step; then it installs tools or writes git config
+**Changes.** nothing in any repository. The `set-up` row shows each set-up step done or pending, and whether a set-up signal for gov web is waiting, from ~/.gov/setup-state.json (kept up to date by every gov run; a set-up code is never shown). With `--fix`, and your agreement to a step, it installs tools or writes git config
 
 **Exit codes**
 
@@ -536,7 +536,7 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --
 
 | argument | what it is |
 | --- | --- |
-| `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY. A rule bound to gov-builtin/rules-propose runs the proposer on the policy pull request first. An org `bash`/`python` action runs from `policies/actions/<name>/` as the DEFAULT branch has it (never the change under review), in --repo-dir, with no GitHub or gov token unless its action.yaml says `needs: [github]`: exit 0 passes, 1 misses, anything else or a timeout cannot tell. An org `gh-action` runs only as a step of the rendered workflow (from the default branch's copy); `run` reads that step's outcome, and anywhere else it cannot tell ("runs in CI only") |
+| `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY. A rule bound to gov-builtin/rules-propose checks the policy pull request first — it reads, and never writes. An org `bash`/`python` action runs from `policies/actions/<name>/` as the DEFAULT branch has it (never the change under review), in --repo-dir, with no GitHub or gov token unless its action.yaml says `needs: [github]`: exit 0 passes, 1 misses, anything else or a timeout cannot tell. An org `gh-action` runs only as a step of the rendered workflow (from the default branch's copy); `run` reads that step's outcome, and anywhere else it cannot tell ("runs in CI only") |
 | `install` | render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo. Every job runs on the organization's runner (`ci.runs_on` in policies/governance.yaml; `ubuntu-latest` when unset). While `ci.runs_on` is set it also sets the `runs-on:` lines — and only those — of the repository's `gov-validate.yml` to it, naming each line it changed |
 | `install --all` | the same for the governance repo AND every code repo linked to the project's board, at its clone under the work root. Writes only where the repo's current branch is the project's project or task branch — a repo on any other branch is refused, with the reason. Reports each repo written / unchanged / refused, then prints the git and `gov merge` (or `gh pr create`) commands to land it |
 | `status` | for each repo in scope, compare the installed workflow with what install would write now: in-sync, stale, missing, or cannot tell (not cloned, not git, the board unreadable). `gov doctor` shows it as one row |
@@ -551,7 +551,7 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --
 | `--repo <path>` | install: the working tree to write into (default: the governance repo); any other path is a linked code repo |
 | `--all` | install: every repo of the project — the governance repo and the board's linked code repos |
 | `--project <id>` | install --all, status: the project (PRJ-&lt;n&gt;-&lt;slug&gt;, or its board number) instead of the one the governance repo's branch names |
-| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else the published gov) — a packed tarball's URL or path, to test a commit before it is released |
+| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else this gov, pinned to its version) — a packed tarball's URL or path, to test a commit before it is released |
 | `--prune` | install --all: remove a workflow gov wrote earlier in a repo no rule binds any more (a file gov did not write is never touched) |
 
 **Examples**
@@ -564,7 +564,7 @@ gov check install --all
 gov check status --project PRJ-7
 ```
 
-**Changes.** `run` changes nothing in the repository, save the proposer below. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, `gov-builtin/rules-propose` reads the changed sections with the organization's model (only when `models.ci_allowed` is true on the default branch), asks its questions as review comments, and commits the settled rows, version, snapshot and changelog to the pull request's branch as the gov bot — a commit that is never an approval. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply. `install --all` reads the project's board (one `gh` read) and writes, or with `--prune` removes, only on a project or task branch — never a default branch; when the org has no GitHub App recorded it still writes, after saying the code repos' workflows need `gov app setup`. `status` changes nothing
+**Changes.** `run` changes nothing in the repository. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, whose changed section is unreviewed, or whose version, snapshot, stamps or changelog entry (its pull request number included) are missing, `gov-builtin/rules-propose` fails and names what the author runs — `gov rules propose` on the branch, then commit and push; it never runs a model and never pushes a commit (a bot's commit holds a private repository's workflows at "waiting for approval to run"). `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply. `install --all` reads the project's board (one `gh` read) and writes, or with `--prune` removes, only on a project or task branch — never a default branch; when the org has no GitHub App recorded it still writes, after saying the code repos' workflows need `gov app setup`. `status` changes nothing
 
 **Exit codes**
 
@@ -591,7 +591,7 @@ gov app <setup | check | rotate> [--project <id>] [--key-from-stdin | --key-file
 | argument | what it is |
 | --- | --- |
 | `setup` | create the App gov-&lt;org_slug&gt; with GitHub's App-manifest flow: open the printed local page in a browser on this machine, confirm on GitHub, and gov stores the App's client id and private key as GOV_APP_CLIENT_ID and GOV_APP_PRIVATE_KEY wherever they reach — organization secrets where the plan is paid or the repo public, repository secrets on each private repo of the governance repo and the project's code repos on the Free plan — then prints the install URL |
-| `check` | verify the App exists, is installed on the org, can read the governance repo's default branch, and that its secrets — and the approved model's key, when models.ci_allowed is true — reach every repository that needs them. Each failure names the repo and the fix |
+| `check` | verify the App exists, is installed on the org, can read the governance repo's default branch, and that its secrets reach every repository that needs them. Each failure names the repo and the fix |
 | `rotate` | put a NEW private key on every repository that needs it (a repo added later, or a key that leaked). GitHub has no API that makes a key: without a key gov prints the App's page to generate one; then it reads the key, sets the secrets, and names the old key to delete there |
 
 **Flags**
@@ -741,7 +741,7 @@ gov rules <build|check|report|reload> [--working-tree] | show <id> | propose [--
 | --- | --- |
 | `--working-tree` | read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch |
 | `--all` | propose: also read sections that have no rules yet, though unchanged — the first extraction of a seeded policy |
-| `--pr <n>` | propose: the pull request the change goes in (default: the one open for this branch). Without one, the rows' stamps and the CHANGELOG entry wait for it |
+| `--pr <n>` | propose: the pull request the change goes in (default: the one open for this branch). Without one, everything is written all the same, and the CHANGELOG entry says `_not yet open_` until a later run — or `gov close`, as it opens the pull request — names the number |
 
 **Examples**
 
@@ -754,14 +754,14 @@ gov rules reload
 gov rules show POL-086b
 ```
 
-**Changes.** `build` renders `framework/rules/rules.yaml` and `policies/rules/rules.yaml` into the nine agent instruction files (the resident tier in Part A), `agent/harness/rule-map.md`, one skill per policy section with C02/C03 agent rules and one per active lifecycle step (`gov-lifecycle-intent|spec|plan|build`), under `agent/harness/` once in the shared `.agents/skills/` (read natively by Cursor and Gemini, and indexed in the instruction file of every agent with no verified location) and in `.claude/skills/` for Claude, deleting a generated skill whose section was renamed or removed (and any left in the retired `.cursor/skills/`) — never one gov did not generate; policy prose is never touched. `check` writes nothing and fails when a generated file is stale or a generated skill is no longer wanted, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had. `propose` runs on the branch you are editing: it sends each changed section to the model your organization approved in `policies/governance.yaml` (on the default branch) — no approved model, no run — asks you at the terminal only where the intent is unclear, and writes `policies/rules/rules.yaml`, `policies/ownership.yaml`, `policies/VERSION`, the frozen snapshot `policies/history/<previous>/`, the rows' stamps and the `policies/CHANGELOG.md` entry. gov issues every new id; the model never does. Each step skips when already done, so running it again writes nothing new. An unanswered question stops it with nothing written. It never commits; on a policy pull request the same proposer runs as a check when the rows are stale and the organization allows a model in CI
+**Changes.** `build` renders `framework/rules/rules.yaml` and `policies/rules/rules.yaml` into the nine agent instruction files (the resident tier in Part A), `agent/harness/rule-map.md`, one skill per policy section with C02/C03 agent rules and one per active lifecycle step (`gov-lifecycle-intent|spec|plan|build`), under `agent/harness/` once in the shared `.agents/skills/` (read natively by Cursor and Gemini, and indexed in the instruction file of every agent with no verified location) and in `.claude/skills/` for Claude, deleting a generated skill whose section was renamed or removed (and any left in the retired `.cursor/skills/`) — never one gov did not generate; policy prose is never touched. `check` writes nothing and fails when a generated file is stale or a generated skill is no longer wanted, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had. `propose` runs on the branch you are editing: it sends each changed section to the model your organization approved in `policies/governance.yaml` (on the default branch) — a change that rewords no section (the title page, say) needs no model and gets only the deterministic writers; a section that needs reading with no approved model stops the run, naming that section — asks you at the terminal only where the intent is unclear, and writes `policies/rules/rules.yaml`, `policies/ownership.yaml`, `policies/VERSION`, the frozen snapshot `policies/history/<previous>/`, the rows' stamps and the `policies/CHANGELOG.md` entry. gov issues every new id; the model never does. Each step skips when already done, so running it again writes nothing new. An unanswered question stops it with nothing written. It never commits: you commit what it wrote, in your own name. On a policy pull request a check only says whether this was done; it never writes there
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
 | `0` | done |
-| `1` | a rule-store error, a resident tier over its cap, a stale file, or a stale rule row; propose: a question left unanswered, no approved model, or sections that did not settle — nothing was written |
+| `1` | a rule-store error, a resident tier over its cap, a stale file, or a stale rule row; propose: a question left unanswered, a section to read and no approved model, or sections that did not settle — nothing was written |
 | `2` | usage |
 
 **See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)
@@ -1143,7 +1143,7 @@ gov close
 gov close
 ```
 
-**Changes.** TWO PHASES, because the two things it does carry different authority. In a CODE repo the project branch merges back into the branch it was cut from — an authorized automatic merge, no pull request, done locally with git. In the GOVERNANCE repo it opens a pull request and leaves it: that branch proposes org-wide knowledge and a PERSON merges it. So the first run runs the gate, merges and pushes every code repo, archives their project branches, opens the close pull request and closes the board — the project is complete at that point whether the proposal is later merged, rejected or abandoned. It deliberately does NOT archive the governance branch, because that branch is the open pull request's head and deleting it would close the request unmerged. Re-run `gov close` after someone merges, and it tags and deletes that branch. If the board cannot be closed, close still succeeds and says `board: not closed — <why> (<detail>)` (denied or unreachable)
+**Changes.** TWO PHASES, because the two things it does carry different authority. In a CODE repo the project branch merges back into the branch it was cut from — an authorized automatic merge, no pull request, done locally with git. In the GOVERNANCE repo it opens a pull request and leaves it: that branch proposes org-wide knowledge and a PERSON merges it. So the first run runs the gate, merges and pushes every code repo, archives their project branches, opens the close pull request and closes the board — the project is complete at that point whether the proposal is later merged, rejected or abandoned. If the branch changes `policies/` and `gov rules propose` already ran on it, close then writes the new pull request's number into the rows' stamps and the `policies/CHANGELOG.md` entry and pushes that as your own commit — never a bot's. It deliberately does NOT archive the governance branch, because that branch is the open pull request's head and deleting it would close the request unmerged. Re-run `gov close` after someone merges, and it tags and deletes that branch. If the board cannot be closed, close still succeeds and says `board: not closed — <why> (<detail>)` (denied or unreachable)
 
 **Exit codes**
 
@@ -1673,3 +1673,8 @@ install.ps1    irm https://<install-site>/install.ps1 | iex       (PowerShell 5.
 Both put a private Node 24 under the user's home, install gov from npm, need no administrator rights,
 and ask nothing when there is no terminal. They print what gov prints: a named phase, → under way,
 ✓ done, · already present; colour only on a terminal, and never with NO_COLOR set.
+
+When gov offers a choice in a terminal, you move with ↑/↓, select with Space where more than one is
+allowed, and press Enter. Where there is no terminal — a pipe, CI (`CI` set), TERM=dumb — the same choice
+is a numbered prompt (`Choose [1/2/3]`, or `1,3` for several). GOV_PLAIN_PROMPTS=1 asks for the numbered
+prompt everywhere.

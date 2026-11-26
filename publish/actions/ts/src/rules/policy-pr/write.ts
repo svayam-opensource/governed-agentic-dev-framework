@@ -4,9 +4,9 @@
  * WHAT A POLICY PULL REQUEST WRITES BESIDE ITS PROSE (rule-model-design.md P1 "Org version", "Propose trigger"; W5).
  *
  * The version bump, the frozen snapshot of the version it replaces, the stamps on the rows it opens and closes,
- * and its CHANGELOG entry — the four things {@link judgePolicyPr} checks for. Propose calls these; so does CI's
- * fallback. ONE IMPLEMENTATION, TWO TRIGGERS, so every writer SKIPS WHEN ITS WORK IS ALREADY DONE: run by hand
- * and then again in CI, the second run writes nothing.
+ * and its CHANGELOG entry — the four things {@link judgePolicyPr} checks for. Propose calls these, and so does
+ * `gov close` once it has opened the pull request and knows its number; CI never does (F154 A: a check only checks).
+ * Every writer SKIPS WHEN ITS WORK IS ALREADY DONE, so a second run writes nothing.
  *
  * A snapshot is never overwritten: if `policies/history/<prev>/` exists, it is frozen, and a wrong one is the
  * gate's to report, not this code's to "fix".
@@ -15,7 +15,7 @@
  */
 import yaml from "js-yaml";
 import { parseRuleStore, compareVersions, type RuleRow, type Stamp } from "../model/rule-row.js";
-import { POLICY_PR_PATHS, changelogEntry, changelogVersions, isShaRefresh, nextVersion, readVersion, relocationsBetween, snapshotFiles, type BumpKind } from "./gate.js";
+import { POLICY_PR_PATHS, changelogEntry, changelogVersions, isInPlaceEdit, nextVersion, readVersion, relocationsBetween, snapshotFiles, type BumpKind } from "./gate.js";
 import { LEGACY_POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
 import type { TreeReader, TreeWriter } from "./tree.js";
 import { REVIEWED_HEADING, renderReviewLine, type SectionReview } from "./reviewed.js";
@@ -30,7 +30,13 @@ export interface ChangelogEntry {
   readonly version: string;
   /** YYYY-MM-DD. */
   readonly date: string;
-  readonly pr: number;
+  /**
+   * The pull request. Absent before it is open: the entry is written whole all the same — the rules, the sections
+   * reviewed, the interview — and its Pull request cell reads {@link NO_PR_YET} until a later run names the number
+   * (`gov close` does, in the author's own commit, as it opens the pull request — F154 A). The gate never passes an
+   * entry that does not name its pull request.
+   */
+  readonly pr?: number;
   /** GitHub handles, with or without `@`. The approver is null until someone approves. */
   readonly author: string;
   readonly approver: string | null;
@@ -49,6 +55,9 @@ const CHANGELOG_INTRO =
   "who wrote and approved it, the rules it added, revised or retired, every policy section it reviewed and what " +
   "that came to, and the questions its interview settled.";
 
+/** The Pull request cell of an entry written before its pull request was open (F154 A). */
+export const NO_PR_YET = "_not yet open_";
+
 const at = (h: string): string => (h.startsWith("@") ? h : `@${h}`);
 const cell = (s: string): string => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 
@@ -57,7 +66,7 @@ export function renderChangelogEntry(e: ChangelogEntry): string {
   const out = [
     `## ${e.version} — ${e.date}`, "",
     "| Pull request | Author | Approver |", "|---|---|---|",
-    `| #${e.pr} | ${at(e.author)} | ${e.approver ? at(e.approver) : "_pending_"} |`, "",
+    `| ${e.pr === undefined ? NO_PR_YET : `#${e.pr}`} | ${at(e.author)} | ${e.approver ? at(e.approver) : "_pending_"} |`, "",
   ];
   const governance = e.governance ?? [];
   if (governance.length) {
@@ -102,7 +111,16 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 /** An entry nobody has approved yet: its approver cell still reads `_pending_`. */
 const pending = (entry: string): boolean => entry.includes("| _pending_ |");
 /** An entry pull request `pr` wrote. */
-const byPr = (entry: string, pr: number): boolean => entry.includes(`| #${pr} | `);
+export const byPr = (entry: string, pr: number): boolean => entry.includes(`| #${pr} | `);
+/** An entry written before its pull request was open: it names none yet. */
+const noPrYet = (entry: string): boolean => entry.includes(`| ${NO_PR_YET} | `);
+/**
+ * Is `entry` this branch's own, still open to rewriting? Nobody has approved it, and it names this pull request or
+ * none yet — or, with no pull request known, any entry this branch added (only this branch adds entries the base
+ * lacks; the callers check that).
+ */
+const ownEntry = (entry: string, pr: number | undefined): boolean =>
+  pending(entry) && (pr === undefined || byPr(entry, pr) || noPrYet(entry));
 
 /** `text` without the entry for `version` (its heading up to the next entry), or `text` unchanged. */
 function withoutEntry(text: string, version: string): string {
@@ -168,10 +186,11 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
     const entry = renderChangelogEntry(e);
     const existing = text === null ? null : changelogEntry(text, e.version);
     if (text !== null && existing !== null) {
-      const ours = byPr(existing, e.pr) && pending(existing);
+      const baseText = base.read(POLICY_PR_PATHS.changelog);
+      const ours = !(baseText !== null && changelogEntry(baseText, e.version) !== null) && ownEntry(existing, e.pr);
       if (!ours || existing.trimEnd() === entry.trimEnd()) return { wrote: false, detail: `${POLICY_PR_PATHS.changelog} already has ${e.version}` };
       head.write(POLICY_PR_PATHS.changelog, text.replace(existing, entry.replace(/\n+$/, "\n")));
-      return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} ${e.version} rewritten for #${e.pr}` };
+      return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} ${e.version} rewritten${e.pr === undefined ? "" : ` for #${e.pr}`}` };
     }
     let next: string;
     if (text === null || !text.trim()) {
@@ -236,7 +255,7 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
         for (const v of changelogVersions(text)) {
           if (v === e.version || inBase.has(v)) continue;
           const old = changelogEntry(text, v)!;
-          if (byPr(old, e.pr) && pending(old)) { text = withoutEntry(text, v); superseded.push(v); }
+          if (ownEntry(old, e.pr)) { text = withoutEntry(text, v); superseded.push(v); }
         }
       }
       const r = writeEntry(text, e);
@@ -246,18 +265,20 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
     },
 
     /**
-     * Stamp the rows THIS change opened (start) and closed (end) with `version · date · pr`. A head row is a base
-     * row when it equals one in everything but `end`, or is an open one with only its sha refreshed (Q17), or is an
+     * Stamp the rows THIS change opened (start) and closed (end) with `version · date · pr` — `pr` absent before the
+     * pull request is open; the run that knows it stamps them again (F154 A). A head row is a base
+     * row when it equals one in everything but `end`, or is an open one with only its sha refreshed (Q17) or its
+     * statement or chapter filled (F127), or is an
      * open one relocated by a declared move (T8) — the same row, so its start stays; any other row is new. Rows already so stamped are left alone, and when nothing
      * differs nothing is written.
      */
-    stampRows(version: string, date: string, pr: number): WriteResult {
+    stampRows(version: string, date: string, pr?: number): WriteResult {
       const text = head.read(POLICY_PR_PATHS.rules);
       if (text === null) return { wrote: false, detail: `no ${POLICY_PR_PATHS.rules}` };
       const baseText = base.read(POLICY_PR_PATHS.rules);
       const baseRows = baseText === null ? [] : parseRuleStore(baseText);
       const rows = parseRuleStore(text);
-      const stamp: Stamp = { version, date, pr };
+      const stamp: Stamp = { version, date, ...(pr !== undefined ? { pr } : {}) };
       const moved = relocationsBetween(base, head);
       const free = baseRows.map((r, i) => ({ key: withoutEnd(r), i }));
       const out = rows.map((r) => {
@@ -267,13 +288,15 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
           free.splice(k, 1);
           return b.end === null && r.end !== null ? { ...r, end: stamp } : r;
         }
-        const refreshed = free.findIndex((f) => isShaRefresh(baseRows[f.i]!, r) || moved(baseRows[f.i]!, r));
+        const refreshed = free.findIndex((f) => isInPlaceEdit(baseRows[f.i]!, r) || moved(baseRows[f.i]!, r));
         if (refreshed >= 0) { free.splice(refreshed, 1); return r; }
-        return { ...r, start: stamp };
+        // A row approved to take effect on a later date keeps that date (F127); the version and PR are this change's.
+        const later = typeof r.start?.date === "string" && r.start.date > date;
+        return { ...r, start: later ? { ...stamp, date: r.start.date } : stamp };
       });
       if (same(out, rows)) return { wrote: false, detail: "every row this change opened or closed is already stamped" };
       head.write(POLICY_PR_PATHS.rules, dumpStore(text, out));
-      return { wrote: true, detail: `stamped rows at ${version} · ${date} · #${pr}` };
+      return { wrote: true, detail: `stamped rows at ${version} · ${date}${pr === undefined ? " (no pull request yet)" : ` · #${pr}`}` };
     },
   };
 }

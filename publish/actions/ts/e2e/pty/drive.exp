@@ -10,7 +10,7 @@
 # them ever typed anything. A test that cannot answer a question cannot reach the code
 # behind it.
 #
-# A PIPE IS NOT ENOUGH. gov opens /dev/tty directly for the starter-project question, turns
+# A PIPE IS NOT ENOUGH. gov opens /dev/tty directly for some questions, turns
 # the echo off with `stty` to read an API key, and decides whether to emit colour from
 # `isTTY`. Feed it a pipe and it takes a different path from the one an adopter walks —
 # which is the same mistake as testing on a machine that already has everything (#186).
@@ -23,6 +23,7 @@
 #   > <regex>     wait for this to appear    (fails the run if it never does)
 #   < <text>      type this, then Return
 #   <! <text>     type this with NO Return   (for a raw single-key read)
+#   <k <keys>     press named keys, in order: up down home end space enter  (the arrow picker, F158)
 #   ^C            send Ctrl-C (an interrupt, as the terminal delivers it — #215)
 #   ! <regex>     assert this NEVER appeared, from here to the end
 #   ~ <seconds>   change the timeout for what follows
@@ -80,6 +81,22 @@ foreach line $lines {
     }
     "<"  { send -- "$rest\r" }
     "<!" { send -- "$rest" }
+    "<k" {
+      foreach k [split $rest] {
+        switch -exact -- $k {
+          up    { send -- "\x1b\[A" }
+          down  { send -- "\x1b\[B" }
+          home  { send -- "\x1b\[H" }
+          end   { send -- "\x1b\[F" }
+          space { send -- " " }
+          enter { send -- "\r" }
+          ""    { }
+          default { note "unknown key: $k"; incr failures }
+        }
+        # One key per read, as a person types: the picker redraws between keys.
+        after 60
+      }
+    }
     "^C" { send -- "\x03" }
     "!"  { lappend forbidden $rest }
     "~"  { set timeout $rest }

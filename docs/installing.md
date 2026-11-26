@@ -47,9 +47,72 @@ When the install finishes, `gov` starts the first-run flow (on Windows, from the
    GitHub. Re-running resumes; it never repeats a finished step.
 2. It asks whether you are **adopting** the framework, **joining** an organization that has it,
    or **not sure**.
-3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it.
-4. It installs an approved AI agent, if you agree, and helps you sign it in.
-5. It opens a first project and launches the agent, which posts its context manifest.
+3. Adopt asks three questions: your GitHub organization, a 2-6 letter identifier for it, and which AI agents
+   it allows (a default, then any others). In a terminal you pick the agents with the arrow keys, Space and
+   Enter; without one they are numbered (`GOV_PLAIN_PROMPTS=1` asks for numbers anyway). Everything else
+   takes a default: the organization's names are its display name on GitHub, the governance repo is
+   `gov_repo`, the branches are `main` and `dev`, you are the Policy Owner, nobody else is named yet, no
+   contact email is written, and governance is **soft**. gov prints every value, asked or not, before it
+   creates anything; each one can be changed later by a pull request to `org-config.yaml` or
+   `policies/governance.yaml`. If your organization already has a repository called `gov_repo` that is not a
+   governance repo, gov stops, creates nothing, and says how to go on.
+   Adopt then creates and seeds your governance repo; join finds it on GitHub and clones it. A new governance
+   repo has the approval check and the rules' checks from its very first commit, so every pull request in it
+   shows whether someone other than its author has approved it. If your organization later switches to
+   **hard** governance, the default branch is protected, so GitHub blocks a merge until that approval arrives.
+   On a plan that cannot protect the repo (a private repo on GitHub Free), gov says so and lists the ways
+   forward.
+4. If you adopted, it makes your practice project, **Make the policy ours**, without asking. It is a real
+   project: a board, its anchor issue, a project branch, and one task. The task is to put your organization's
+   name on the policy's title page. The pull request for that change shows a check waiting for someone other
+   than you to approve it. The title page is the Policy Owner's, and you are the Policy Owner and its author,
+   so the check waits for the Check Owner. That wait is the point: nobody approves their own work. Setup names
+   nobody else, so the practice task asks you to invite a teammate and name them Check Owner
+   (`check_owner.github` in `policies/governance.yaml`, in a pull request of its own). Under soft governance,
+   or where GitHub cannot protect the repo, nothing technically stops a merge past the check, but the red check
+   is there for everyone to see. Don't merge it yourself. Hard governance needs that second person. People who join get no practice project; their first project is
+   one they are assigned to.
+5. It installs an approved AI agent, if you agree, and helps you sign it in.
+6. It opens a first project and launches the agent, which posts its context manifest.
+
+### The set-up code and the set-up trail
+
+When you're signed in, the Install page shows the command with a **one-time set-up code** in front of it:
+
+```bash
+GOV_SETUP_CODE=<code> GOV_SETUP_ISSUER=<address> bash install.sh
+```
+
+On Windows the page gives `$env:GOV_SETUP_CODE='<code>'; $env:GOV_SETUP_ISSUER='<address>'; irm …/install.ps1 | iex`.
+
+The code lets gov tell gov web, once, that your set-up is done. That completes the second step of
+**My Gov Journey**. The installer passes the code to gov and never prints it.
+
+gov records your set-up in `~/.gov/setup-state.json`. Only you can read the file. It lists each step as done
+or pending, with the time:
+
+| Step | Done when |
+|---|---|
+| `client-installed` | gov is installed |
+| `prerequisites` | `git` and `gh` are installed |
+| `governance-repo` | your governance repository is in place: created when you adopt, cloned when you join |
+| `machine-env` | the workspace folders (`~/.gov/<slug>/projects`) exist and the tools are ready |
+| `setup-signal` | gov web has been told your set-up is done |
+
+- **Re-running `gov` resumes** at the first step still pending. gov checks every step against the machine each
+  time, so the file never claims something that is no longer true.
+- **The code is sent once** `client-installed`, `governance-repo` and `machine-env` are all done. gov then
+  removes the code from the file and prints *Your gov web set-up step is complete.*
+- **gov only sends the code to `https://*.svayamtech.com`.** If the command names any other address, gov
+  doesn't send the code.
+- **If gov web refuses the code, or can't be reached,** gov says so in one line and carries on. Set-up is not
+  affected.
+  - A refused code has expired, was already used, or was replaced by a newer one. Get a new code from the
+    Install page and run `gov` again.
+  - After too many attempts from your network, wait a few minutes and run `gov` again.
+  - Sending a code twice does no harm.
+- **`gov doctor` shows the trail** in its `set-up` row: each step done or pending, and whether a set-up signal
+  is still waiting. It never shows the code.
 
 ## What `install.sh` does
 

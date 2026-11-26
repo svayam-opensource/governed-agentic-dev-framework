@@ -505,10 +505,10 @@ describe("gov app check / gov doctor — each repo that will not receive a neede
     expect(r.verdict, r.lines.join("\n")).to.equal("ok");
   });
 
-  it("the approved model's key, when CI may use it: the gov repo without it is ✗ with `gh secret set <NAME> -R <repo>`", () => {
-    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: [] }, modelKey: "GEMINI_API_KEY" });
-    expect(r.verdict).to.equal("fail");
-    expect(r.lines.join("\n")).to.contain("acme/acme-gov will not receive GEMINI_API_KEY").and.contain("gh secret set GEMINI_API_KEY -R acme/acme-gov");
+  it("Q68 A: never asks for a model's key — the policy pull request check uses no model, whatever governance.yaml says", () => {
+    const r = appCheck(fakeGh(base([[/^secret list -R acme\/app --json name$/, ok('[{"name":"GOV_APP_CLIENT_ID"},{"name":"GOV_APP_PRIVATE_KEY"}]')]]), []), CFG, null, { codeRepos: { ok: true, names: ["app"] } });
+    expect(r.verdict, r.lines.join("\n")).to.equal("ok");
+    expect(r.lines.join("\n")).to.not.match(/ANTHROPIC_API_KEY|GEMINI_API_KEY/);
   });
 
   it("the plan unreadable (not an owner): cannot tell, never ok", () => {
@@ -517,32 +517,24 @@ describe("gov app check / gov doctor — each repo that will not receive a neede
   });
 
   it("doctor: one Secrets row listing EVERY repo that will not receive one", () => {
-    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: ["app"] }, modelKey: "GEMINI_API_KEY" });
+    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: ["app"] } });
     const row = secretsDiagnostic(r)!;
     expect(row.status).to.equal("warn");
-    expect(row.detail).to.contain("acme/app").and.contain("acme/acme-gov").and.contain("GEMINI_API_KEY");
+    expect(row.detail).to.contain("acme/app").and.not.contain("API_KEY");
     const d = doctor({ gitPresent: true, ghPresent: true, resolve: { ok: false, code: 1 } as never, activeOrg: null, cliVersion: "1", githubApp: r });
     expect(d.diagnostics.find((x) => x.name === "Secrets reach")?.detail).to.contain("acme/app");
     expect(secretsDiagnostic({ verdict: "ok", summary: "", lines: [] })).to.equal(null);
   });
 });
 
-describe("gov rules propose in CI — a missing key names the Free-plan cause and the fix", () => {
-  it("adds one line: org secrets do not reach private repos on Free; gh secret set <NAME> -R <repo>", () => {
-    const c = chooseModel({ provider: "gemini", model: "g", command: "", ciAllowed: true },
-      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
-    expect(c.ok).to.equal(false);
-    const text = !c.ok ? c.lines.join("\n") : "";
-    expect(text).to.contain("Free plan").and.contain("gh secret set GEMINI_API_KEY -R acme/acme-gov");
-    const a = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: true },
-      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
-    expect(!a.ok && a.lines.join("\n")).to.contain("gh secret set ANTHROPIC_API_KEY -R acme/acme-gov");
-  });
-
-  it("locally, no such line", () => {
-    const c = chooseModel({ provider: "gemini", model: "g", command: "", ciAllowed: true },
-      { ci: false, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never });
-    expect(!c.ok && c.lines.join("\n")).to.not.contain("Free plan");
+describe("gov rules propose — a missing key says where to put it, with no CI-only hint (Q68)", () => {
+  it("names the environment variable and gov's credentials file; never a Free-plan or Actions-secret line", () => {
+    for (const provider of ["gemini", "anthropic"] as const) {
+      const c = chooseModel({ provider, model: "m", command: "" },
+        { anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never });
+      const text = !c.ok ? c.lines.join("\n") : "";
+      expect(text).to.contain("credentials file").and.not.contain("Free plan").and.not.contain("Actions secret");
+    }
   });
 });
 

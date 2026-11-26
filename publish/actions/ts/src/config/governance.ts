@@ -9,8 +9,11 @@
  * policy it configures, routed to the Policy Owner by CODEOWNERS and by the section-owner-approval check.
  *
  *   governance_posture     soft | hard — soft when absent or empty (W2-Q6)
- *   policy_owner           { email, github } — the framework's first built-in role
- *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
+ *   policy_owner           { email, github, alternate } — the framework's first built-in role
+ *   check_owner            { github, alternate } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
+ *                          `alternate` (F143 A, F163 B): the role's co-approvers — one handle, or a YAML list of
+ *                          them (`alternates:` is read as the same thing). Any one of holder and alternates who is
+ *                          not the author approves for the role.
  *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
  *   models                 which model the org approves for `gov rules propose` (framework §9.3)
  *   ci                     ci.runs_on — the runner every workflow gov writes asks for (config/ci-runner.ts)
@@ -26,6 +29,7 @@ import * as path from "node:path";
 import yaml from "js-yaml";
 import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.js";
 import { classifyRunsOn, runsOnYaml, DEFAULT_RUNNER, RUNS_ON_KEY, type RunnerChoice } from "./ci-runner.js";
+import { parseHandleList } from "./role-list.js";
 
 /** Where the file lives, repo-relative. */
 export const GOVERNANCE_PATH = "policies/governance.yaml";
@@ -89,19 +93,27 @@ export interface GovernanceConfig {
   /** The file existed (and was read). An absent file is every default — and not the same fact as a chosen default. */
   readonly present: boolean;
   readonly posture: PostureChoice;
-  readonly policyOwner: { readonly email: string; readonly github: string };
-  readonly checkOwner: { readonly github: string };
+  /** `alternates`: `policy_owner.alternate` (and `.alternates`), as `@login`s — one or many (F163 B). */
+  readonly policyOwner: { readonly email: string; readonly github: string; readonly alternates: readonly string[] };
+  readonly checkOwner: { readonly github: string; readonly alternates: readonly string[] };
   readonly authorizedAgents: AuthorizedAgents;
   readonly models: {
     readonly propose: { readonly provider: string; readonly model: string };
     readonly command: string;
-    readonly ciAllowed: boolean;
   };
   /** `ci.runs_on`: the runner gov's workflows ask for. Absent or unusable → `ubuntu-latest`, `chosen: false`. */
   readonly ci: RunnerChoice;
   /** What gov could not use: bad YAML, a key it does not read, a provider it does not know. Never fatal. */
   readonly problems: readonly string[];
+  /** Not wrong, worth one line in `gov doctor`: a setting gov no longer uses that the org may delete. */
+  readonly notes: readonly string[];
 }
+
+/**
+ * `models.ci_allowed` (Q68 A, 2026-11-24): since F154 the policy pull request check never uses a model, so the
+ * setting decides nothing. An org's file may still hold it — gov ignores it (never an error) and says once it can go.
+ */
+export const CI_ALLOWED_RETIRED_NOTE = "models.ci_allowed is no longer used — you can delete it";
 
 const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v)).trim();
@@ -133,10 +145,8 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   if (provider && !(PROVIDERS as readonly string[]).includes(provider)) {
     problems.push(`models.propose.provider: "${provider}" is not one gov can call (${PROVIDERS.join(" · ")}) — no model is approved`);
   }
-  const ciRaw = models.ci_allowed;
-  if (ciRaw !== undefined && ciRaw !== null && typeof ciRaw !== "boolean") {
-    problems.push("models.ci_allowed: expected true or false — read as false");
-  }
+  const notes: string[] = [];
+  if (Object.prototype.hasOwnProperty.call(models, "ci_allowed")) notes.push(CI_ALLOWED_RETIRED_NOTE);
   let ci: RunnerChoice = DEFAULT_RUNNER;
   if (doc.ci !== undefined && doc.ci !== null) {
     if (!isMap(doc.ci)) problems.push(`ci: expected a mapping with ${RUNS_ON_KEY.split(".")[1]} (for example \`ci: { runs_on: [self-hosted, linux] }\`) — gov is using ${runsOnYaml(DEFAULT_RUNNER.runsOn)}`);
@@ -149,14 +159,36 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   return {
     present: text !== null && text !== undefined,
     posture: classifyPosture(str(doc.governance_posture)),
-    policyOwner: { email: str(po.email), github: str(po.github) },
-    checkOwner: { github: str(co.github) },
+    policyOwner: { email: str(po.email), github: str(po.github), alternates: readAlternates("policy_owner", po, problems) },
+    checkOwner: { github: str(co.github), alternates: readAlternates("check_owner", co, problems) },
     // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
     authorizedAgents: readAuthorizedAgents(text ?? null),
-    models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
+    models: { propose: { provider, model: str(propose.model) }, command: str(models.command) },
     ci,
     problems,
+    notes,
   };
+}
+
+/**
+ * A ROLE'S ALTERNATES (F143 A; F163 B, 2026-11-25). The canonical form is `alternate:` — one handle (`"ana"`, every
+ * file written before F163) or a YAML list (`["ana", "ben"]`). `alternates:` is read too, as the same thing, and the
+ * two merge when both are present. A string naming several, comma- or space-separated, is read as a list. A handle
+ * gov cannot use is a problem, said entry by entry, and the value is then read as no alternate (role-list.ts
+ * {@link parseHandleList}: a typo never quietly appoints somebody).
+ */
+function readAlternates(block: string, m: Record<string, unknown>, problems: string[]): readonly string[] {
+  const raw: unknown[] = [];
+  for (const key of ["alternate", "alternates"]) {
+    const v = m[key];
+    if (v === undefined || v === null) continue;
+    if (Array.isArray(v)) raw.push(...v);
+    else if (typeof v === "object") problems.push(`${block}.${key}: expected a handle or a list of handles — ignored`);
+    else raw.push(v);
+  }
+  const { handles, errors } = parseHandleList(raw);
+  if (errors.length) problems.push(`${block}.alternate: ${errors.join("; ")} — read as no alternate`);
+  return handles;
 }
 
 /** Read `<home>/policies/governance.yaml`. Absent → the defaults, with `present: false`. */
@@ -170,17 +202,22 @@ function defaultRead(abs: string): string | null {
 
 /**
  * THE MODEL SETTINGS `gov rules propose` READS (framework §9.3). `provider` is null when no model is approved — an
- * empty provider, or one gov cannot call. `ciAllowed` is true only when the file says exactly `true`.
+ * empty provider, or one gov cannot call.
  */
-export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string; ciAllowed: boolean } {
+export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string } {
   const p = g.models.propose.provider;
   const provider = (PROVIDERS as readonly string[]).includes(p) ? (p as ModelProvider) : null;
-  return { provider, model: g.models.propose.model, command: g.models.command, ciAllowed: g.models.ciAllowed };
+  return { provider, model: g.models.propose.model, command: g.models.command };
 }
 
 /** The framework's two built-in roles' handles, as written (CODEOWNERS and the role checks normalise them). */
 export function frameworkOwners(g: GovernanceConfig): { policyOwner: string; checkOwner: string } {
   return { policyOwner: g.policyOwner.github, checkOwner: g.checkOwner.github };
+}
+
+/** The two built-in roles' alternates (F143 A, F163 B), as `@login`s; empty when none is named. */
+export function frameworkAlternates(g: GovernanceConfig): { policyOwnerAlternates: readonly string[]; checkOwnerAlternates: readonly string[] } {
+  return { policyOwnerAlternates: g.policyOwner.alternates, checkOwnerAlternates: g.checkOwner.alternates };
 }
 
 /** The content tokens these values fill — they came from org-config.yaml's keys before the split. */
@@ -198,13 +235,13 @@ export function governanceTokens(g: GovernanceConfig): Record<string, string> {
 /* ─────────────────────────────── what a change changed ─────────────────────────────── */
 
 const handle = (h: string): string => (h ? `@${h.replace(/^@/, "")}` : "vacant");
+const alts = (l: readonly string[]): string => (l.length ? l.join(", ") : "none");
 const agentsText = (a: AuthorizedAgents): string =>
   a.kind === "unset" ? "the framework's defaults" : a.kind === "none" ? "none"
     : a.agents.map((x) => (x.default ? `${x.id} (default)` : x.id)).join(", ") || "none";
 const modelText = (g: GovernanceConfig): string => {
-  const { provider, model, command, ciAllowed } = modelSettings(g);
-  const which = provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
-  return `${which}; CI ${ciAllowed ? "may" : "may not"} use it`;
+  const { provider, model, command } = modelSettings(g);
+  return provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
 };
 
 /**
@@ -220,7 +257,9 @@ export function describeGovernanceChanges(baseText: string | null, headText: str
   pair("Governance posture", posture(b.posture), posture(h.posture));
   pair("Policy Owner", handle(b.policyOwner.github), handle(h.policyOwner.github));
   pair("Policy Owner email", b.policyOwner.email || "none", h.policyOwner.email || "none");
+  pair("Policy Owner's alternates", alts(b.policyOwner.alternates), alts(h.policyOwner.alternates));
   pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
+  pair("Check Owner's alternates", alts(b.checkOwner.alternates), alts(h.checkOwner.alternates));
   pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
   if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
   const runner = (c: RunnerChoice): string => `${runsOnYaml(c.runsOn)}${c.chosen ? "" : " (the default)"}`;
@@ -261,15 +300,21 @@ export function renderGovernance(v: GovernanceValues): string {
 governance_posture: "${v.governancePosture}"
 
 # THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
+# alternate: the Policy Owner's co-approvers — one handle, or a list such as ["ana", "ben"]. A change needs two
+# people: its author and one approver, who may be the Policy Owner or ANY alternate other than the author. Every
+# role should have one; the Policy Owner appoints them by pull request. \`gov doctor\` reports a role with none.
 policy_owner:
   email: "${v.policyOwnerEmail}"
   github: "${v.policyOwnerGithub}"
+  alternate: ""
 
 # THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
-# Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
-# two-key review off; \`gov doctor\` says so.
+# Left empty, the role is vacant and its alternates (else the Policy Owner) approve that code. One person in both roles turns the
+# two-key review off; \`gov doctor\` says so. alternate: the Check Owner's co-approvers, one handle or a list; the
+# Check Owner or any one of them, other than the author, approves.
 check_owner:
   github: "${v.checkOwnerGithub}"
+  alternate: ""
 
 # WHICH AI AGENTS THIS ORGANIZATION AUTHORIZES, and which gov launches by default. Every id comes from the
 # framework's list (\`gov agent list\`); \`gov agent approve <id>\` raises the pull request that adds one.
@@ -282,13 +327,12 @@ authorized_agents:
 #   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
 #   propose.model      the model id, for the anthropic and gemini providers.
 #   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
-#   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
+# The policy pull request check never uses a model: propose runs at your terminal, with your key.
 models:
   propose:
     provider: ""
     model: ""
   command: ""
-  ci_allowed: false
 
 # HOW FAR \`gov autorun\` MAY GO IN ONE RUN (see the user guide running-the-lifecycle.md). Ceilings, not suggestions:
 #   item_minutes   wall-clock minutes one item's agent may run before it is stopped (\`--max-minutes\` may only lower it)

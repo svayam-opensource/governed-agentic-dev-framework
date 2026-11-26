@@ -178,8 +178,11 @@ Some of your rules will be enforced by small programs, called **actions**, that 
 a repository. An action is code, and code needs a reviewer who can read it. The **Check Owner** reviews every
 executable action your organization adds under `policies/actions/`.
 
-`policies/governance.yaml` names them, under `check_owner`. By default the Policy Owner holds this role too. That
-works, but it removes the second pair of eyes, so `gov doctor` warns you when one person holds both roles.
+`policies/governance.yaml` names them, under `check_owner`. The Check Owner is also the second person who approves
+the Policy Owner's own changes: nobody approves their own pull request, so a change the Policy Owner makes waits
+for the Check Owner. Setup asks for that person, as a teammate's GitHub handle, and the answer is optional. If you
+name nobody, the Policy Owner holds this role too. That works, but it removes the second pair of eyes, so
+`gov doctor` warns you when one person holds both roles.
 
 The split exists because the two approvals answer different questions. The Policy Owner approves the
 **intent**: is this what we want to require? The Check Owner approves the **code**: does this program check
@@ -200,9 +203,42 @@ The framework asks only that the answers be **written down, with names**, in
 ### 2.4 When a role falls vacant
 
 The framework's two roles must always have a named holder. Setup will not finish without both.
-`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, the Policy Owner does
-that work. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
+`gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, its alternates do
+that work, or the Policy Owner when it has none. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
 vacancy falls to the Policy Owner until someone is named.
+
+### 2.5 Every role has an alternate
+
+A change needs two people: the person who proposes it, and one person who approves it. Anyone may propose a
+change. The approver comes from the **approver list** of the role that owns what the change touches, and may
+be anyone on that list except the person who proposed it.
+
+A role's approver list is its holder plus any number of named **alternates**. Every role, the framework's two
+included, should have at least one. An alternate is a full co-approver, not a stand-in: when a role has a
+holder and two alternates, any one of those three people can approve a change the other two wrote, and one
+approval is enough.
+
+Where the alternates are written down:
+
+- The Policy Owner's and the Check Owner's are `policy_owner.alternate` and `check_owner.alternate` in
+  `policies/governance.yaml`. Each takes one handle, such as `alternate: "ana"`, or a list, such as
+  `alternate: ["ana", "ben"]`. A file that names a single alternate keeps working as it is. gov also reads
+  the key spelled `alternates`, as the same thing.
+- Every other role's are in the Alternate column of the role table in
+  `policies/common/authorized-representatives.md`, as one or more handles separated by commas, such as
+  `@ana, @ben`. A role table written before the column existed still works; its roles have no alternate.
+
+A handle gov cannot read is reported, row by row, and that row or setting is read as naming no alternate
+until it is fixed. A mistyped name never quietly makes somebody an approver.
+
+While a role is vacant, its alternates are its approver list. That includes the framework's two roles. While
+the Policy Owner role is vacant, its alternates act as the Policy Owner for approvals: any one of them approves
+changes to who owns what and to `policies/governance.yaml`, and they approve for every role whose own list is
+empty. The role still needs a holder, and `gov doctor` keeps reporting it until it has one.
+
+The Policy Owner appoints an alternate by pull request, like any holder. An agent never appoints anybody.
+`gov doctor` shows every role's approver list, and lists every role that has no alternate, as advice rather
+than a failure.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §2`.*
 
@@ -279,7 +315,9 @@ For task branches, use `gov merge`. It lands a task sub-branch into its project 
 
 Even in the soft posture (§11.1), where a direct push to the default branch is technically possible, a check
 looks at every push to a default branch. It confirms that each commit pushed arrived through a merged pull
-request. A commit that did not is recorded as a violation for the Policy Owner to review. gov does not try to
+request. A commit that did not is recorded as a violation for the Policy Owner to review. The one commit it
+does not ask this of is the one setup makes when it creates a new governance repository, before anyone works
+in it: that commit brings the checks themselves, so no pull request could have carried it. gov does not try to
 undo it automatically, because reverting a shared default branch could destroy work other people have already
 pulled.
 
@@ -290,11 +328,31 @@ Approval follows what the change touches.
 **Policy is approved section by section.** Your policy documents say, in plain English, who owns each
 section, for example *"Section 4 is owned by the Data Owner."* gov reads those sentences into
 `policies/ownership.yaml`. When a pull request changes a policy, gov works out which sections changed, asks
-each section's owner to review, and requires every one of them to approve. There are three guard rails:
+each owning role's approvers to review, and requires an approval for every one of those roles. There are four
+guard rails:
 
 - A section that names no owner belongs to the Policy Owner.
 - A change to who owns what always needs the Policy Owner. Nobody can hand a section to themselves.
+- A change to the policy's title page needs the Policy Owner. The title page is
+  `policies/policy-document.yaml`: the policy's title, who approved it, the chapter introductions and the
+  glossary.
 - An executable action under `policies/actions/` needs the Check Owner (§2.2).
+
+**One approval from the role's list, never from the author.** Each approval a change needs can be given by
+anyone on that role's approver list: its holder or any of its alternates (§2.5), except the person who
+proposed the change. One approval from the list is enough for that role. A change that touches sections owned
+by two roles needs one approval from each role's list. One person on both lists can give both.
+
+When a role's list is empty once the author is left out, because the role is vacant and has no alternates, or
+because the author is the only person on it, the approval falls to the Policy Owner's list, and then to the
+Check Owner's, again leaving the author out. The request for review goes to everyone on the list and names
+them, for example "any of @ana, @ben", and says why when it fell to another role. When nobody but the author
+is on any list that could approve the change, the check says so and says who to add: a second person as an
+alternate, for example in `policy_owner.alternate`. When nobody but the author holds any role or alternate at
+all, §11.1 says what happens to the change.
+
+The approval check on the platform (§7.3) counts everyone on every role's approver list as an authorized
+representative.
 
 **Knowledge is approved folder by folder.** gov generates `CODEOWNERS` from your role list:
 
@@ -418,12 +476,23 @@ your policies as they were is kept in `policies/history/<x.y.z>/`, and nobody ma
 (These copies used to live in `policies/version/`. On a Mac or a Windows machine, a folder of that name and the
 file `policies/VERSION` count as the same name, so one of them went missing. `gov upgrade` moves the old copies
 for you, unchanged, and moving them is allowed.)
+A row is also stamped with a date, and that date is always the day in UTC. The policy pull request check takes
+"today" from the time of the pull request's last commit, also as the day in UTC. So where the person committing
+lives does not matter: just after midnight in India it is still the previous day in UTC, and a row gov stamped a
+moment earlier still counts as today's.
 `policies/CHANGELOG.md` records:
 
 - what changed
 - who changed it
 - who approved it
 - the pull request that made the change
+
+You write all of this yourself, in your own commit, with `gov rules propose`, before the pull request opens.
+Only the pull request's number has to wait until the pull request exists. Until then the changelog entry says
+"_not yet open_" and the new rows carry no number. `gov close` adds the number, in your name, as soon as it
+opens the pull request. If you open the pull request another way, run `gov rules propose` again: it finds the
+open pull request and adds the number, without asking the model anything. Then commit and push. The policy
+pull request check never passes an entry that does not name its pull request.
 
 ### 9.3 How a section becomes rules
 
@@ -447,17 +516,21 @@ revised, retired or kept. A section the pull request removed is listed with the 
 section again after it was reviewed means it must be reviewed again. Changing only spacing or line breaks is not
 a change.
 
-You can run it yourself, which is the normal way. It also runs on a policy pull request when the rows are out
-of date. gov issues every new id itself; a language model never does. A commit made by a bot never counts as
-an approval.
+You run it yourself, before you open the pull request. On the pull request, gov only checks. When the rows are
+out of date, a changed section has not been reviewed, or the version, the copy, the stamps or the changelog entry
+are missing, the check fails and tells you to run `gov rules propose` on your branch, then commit and push. gov
+never pushes a commit to your pull request. In a private repository, GitHub holds every check on a commit pushed
+by a bot until someone approves the run, so a bot's commit would hide the checks you need to see. gov issues
+every new id itself; a language model never does. A commit made by a bot never counts as an approval.
 
 Reading your policy and suggesting rows is done by a language model, so your policy text is sent to it. gov
 sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
 `models:`. gov can use a Claude model from Anthropic, a Gemini model from Google, or a command-line program you
-name that reads the request and prints the reply. You also decide there whether the pull request check may
-use it. Until you approve one, propose refuses and tells you where to do it. When the check does use it, gov
-pushes its suggestion to the pull request with the repository's own token. GitHub does not re-run checks after
-such a push, so gov asks you to re-run them.
+name that reads the request and prints the reply. A change that rewords no section, such as an edit to the title
+page, needs no model: propose then writes only the new version number, the copy of the previous version and the
+changelog entry. When a section does need reading and no model is approved, propose refuses, names that section,
+and tells you where to approve one. The pull request check never uses a model. An older `governance.yaml` may
+still have a `ci_allowed` line under `models:`; gov ignores it, and `gov doctor` says you can delete it.
 
 ### 9.4 Stricter, never laxer
 
@@ -521,7 +594,7 @@ ci:
 
 `runs_on` is one runner label, or a list of labels a runner must carry every one of. A self-hosted runner needs
 `git` and the GitHub CLI, `gh`, on the runner service's PATH. gov reads and writes GitHub through `gh`, and GitHub's
-hosted runners already have it. The workflow installs Node itself. If `git` or `gh` is missing, each check fails,
+hosted runners already have it. The workflow installs Node itself. Nothing else is needed: no workflow gov installs runs `jq`, Python or any other tool a bare machine may lack. Where a check filters what GitHub returns, the filter runs inside `gh` itself (`gh api --jq`), and the rest is the shell's standard tools — `awk`, `sed`, `grep`, `sort`. If `git` or `gh` is missing, each check fails,
 under soft posture as well as hard, and says which tool to install. A check that could not run says nothing about
 the change, so it is never shown as passed. Any other check that cannot tell keeps the rules of your posture
 (§11.1). gov then uses it in the
@@ -714,16 +787,34 @@ A developer who clones a repository and pushes by hand runs none of gov's code, 
 When you choose `hard` during setup, gov warns you first. Choosing "hard" requires your repositories to be
 public, or a paid GitHub plan. You are then asked to confirm, and the default answer is no.
 
+Hard also needs a second person. Under `hard`, a change the Policy Owner makes cannot merge until someone else
+approves it, so setup applies `hard` only when you named a Check Owner who is not the Policy Owner. If you named
+nobody, setup records `soft` and says why. To switch later, name a Check Owner (`check_owner.github` in
+`policies/governance.yaml`), then set `governance_posture: hard` there, each by pull request, and run
+`gov repo protect apply`.
+
 Under `hard`, `gov repo protect apply` also makes each rule's pull-request check a required check, on the
 governance repository and on each code repository. A failing check then stops the merge, so the rule is
 **prevented**. It also blocks force pushes on project branches (§7.6). Under `soft` the same checks run and
 report, but nothing waits for them, so they are **detected**.
 
-Detected means recorded. When a pull request merges under `soft` while any of gov's checks on it has failed,
-the push to the default branch opens one violation record for the Policy Owner. The record names the pull
-request and each failed rule with what it found, and says the pull request merged under soft posture with
-those checks failing. A pull request gets one record, however many times the push is checked. Under `hard`
-this cannot happen, because the checks are required.
+Detected means recorded. When a pull request merges while any of gov's checks on it has failed, the push to
+the default branch opens one violation record for the Policy Owner. The record names the pull request and each
+failed rule with what it found, and says it merged with those checks failing. A pull request gets one record,
+however many times the push is checked. Where `hard` has protected the branch this cannot happen, because the
+checks are required. But a private repository on GitHub Free cannot be protected, so under `hard` there the
+merge can still go ahead, and it is recorded the same way.
+
+**Solo mode.** While nobody other than one person holds any role or is any role's alternate, nobody can
+approve that person's changes, and the rule that nobody approves their own work does not bend. Under `soft`,
+the approval checks still fail on such a change, but they say why in distinct words: *self-merged: no second
+person*. When the change merges, the push records it honestly as a self-merge. It is **evidence, not a
+violation**: no violation record is opened for it. Instead, one open issue labelled `gov-solo-mode` stands as
+the notice that the organization is in solo mode, and each self-merge is an entry on it, naming the pull
+request. Any other gov check that failed on the same pull request still opens a violation record as usual.
+The notice closes by itself on the first push after a second person holds a role or an alternate, and
+`gov doctor` reports solo mode while it lasts. Under `hard` nothing changes: a change nobody else can approve
+cannot merge, and if it merges anyway it is a violation.
 
 Under `hard`, no gov command writes to a protected branch. `gov seed` creates the project branch and nothing
 else. Closing a project leaves the governance pull request for a person to merge.
@@ -756,8 +847,8 @@ The rule map (§9.7) is honest about this: a rule held up only by a cue, or by n
 ### 11.4 Where the secrets live, and why the plan matters
 
 Some checks need a secret: a code repository's check needs the GitHub App's two credentials to read the rules
-(§9.5), and the governance repository needs your approved model's key when CI may propose rules (§9.3). A
-secret can be stored once for the whole organization, or separately on each repository.
+(§9.5). The governance repository needs no model key, because the pull request check never uses a model
+(§9.3). A secret can be stored once for the whole organization, or separately on each repository.
 
 **On the GitHub Free plan, an organization secret never reaches a private repository.** The workflow still
 runs, but the secret arrives empty, and GitHub gives no warning. Organization secrets reach a repository only
@@ -776,9 +867,6 @@ see the plan, so when gov cannot read it, it says it cannot tell and never assum
   to delete on the App's page.
 - `gov app check` and `gov doctor` name each repository that will not receive a secret it needs, with the
   fix: a repository secret, or `gov app rotate`.
-- When CI cannot propose rules because the model's key is missing, the message says that organization secrets
-  do not reach private repositories on the Free plan, and gives the command that sets the key on the
-  repository.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §11`.*
 

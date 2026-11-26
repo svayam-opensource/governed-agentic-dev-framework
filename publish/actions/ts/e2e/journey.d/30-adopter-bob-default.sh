@@ -9,6 +9,8 @@ scenario "30 · adopter founds an org, IBM Bob as the default"
 
 export GH_STUB_LOGIN="acme"          # the org we adopt for, and the board owner
 export GH_STUB_GOVERNED=""           # nobody has adopted for it yet
+export GH_STUB_ORG_NAME="Acme Incorporated"  # its display name on GitHub: the default for the names (F158)
+export GH_STUB_REPOS="acme/gov_repo"  # the governance repo, readable once made — the practice project's pre-seed check
 
 # The vendor installer, doubled at `curl` — the command gov runs is unchanged.
 cat > "$WORLD/bin/curl" <<EOF
@@ -24,42 +26,18 @@ chmod +x "$WORLD/bin/curl"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-# TWELVE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
-# second, and the repository is created only after Q12 — so this block is the whole
-# interview, uninterrupted, and the `creating acme/acme-gov` line comes after it.
+# THREE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215, F158). The organization first, then its identifier, then
+# the agents — and the repository is created only after Q3's confirmation, so this block is the whole interview,
+# uninterrupted, and the `creating acme/gov_repo` line comes after it. Everything else is a default, printed back.
 ~ 240
-> Q1 - What is full legal name
-< Acme Incorporated
-# Q2 defaults to the legal name just given, so Enter is the honest answer here.
-> Q2 - What is short name
-<
-> Q3 - What is the Github Organization ID
+> Q1 - What is the GitHub organization
 < acme
-# The #197 probe runs here, the instant the org is known — before any question that
-# only a creator could answer.
+# The #197 probe runs here, the instant the org is known — before any question that only a creator could answer.
 ~ 240
-> Q4 - What would you like the name of your new governance repo
-< acme-gov
-> Q5 - What would you like the identifier
+> Q2 - What would you like the identifier
 < ACME
-> Q6 - Default branch to be used for production
-<
-> Q7 - Default branch to be used for development
-<
-# Q8–Q10 — BOTH ROLES BY GITHUB HANDLE, THEN AN OPTIONAL CONTACT (adoption walk #1, 2026-10-07).
-# Answered, not defaulted: the defaults are the gh login (which the container may not have) and the
-# git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
-> Q8 - Who is the Policy Owner
-< adopter
-> Q9 - Who is the Check Owner
-< adopter
-> Q10 - What contact email
-< adopter@acme.test
-# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q11 - What governance posture
-<
 ~ 240
-# Q12 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# Q3 — THE AGENT POLICY, INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
 # after the repository existed, which put the one genuine policy decision in adoption on the
 # far side of the irreversible step. One agent at a time now: the old shape was a
 # space-separated list, where a typo silently changed the organization's default.
@@ -72,8 +50,6 @@ drive "$(conv <<'C'
 # And it is read back before it becomes a rule.
 > happy with your AI agent selection
 < y
-> Create it\? \[y/N\]
-< y
 ~ 240
 > review your governance policies now
 < n
@@ -82,40 +58,44 @@ C
 
 info "#215 — every question precedes the work, and the work is reported back"
 saw "the interview opens with a header that says what is about to happen" "Adopting Governance Framework for your organization"
-# ORDER, not merely presence: a human's own words for their organization come before
-# the identifier a machine needs. Asserted by position, because both lines exist
-# either way and only the order is the change.
-q1="$(grep -n 'Q1 - What is full legal name' "$PLAIN" | head -1 | cut -d: -f1)"
-q3="$(grep -n 'Q3 - What is the Github Organization ID' "$PLAIN" | head -1 | cut -d: -f1)"
-create="$(grep -n 'creating acme/acme-gov' "$PLAIN" | head -1 | cut -d: -f1)"
+# F158: the organization is asked FIRST, the names are not asked at all, and every value is printed before creation.
+q1="$(grep -n 'Q1 - What is the GitHub organization' "$PLAIN" | head -1 | cut -d: -f1)"
+q2="$(grep -n 'Q2 - What would you like the identifier' "$PLAIN" | head -1 | cut -d: -f1)"
+create="$(grep -n 'creating acme/gov_repo' "$PLAIN" | head -1 | cut -d: -f1)"
 q9="$(grep -n 'happy with your AI agent selection' "$PLAIN" | head -1 | cut -d: -f1)"
-[ -n "$q1" ] && [ -n "$q3" ] && [ "$q1" -lt "$q3" ] \
-  && pass "the legal NAME is asked before the GitHub identifier" \
-  || fail "the legal NAME is asked before the GitHub identifier"
+summary="$(grep -n 'These are the values your new governance repo will be set up with' "$PLAIN" | head -1 | cut -d: -f1)"
+[ -n "$q1" ] && [ -n "$q2" ] && [ "$q1" -lt "$q2" ] \
+  && pass "the GitHub organization is asked first, then the identifier" \
+  || fail "the GitHub organization is asked first, then the identifier"
 # The whole point of #215: nothing irreversible happens until the last answer is in.
 [ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
-  && pass "nothing is created until the LAST question (Q12's confirmation) is answered" \
-  || fail "nothing is created until the LAST question (Q12's confirmation) is answered"
-# Walk #1 and #3 (2026-10-07): both roles asked by handle, and a numbered question says what Enter does.
-saw "the Policy Owner is ASKED by GitHub handle, not taken from the gh login" "Q8 - Who is the Policy Owner"
-saw "the contact email is optional, and says so" "(optional"
-saw "a numbered question names its default and the option it stands for" "Choose [1/2] (Enter = 1, soft) : "
-saw "and the branch question does too" "Choose [1/2] (Enter = 1, main) : "
+  && pass "nothing is created until the LAST question (Q3's confirmation) is answered" \
+  || fail "nothing is created until the LAST question (Q3's confirmation) is answered"
+[ -n "$summary" ] && [ -n "$create" ] && [ "$summary" -lt "$create" ] \
+  && pass "every value used is printed before anything is created" \
+  || fail "every value used is printed before anything is created"
+never "the legal name is no longer asked" "What is full legal name"
+never "nor the repository name" "What would you like the name of your new governance repo"
+never "nor the owners, the email or the posture" "Who is the Policy Owner"
+saw "the names default to GitHub's display name" "Acme Incorporated   (default · org-config.yaml)"
+saw "the repository is gov_repo" "acme/gov_repo   (default · org-config.yaml)"
+saw "the Policy Owner is the signed-in login" "@acme   (default · policies/governance.yaml)"
+saw "and the summary says how to change any of it" "changed later by a pull request"
 saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
 saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
 never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"
 
 info "#196 — the agent policy is asked one agent at a time, and read back"
 saw "the default is its own question" "default for your organization"
-saw "additions are offered one at a time" "add any other AI agent to the allowed list"
+saw "the others are one multi-select (F158)" "add any other AI agent to the allowed list"
 saw "the selection is read back before it becomes a rule" "You have selected"
 saw "naming the default explicitly" "'IBM Bob' (default)"
 saw "and it says where the answer can be changed" "org-config.yaml"
 never "the old space-separated shape is gone" "separated by spaces"
 
 info "founding"
-saw "it creates the repository from the framework template" "creating acme/acme-gov"
-gh_ran "and does so through gh, with --template" "repo create acme/acme-gov --template"
+saw "it creates the repository from the framework template" "creating acme/gov_repo"
+gh_ran "and does so through gh, with --template" "repo create acme/gov_repo --template"
 exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/policies/governance.yaml"
 
 # THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22). svm-geneva-gov was created with ~450 of the framework's
@@ -134,7 +114,7 @@ saw "setup creates their preferences file" "preferences.json"
 saw "and names the command that changes it" "gov preferences"
 
 info "#196 — the org decides which agents it allows, during adoption"
-says "the question is asked" "Which AI agents may be used in this organization"
+says "the question is asked (F158 wording)" "Which AI agent would you like to use as the default in your organization"
 saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
 runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
   && pass "ibm-bob is in policies/governance.yaml — the authorized list is a file, not a memory" \
@@ -161,6 +141,33 @@ never "and so is <GITHUB_ORG>" "<GITHUB_ORG>"
 # both asking to be reported. Any ⚠ line anywhere in a clean founding run is the same class of defect.
 never "#193 — a clean adoption ends with zero ⚠ lines" "⚠"
 never "and never asks the adopter to report gov's own warnings" "tell gov-work"
+
+info "F136 — the practice project is made without a question: board, anchor labelled practice, one task issue"
+never "the old starter question is gone" "Create it?"
+gh_ran "the board is 'Make the policy ours'" "project create --owner acme --title Make the policy ours"
+gh_ran "its anchor is in the governance repo" "issue create --repo acme/gov_repo --title Make the policy ours: project scope & anchor"
+gh_ran "labelled practice beside anchor — how gov-licence finds it (Q39 A)" "--label anchor --label practice"
+gh_ran "and the one task: the title-page change" "issue create --repo acme/gov_repo --title Put our name on the policy"
+saw "the adopter is told it exists" "Your practice project"
+
+info "F158 — no second person is asked at setup: the Policy Owner holds Check Owner; the practice task says how to name one"
+never "Q9 is gone" "Who will approve your own changes"
+runs grep -qE '^check_owner:' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && runs grep -qE '^[[:space:]]+github: "?@acme"?$' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "governance.yaml names the Policy Owner as Check Owner" || fail "governance.yaml does not name @acme as Check Owner"
+gh_ran "the practice task says nobody else was named" "You named nobody else at setup,"
+
+info "F136 G2 — the approval check and the rules' checks are in the setup commit itself (Q42 C)"
+G="$HOME/.gov/acme/gov_repo"
+[ "$(git -C "$G" log -1 --format=%s)" = "configure the framework for this org" ] \
+  && pass "the setup commit is the one landed-by-pr exempts, by its subject" || fail "the setup commit's subject changed — landed-by-pr would not exempt it"
+in_setup="$(git -C "$G" show --name-only --format= HEAD)"     # captured: grep -q would SIGPIPE git under pipefail
+for wf in .github/workflows/approver-check.yml .github/workflows/gov-checks.yml policies/governance.yaml; do
+  grep -qxF "$wf" <<<"$in_setup" \
+    && pass "the setup commit carries $wf" || fail "the setup commit does not carry $wf"
+done
+saw "and setup says so" "the approval check and the rules' checks"
+never "soft posture — the default — protects nothing" "Hard posture — protecting"
 
 info "#186 — the closing screen is the founder's, and it is the truth"
 saw "the ADOPTER's next steps" "Install complete — for ADOPTERS"

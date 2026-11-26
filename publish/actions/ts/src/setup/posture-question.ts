@@ -36,3 +36,36 @@ export async function confirmPosture(chosen: GovernancePosture, prompt: (questio
   const reply = ((await prompt(`${HARD_POSTURE_CONFIRMATION} `, "")) ?? "").trim().toLowerCase();
   return reply === "y" || reply === "yes" ? "hard" : "soft";
 }
+
+/**
+ * HARD NEEDS A SECOND PERSON (Policy Owner ruling Q44 A, 2026-11-23). Under hard, a policy change by the Policy Owner
+ * waits for the Check Owner; with nobody else in that role it can never merge. So setup does not apply hard without a
+ * second person: it records soft and says why, and how to switch once someone is named.
+ */
+export const HARD_NEEDS_SECOND_PERSON: readonly string[] = [
+  "  Hard posture needs a second person to approve the Policy Owner's own changes, and none was named,",
+  "  so your organization starts with soft posture.",
+  "  To switch to hard later: name a teammate as Check Owner (`check_owner.github` in policies/governance.yaml),",
+  "  then set `governance_posture: hard` there, each by pull request, and run `gov repo protect apply`.",
+];
+
+/** Is there a second person — a Check Owner who is not the Policy Owner? */
+export function hasSecondPerson(policyOwner: string, checkOwner: string | null | undefined): boolean {
+  const key = (h: string) => h.trim().replace(/^@+/, "").toLowerCase();
+  return !!checkOwner && !!key(checkOwner) && key(checkOwner) !== key(policyOwner);
+}
+
+/**
+ * The posture question and its consequences, in order: the answer; under hard with no second person, the reason
+ * soft is kept (no confirmation is asked — the answer cannot stand); under hard with one, the confirmation.
+ */
+export async function askPosture(
+  answer: string, second: boolean, prompt: (question: string, def: string) => Promise<string>, print: (line: string) => void,
+): Promise<GovernancePosture> {
+  const chosen = parsePostureAnswer(answer) ?? "soft";
+  if (chosen === "hard" && !second) {
+    for (const l of HARD_NEEDS_SECOND_PERSON) print(l);
+    return "soft";
+  }
+  return confirmPosture(chosen, prompt);
+}

@@ -165,6 +165,16 @@ export function createMemoryWorkTracker(seed: MemoryWorkTrackerSeed = {}): Memor
         .filter((m) => !q.state || m.state === q.state)
         .map(view));
     },
+    async comments(i) {
+      const m = items.get(i.url);
+      return m ? ok([...m.comments]) : noItem(i);
+    },
+    async recent(where, labels) {
+      return ok([...items.values()]
+        .filter((m) => m.url.startsWith(`memory://${where.owner}/${where.name}/`))
+        .filter((m) => labels.every((l) => m.labels.includes(l)))
+        .reverse().slice(0, 50).map(view));
+    },
     async createProject(owner, title) {
       if (!title.trim()) return fail("a project needs a title");
       const used = [...projects.values()].filter((p) => p.ref.owner.toLowerCase() === owner.toLowerCase()).map((p) => p.ref.number);

@@ -1,0 +1,26 @@
+# THE FRESH ADOPTER'S ANSWERS — one conversation, driven twice (Q62 A / Q64 A):
+#   LIVE        e2e/fresh-adoption-journey.sh, the real first-run interview against FRESH_ADOPT_ORG, timed
+#   HERMETIC    journey.d/34-fresh-adoption-conversation.sh, the same file against the stub gh, on every PR —
+#               so a reworded prompt breaks a hermetic scenario first, not the timed live run.
+# Placeholders (@NAME@) are filled by render_conv in each driver. Format: pty/drive.exp.
+#
+# The path the home page promises: soft posture (the default), no AI agents (no installer, no sign-in), the
+# practice project made by setup without a question.
+~ 300
+> Select \(A/B/C\)
+< A
+# THREE QUESTIONS (F158, 2026-11-25): the organization, its identifier, its agents. Everything else is a default —
+# the repository is gov_repo, the Policy Owner the signed-in login, soft posture — and is printed back before setup.
+> Q1 - What is the GitHub organization
+< @ORG@
+> Q2 - What would you like the identifier
+< @SLUG@
+> Q3 - Which AI agent would you like to use as the default
+> default for your organization
+< none
+> happy with
+< y
+# Creating the repository, seeding it, the setup commit, the practice board, its anchor and task, `gov seed`.
+~ 600
+> policies now
+< n

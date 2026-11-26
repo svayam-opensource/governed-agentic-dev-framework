@@ -18,7 +18,7 @@ when it is a branch a real person can land on and a unit test cannot reach.
 | 16 | types `org/repo` into the organization question | explained, asked again — not ended (#192) |
 | 18 | Enter at the organization question | stops cleanly, names `gov setup <org>/<repo>` |
 | 30 | founds an org, IBM Bob as default | **the path no walk has ever completed** |
-| 31 | founds, declines the starter project | adoption still completes; nothing claims otherwise |
+| 31 | founds; the practice project cannot be made (no `project` scope) | adoption still completes; nothing claims otherwise |
 
 ## Preflight — the refusals that protect an org (`create.ts`)
 | | scenario | |

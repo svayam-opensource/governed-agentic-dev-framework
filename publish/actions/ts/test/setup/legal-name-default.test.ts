@@ -61,14 +61,15 @@ describe("gov-work — the legal name has a default worth accepting (#210)", () 
     expect(printed.join("\n")).to.not.match(/cannot be empty|✗/);
   });
 
-  it("first-run adoption: when a name IS known, Q1 offers it and Enter takes it", async () => {
+  it("first-run adoption: when an organization IS known, Q1 offers it and Enter takes it; the name follows (F158)", async () => {
     const asked: string[] = [];
     const r = await askOrgInterview({
-      prompt: async (q) => { asked.push(q); return /^Q3 /.test(q) ? "acme" : /^Q8 |^Q9 /.test(q) ? "rk" : ""; },
+      prompt: async (q) => { asked.push(q); return ""; },
       print: () => {},
       derive: (partial) => deriveOrgConfig(partial, { originUrl: ORIGIN, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-10-12" }),
     });
     expect(asked[0]).to.match(/^Q1 [\s\S]*Enter Value \[Acme\] : $/);
-    expect(r?.answers.orgName).to.equal("Acme");
+    expect(r?.org).to.equal("Acme");
+    expect(r?.answers.orgName, "not asked: the organization's login when GitHub has no display name").to.equal("Acme");
   });
 });

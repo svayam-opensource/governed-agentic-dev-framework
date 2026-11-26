@@ -20,7 +20,7 @@ import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
 import { lifecycleDiagnostic } from "../intent/lifecycle-policy.js";
 import { lettersDiagnostic } from "../signal/letters.js";
-import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
+import { alternatesDiagnostic, checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic, soloModeDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -138,6 +138,11 @@ export interface DoctorFacts {
   readonly lifecycleText?: string | null;
   /** Every tracked file under `projects/` (repo-relative), for the retired-letters advisory. undefined = not listed. */
   readonly projectFiles?: readonly string[];
+  /**
+   * The set-up breadcrumb, `~/.gov/setup-state.json` (#391): each step done or pending, and whether a set-up signal
+   * for gov web is waiting. Built by `setupTrailDiagnostic`, which never includes the code. Absent = no trail.
+   */
+  readonly setupTrail?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string } | null;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -262,6 +267,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       policyOwnerDiagnostic(facts.governanceText),
       checkOwnerDiagnostic(facts.governanceText),
       roleListDiagnostic(facts.roleListText),
+      // EVERY ROLE HAS AN ALTERNATE (F143 A), and whether this organization is in solo mode (Q45 C).
+      alternatesDiagnostic(facts.governanceText, facts.roleListText),
+      soloModeDiagnostic(facts.governanceText, facts.roleListText),
       codeownersDiagnostic(facts.governanceText, facts.roleListText, facts.codeownersText),
     ].filter((d): d is Diagnostic => d !== null),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
@@ -293,6 +301,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     ...(facts.githubApp && secretsDiagnostic(facts.githubApp) ? [secretsDiagnostic(facts.githubApp)!] : []),
     ...(facts.checksInstall ? [facts.checksInstall] : []),
     ...(facts.evidence ? [facts.evidence] : []),
+    ...(facts.setupTrail ? [facts.setupTrail] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }
@@ -326,9 +335,11 @@ function adaptersRows(text: string): Diagnostic[] {
 function governanceRow(text: string | null): Diagnostic {
   if (text === null) return { name: "governance", status: "warn", detail: `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves your governance choices there from org-config.yaml` };
   const g = parseGovernance(text);
+  // A note (a setting gov no longer uses) is said, never warned: the file is still read as written.
+  const notes = g.notes.length ? `; ${g.notes.join("; ")}` : "";
   return g.problems.length
-    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}` }
-    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read` };
+    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}${notes}` }
+    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read${notes}` };
 }
 
 const MARK: Record<DiagnosticStatus, string> = { ok: "\u2713", warn: "!", fail: "\u2717" };

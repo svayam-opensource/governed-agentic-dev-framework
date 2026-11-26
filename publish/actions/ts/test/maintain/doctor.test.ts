@@ -246,6 +246,12 @@ describe("policies/governance.yaml — the governance row", () => {
     expect(row("governance_posture: soft\n")!.status).to.equal("ok");
     expect(row(undefined)).to.equal(undefined);
   });
+  it("Q68 A: a retired models.ci_allowed is no warning — one note that it can be deleted", () => {
+    const r = row("governance_posture: soft\nmodels:\n  propose: { provider: anthropic, model: m }\n  ci_allowed: true\n")!;
+    expect(r.status).to.equal("ok");
+    expect(r.detail).to.contain("models.ci_allowed is no longer used — you can delete it");
+    expect(row("governance_posture: soft\n")!.detail).to.not.contain("ci_allowed");
+  });
 });
 
 // PRJ-121, 2026-09-27 — GOV-FRM-447 was UNVERIFIED: nothing in src/ mentioned branch protection. It is the
@@ -359,5 +365,19 @@ describe("governance posture — the row that says what the protection rows are 
   it("NO CONFIG EXAMINED is not soft — the posture is unknown, so the rows stay", () => {
     const r = doctor(facts({ protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
+  });
+});
+
+describe("gov-work — doctor: the set-up breadcrumb (#391)", () => {
+  it("shows the trail as one row, a warning while a step or the signal is pending, never a failure", () => {
+    const row = { name: "set-up", status: "warn" as const, detail: "client-installed done · governance-repo pending; a set-up signal for gov web is pending" };
+    const r = doctor(facts({ setupTrail: row }));
+    expect(r.ok).to.equal(true);
+    expect(r.diagnostics.find((d) => d.name === "set-up")).to.deep.equal(row);
+    expect(formatDoctorReport(r).join("\n")).to.include("! set-up: client-installed done · governance-repo pending");
+  });
+
+  it("no trail, no row", () => {
+    expect(doctor(facts({ setupTrail: null })).diagnostics.some((d) => d.name === "set-up")).to.equal(false);
   });
 });

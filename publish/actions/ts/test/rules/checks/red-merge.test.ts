@@ -78,12 +78,12 @@ describe("soft merge with red checks — finding them (pure)", () => {
 
 describe("soft merge with red checks — the record", () => {
   const M: RedMerge = { pr: 4, headSha: H4, failed: [{ rule: "GOV-FRM-455", event: "pull_request", summary: "@chuck must approve §4" }, { rule: "GOV-FRM-467", event: "pull_request", summary: "" }] };
-  it("names the PR, each failed rule and its finding, says it merged under soft posture, and goes to the Policy Owner", () => {
+  it("names the PR, each failed rule and its finding, says it merged with them failing, and goes to the Policy Owner", () => {
     const i = redMergeIssue(M, RULES, "https://github.com/acme/acme-gov/actions/runs/9");
     expect(i.title).to.equal("gov-violation: PR #4 merged with failing gov checks (GOV-FRM-455, GOV-FRM-467)");
     expect(i.labels).to.deep.equal(["gov-violation"]);
     expect(i.assignees).to.deep.equal(["polly"]);
-    expect(i.body).to.contain("merged under soft posture with these checks failing")
+    expect(i.body).to.contain("merged with these checks failing").and.contain("soft posture, or a repository GitHub will not protect")
       .and.contain("#4").and.contain("GOV-FRM-455 · pull_request — @chuck must approve §4")
       .and.contain("GOV-FRM-467 · pull_request — (the check run gave no summary").and.contain(redMergeMarker(4));
   });
@@ -176,10 +176,11 @@ describe("soft merge with red checks — gov check run on the push", () => {
     expect(r.lines.join("\n")).to.contain("#12 already records PR #4");
   });
 
-  it("HARD: the checks were required, so a red merge cannot happen — gov does not look", () => {
+  it("HARD but unprotected (private repo on GitHub Free): a red merge is still recorded (Q43 A)", () => {
     const calls: string[][] = [];
-    checkCommand(["run", "GOV-FRM-040"], ARGS, deps(ghFor(calls, "[]")), CFG("hard"));
-    expect(calls.some((c) => c.join(" ").includes("/check-runs"))).to.equal(false);
-    expect(calls.some((c) => c[0] === "issue")).to.equal(false);
+    const r = checkCommand(["run", "GOV-FRM-040"], ARGS, deps(ghFor(calls, "[]")), CFG("hard"));
+    expect(calls.some((c) => c.join(" ").includes("/check-runs"))).to.equal(true);
+    expect(calls.filter((c) => c[0] === "issue" && c[1] === "create")).to.have.length(1);
+    expect(r.lines.join("\n")).to.contain("#4");
   });
 });

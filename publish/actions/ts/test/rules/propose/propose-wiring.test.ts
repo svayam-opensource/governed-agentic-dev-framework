@@ -5,14 +5,15 @@
 // the writers, the terminal verb and the pull request trigger (GOV-FRM-468). No network: fetch, gh, git and the
 // model are fakes; the engine, the writers and the gate are real.
 import { expect } from "chai";
-import { readModelSettings, NO_MODEL, type ModelSettings } from "../../../src/rules/propose/model-settings.js";
+import { readModelSettings, NO_MODEL } from "../../../src/rules/propose/model-settings.js";
 import { chooseModel, lazyModel, NO_APPROVED_MODEL, ModelRefused } from "../../../src/rules/propose/providers/index.js";
 import { anthropicModel, ModelProviderError, ANTHROPIC_URL, type FetchLike } from "../../../src/rules/propose/providers/anthropic.js";
 import { commandModel, splitCommand } from "../../../src/rules/propose/providers/command.js";
 import { ghPrComments, parsePages, runRecords } from "../../../src/rules/propose/pr-comments-gh.js";
 import { dumpOwnership, writeProposal } from "../../../src/rules/propose/write-result.js";
 import { rulesPropose } from "../../../src/cli/rules-propose.js";
-import { proposeOnPullRequest, type PrBranch, type ProposeCiDeps } from "../../../src/cli/rules-propose-ci.js";
+import { proposeOnPullRequest, NO_CI_WRITE } from "../../../src/cli/rules-propose-ci.js";
+import { numberPolicyPr } from "../../../src/rules/propose/number-pr.js";
 import { checkCommandAsync } from "../../../src/cli/check-verb.js";
 import { memTree, treeAsGit, type TreeWriter } from "../../../src/rules/policy-pr/tree.js";
 import { policyPrWriter } from "../../../src/rules/policy-pr/write.js";
@@ -43,19 +44,19 @@ function fakeFetch(replies: { status: number; body: unknown; retryAfter?: string
 const ok = (text: string, stop = "end_turn") => ({ status: 200, body: { content: [{ type: "text", text }], stop_reason: stop } });
 
 describe("rules propose — the org's model setting (policies/governance.yaml)", () => {
-  it("reads models.propose, models.command and models.ci_allowed", () => {
+  it("reads models.propose and models.command; the retired models.ci_allowed is ignored (Q68 A)", () => {
     expect(readModelSettings("models:\n  propose: { provider: anthropic, model: m-1 }\n  command: \"x -p\"\n  ci_allowed: true\n"))
-      .to.deep.equal({ provider: "anthropic", model: "m-1", command: "x -p", ciAllowed: true });
+      .to.deep.equal({ provider: "anthropic", model: "m-1", command: "x -p" });
   });
-  it("absent, unparseable, or an unknown provider → no model approved; ci_allowed only when literally true", () => {
+  it("absent, unparseable, or an unknown provider → no model approved", () => {
     expect(readModelSettings(null)).to.deep.equal(NO_MODEL);
     expect(readModelSettings("models: [")).to.deep.equal(NO_MODEL);
-    expect(readModelSettings("models:\n  propose: { provider: openai, model: x }\n  ci_allowed: \"yes\"\n")).to.include({ provider: null, ciAllowed: false });
+    expect(readModelSettings("models:\n  propose: { provider: openai, model: x }\n  ci_allowed: \"yes\"\n")).to.include({ provider: null });
   });
 });
 
 describe("rules propose — choosing the model", () => {
-  const deps = { ci: false, anthropicKey: () => KEY, geminiKey: () => null, runCommand: () => "" };
+  const deps = { anthropicKey: () => KEY, geminiKey: () => null, runCommand: () => "" };
   it("no provider → refuses, naming governance.yaml and §9.3 in plain words", () => {
     const c = chooseModel(NO_MODEL, deps);
     expect(c.ok).to.equal(false);
@@ -63,15 +64,11 @@ describe("rules propose — choosing the model", () => {
     expect(text).to.contain("has not approved a language model").and.contain("policies/governance.yaml").and.contain("§9.3");
     expect(c.ok ? null : c.lines).to.equal(NO_APPROVED_MODEL);
   });
-  it("in CI without ci_allowed → refuses: run it locally", () => {
-    const c = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: false }, { ...deps, ci: true });
-    expect(c.ok ? "" : c.lines.join(" ")).to.contain("run gov rules propose locally");
-  });
   it("anthropic with no model, or no key; command with no command → refuses, saying which", () => {
-    expect(chooseModel({ provider: "anthropic", model: "", command: "", ciAllowed: false }, deps).ok).to.equal(false);
-    const nokey = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: false }, { ...deps, anthropicKey: () => null });
+    expect(chooseModel({ provider: "anthropic", model: "", command: "" }, deps).ok).to.equal(false);
+    const nokey = chooseModel({ provider: "anthropic", model: "m", command: "" }, { ...deps, anthropicKey: () => null });
     expect(nokey.ok ? "" : nokey.lines.join(" ")).to.contain("ANTHROPIC_API_KEY");
-    expect(chooseModel({ provider: "command", model: "", command: "", ciAllowed: false }, deps).ok).to.equal(false);
+    expect(chooseModel({ provider: "command", model: "", command: "" }, deps).ok).to.equal(false);
   });
   it("a lazy model never asks for a model it is never used for — a run with nothing stale needs none", async () => {
     let chosen = 0;
@@ -174,7 +171,6 @@ const answers = (a: string[]): InterviewChannel & { asked: string[] } => {
   const asked: string[] = [];
   return { asked, async ask(q) { asked.push(q.text); const x = a.shift(); return x === undefined ? { kind: "pending" } : { kind: "answer", text: x }; } };
 };
-const APPROVED = "models:\n  propose: { provider: command, model: \"\" }\n  command: \"llm\"\n  ci_allowed: true\n";
 
 describe("gov rules propose — the terminal trigger", () => {
   const run = (head: TreeWriter, model: ModelPort, channel: InterviewChannel, opts: { pr?: number; all?: boolean; git?: GitRead } = {}) =>
@@ -208,19 +204,60 @@ describe("gov rules propose — the terminal trigger", () => {
     expect(again.lines.join("\n")).to.contain("Nothing to change");
   });
 
-  it("no pull request yet → rows, version and snapshot; stamps and changelog wait (and a later --pr run finishes without a model)", async () => {
+  it("F154 A: no pull request yet → EVERYTHING is written before it opens — rows, version, snapshot, stamps and the whole changelog entry, `_not yet open_` for its number", async () => {
     const files = baseFiles({ [DOC]: NEW });
     const head = memTree(files);
     const model = scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]);
     const r = await run(head, model, answers([]));
-    expect(r.code).to.equal(0);
-    expect(r.lines.join("\n")).to.contain("no pull request yet");
-    expect(files["policies/CHANGELOG.md"]).to.not.contain("1.1.0");
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("no pull request yet").and.contain("gov close");
+    expect(files["policies/VERSION"]).to.equal("1.1.0\n");
+    expect(files["policies/history/1.0.0/org-policy.md"]).to.equal(OLD);
+    const log = files["policies/CHANGELOG.md"]!;
+    expect(log).to.contain("## 1.1.0 — 2026-10-07").and.contain("| _not yet open_ | @alice | _pending_ |").and.contain("GOV-SVM-001");
+    expect(log, "the section reviewed is recorded now, while the run still knows it").to.contain(`- ${DOC} §3 (${sectionShas(NEW).get("3")}) → GOV-SVM-001 added`);
+    const row = parseRuleStore(files["policies/rules/rules.yaml"]!)[0]!;
+    expect(row.start).to.deep.equal({ version: "1.1.0", date: "2026-10-07" });
+    // The gate on the pull request: only the number is missing — and it says so.
+    const g = judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 7, today: "2026-10-07" });
+    expect(g.findings.map((f) => f.check).sort()).to.deep.equal(["changelog", "stamp"]);
+    expect(g.findings.map((f) => f.message).join("\n")).to.contain("does not name this pull request (#7)");
+  });
+
+  it("F154 A: once the pull request is open, a second run names it — in the entry and the stamps, nothing else, no model asked", async () => {
+    const files = baseFiles({ [DOC]: NEW });
+    const head = memTree(files);
+    const model = scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]);
+    await run(head, model, answers([]));
+    const before = files["policies/CHANGELOG.md"]!;
     const later = await run(head, model, answers([]), { pr: 7 });
-    expect(later.code).to.equal(0);
+    expect(later.code, later.lines.join("\n")).to.equal(0);
     expect(model.calls).to.equal(1);
-    expect(files["policies/CHANGELOG.md"]).to.contain("| #7 |").and.contain("GOV-SVM-001");
+    expect(files["policies/CHANGELOG.md"]).to.equal(before.replace("| _not yet open_ |", "| #7 |"));
+    expect(parseRuleStore(files["policies/rules/rules.yaml"]!)[0]!.start).to.deep.equal({ version: "1.1.0", date: "2026-10-07", pr: 7 });
+    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 7, today: "2026-10-07" }).findings).to.deep.equal([]);
+    // A later run that cannot find the pull request keeps the number rather than taking it out again.
+    const offline = await run(head, model, answers([]));
+    expect(offline.code).to.equal(0);
+    expect(files["policies/CHANGELOG.md"]).to.contain("| #7 |").and.not.contain("_not yet open_");
     expect(parseRuleStore(files["policies/rules/rules.yaml"]!)[0]!.start.pr).to.equal(7);
+  });
+
+  it("F154 A: numberPolicyPr (what gov close runs once it has opened the pull request) names it; nothing when propose never ran or policies/ is untouched", async () => {
+    const files = baseFiles({ [DOC]: NEW });
+    const head = memTree(files);
+    await run(head, scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]), answers([]));
+    const git = fakeGit(baseFiles());
+    const at = { home: "/gov", defaultBranch: "main", pr: 12, today: "2026-10-07", author: "alice" };
+    const r = numberPolicyPr(git, head, at);
+    expect("wrote" in r && [...r.wrote].sort()).to.deep.equal(["policies/CHANGELOG.md", "policies/rules/rules.yaml"]);
+    expect(files["policies/CHANGELOG.md"]).to.contain("| #12 | @alice |");
+    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 12, today: "2026-10-07" }).findings).to.deep.equal([]);
+    expect(numberPolicyPr(git, head, at), "a second call writes nothing").to.deep.equal({ wrote: [] });
+    const neverProposed = baseFiles({ [DOC]: NEW });
+    expect(numberPolicyPr(git, memTree(neverProposed), at), "propose never ran: close does not half-do it").to.deep.equal({ wrote: [] });
+    expect(neverProposed["policies/VERSION"]).to.equal("1.0.0\n");
+    expect(numberPolicyPr(git, memTree(baseFiles()), at)).to.deep.equal({ wrote: [] });
   });
 
   it("an unanswered question stops the run with NOTHING written", async () => {
@@ -236,7 +273,7 @@ describe("gov rules propose — the terminal trigger", () => {
   });
 
   it("no model approved → refuses in plain words, only when a section actually needs reading", async () => {
-    const refusing = lazyModel(() => chooseModel(NO_MODEL, { ci: false, anthropicKey: () => null, runCommand: () => "" }));
+    const refusing = lazyModel(() => chooseModel(NO_MODEL, { anthropicKey: () => null, runCommand: () => "" }));
     const r = await run(memTree(baseFiles({ [DOC]: NEW })), refusing, answers([]), { pr: 1 });
     expect(r.code).to.equal(1);
     expect(r.lines.join("\n")).to.contain("has not approved a language model").and.contain("policies/governance.yaml");
@@ -320,13 +357,15 @@ const EVENT = {
   },
 };
 
-/** The PR's two commits (merge-base and head) over one fake git; the head's files are also the branch the bot writes. */
+/** The PR's two commits (merge-base and head) over one fake git — read only: the check has nothing else. */
 function prWorld(headFiles: Record<string, string>, baseF = baseFiles()) {
   const trees: Record<string, Record<string, string>> = { MB: baseF, [HEAD]: headFiles };
+  const calls: string[] = [];
   const git: GitRead = (_repo, args) => {
     const k = args.join(" ");
+    calls.push(k);
     if (k === `merge-base ${BASE} ${HEAD}`) return "MB\n";
-    if (k === `show -s --format=%cs ${HEAD}`) return "2026-10-07\n";
+    if (k === `show -s --format=%ct ${HEAD}`) return "1791374400\n";   // 2026-10-07T12:00Z
     if (args[0] === "ls-tree") {
       const ref = args.find((a) => a in trees);
       return ref ? treeAsGit(memTree(trees[ref]!))("", args) : null;
@@ -337,112 +376,83 @@ function prWorld(headFiles: Record<string, string>, baseF = baseFiles()) {
     }
     return null;
   };
-  const branchFiles = { ...headFiles };
-  const commits: string[] = [];
-  const branch: PrBranch = { tree: memTree(branchFiles), commit: (m) => { commits.push(m); return { sha: "abcdef0123" }; }, close: () => {} };
-  return { git, branchFiles, commits, openBranch: () => branch };
+  return { git, calls, deps: { git, repoDir: "/gov" } };
 }
 
-/** gh over an in-memory PR: review comments and conversation comments, every call recorded. */
-function fakeGh(review: object[] = [], issue: object[] = []) {
-  const calls: string[] = [];
-  const gh: Gh = (args, input) => {
-    calls.push(args.join(" "));
-    const path = args.find((a) => a.startsWith("repos/")) ?? "";
-    const post = args.includes("POST");
-    if (path.endsWith("/pulls/9/comments")) {
-      if (post) { review.push({ id: 100 + review.length, user: { login: "github-actions[bot]" }, ...JSON.parse(input!), created_at: "t" }); return "{\"id\": 1}"; }
-      return JSON.stringify(review);
-    }
-    if (path.endsWith("/issues/9/comments")) {
-      if (post) { issue.push({ user: { login: "github-actions[bot]" }, ...JSON.parse(input!) }); return "{\"id\": 2}"; }
-      return JSON.stringify(issue);
-    }
-    return null;
-  };
-  return { gh, calls, review, issue };
-}
+/** Every git call the check made is a read: no worktree, add, commit or push (F154 A). */
+const WRITES = /^(worktree|add|commit|push|fetch|checkout|switch|reset|update-ref|config)\b/;
+const readOnly = (calls: readonly string[]): boolean => !calls.some((c) => WRITES.test(c));
 
-const ciDeps = (w: ReturnType<typeof prWorld>, gh: Gh, settings: ModelSettings, model: ModelPort): ProposeCiDeps => ({
-  git: w.git, gh, repoDir: "/gov", repository: "acme/gov", settings,
-  model: (s) => chooseModel(s, { ci: true, anthropicKey: () => null, runCommand: () => "" }).ok ? { ok: true, model, describe: "fake" } : chooseModel(s, { ci: true, anthropicKey: () => null, runCommand: () => "" }),
-  openBranch: w.openBranch, self: "github-actions[bot]", today: "2026-10-07",
-});
-const ALLOWED = readModelSettings(APPROVED);
 const TAG = "GOV-FRM-468 [gov-builtin/rules-propose]";
 const STALE_ROW = `${RULES_HEADER}- id: GOV-SVM-001\n  source: { doc: ${DOC}, section: "3", sha: "${sectionShas(OLD).get("3")}" }\n  expectation: "Everyone uses approved tools."\n  actor: [everyone]\n  level: C02\n  start: { version: "1.0.0", date: "2026-10-01", pr: 1 }\n  end: null\n`;
 
-describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows are stale and the org allowed a model in CI", () => {
-  it("GOV-FRM-468 policies/ untouched → pass, no model, no comment, no commit", async () => {
+describe("GOV-FRM-468 on a policy pull request gov only checks: it fails naming the local fix and never writes (F154 A)", () => {
+  it("GOV-FRM-468 policies/ untouched → pass, nothing written", async () => {
     const w = prWorld(baseFiles());
-    const g = fakeGh();
-    const model = scriptedModel([]);
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
     expect(r.verdict).to.equal("pass");
-    expect(model.calls + w.commits.length + g.calls.length).to.equal(0);
+    expect(readOnly(w.calls)).to.equal(true);
   });
 
-  it("GOV-FRM-468 stale rows and ci_allowed false → fails with the gate's message: run gov rules propose locally", async () => {
+  it("GOV-FRM-468 stale rows → fails with the gate's message and the local fix, naming the pull request; nothing written", async () => {
     const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
-    const model = scriptedModel([]);
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, { ...ALLOWED, ciAllowed: false }, model));
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
     expect(r.verdict).to.equal("miss");
-    expect(r.findings.join("\n")).to.contain("§3 changed; run gov rules propose").and.contain("run gov rules propose locally");
-    expect(model.calls).to.equal(0);
+    const text = r.findings.join("\n");
+    expect(text).to.contain("§3 changed; run gov rules propose");
+    expect(text).to.contain("run `gov rules propose` on this branch").and.contain("organization's model").and.contain("#9").and.contain("--pr 9");
+    expect(text).to.contain(NO_CI_WRITE);
+    expect(readOnly(w.calls), w.calls.join("\n")).to.equal(true);
   });
 
-  it("GOV-FRM-468 stale rows, allowed → one run; settled rows committed to the PR branch as the bot; never a review", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
-    const g = fakeGh();
-    const model = scriptedModel([{ verdicts: [{ kind: "keep", id: "GOV-SVM-001" }, ADD("Everyone uses only technologies on the approved list.")], ownership: [], questions: [] }]);
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
-    expect(r.verdict, r.findings.join("\n")).to.equal("pass");
-    expect(model.calls).to.equal(1);
-    expect(w.commits).to.have.length(1);
-    expect(w.commits[0]).to.contain("#9").and.contain("not an approval");
-    const rows = parseRuleStore(w.branchFiles["policies/rules/rules.yaml"]!);
-    expect(rows.map((x) => x.id), "gov issues the new id").to.deep.equal(["GOV-SVM-001", "GOV-SVM-002"]);
-    expect(rows[0]!.source.sha, "kept: sha refreshed in place").to.equal(sectionShas(NEW).get("3"));
-    expect(w.branchFiles["policies/VERSION"]).to.equal("1.1.0\n");
-    expect(w.branchFiles["policies/CHANGELOG.md"]).to.contain("| #9 | @alice |");
-    expect(g.calls.some((c) => /reviews|approve/.test(c)), "the bot never submits a review").to.equal(false);
-  });
-
-  it("GOV-FRM-468 a question → a review comment on the policy file, a run record, the PR blocked; the same state never runs the model twice", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
-    const g = fakeGh();
-    const model = scriptedModel([{ verdicts: [], ownership: [], questions: [{ id: "q1", kind: "keep-revise-retire", text: "Does GOV-SVM-001 still hold?" }] }]);
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
+  it("GOV-FRM-468 nothing stale, paperwork missing (here: the snapshot) → fails: run propose, no model asked; nothing written", async () => {
+    const files = baseFiles({ [DOC]: NEW });
+    const model = scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]);
+    await rulesPropose({ git: fakeGit(baseFiles()), head: memTree(files), channel: answers([]), model: () => model },
+      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice", pr: 9 });
+    for (const f of Object.keys(files)) if (f.startsWith("policies/history/")) delete files[f];
+    const snapshotless = JSON.stringify(files);
+    const w = prWorld(files);
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
     expect(r.verdict).to.equal("miss");
-    expect(r.findings.join("\n")).to.contain("1 question(s) are open");
-    expect(g.review).to.have.length(1);
-    expect(g.review[0]).to.deep.include({ path: DOC, subject_type: "file", commit_id: HEAD });
-    expect(g.issue).to.have.length(1);
-    expect(w.commits).to.deep.equal([]);
-
-    const again = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
-    expect(again.verdict).to.equal("miss");
-    expect(again.findings.join("\n")).to.contain("waiting for answers");
-    expect(model.calls, "one run per section sha and answer state").to.equal(1);
-
-    // The owner replies in the thread → a new state → the model reads the answer.
-    g.review.push({ id: 500, user: { login: "polly" }, body: "Yes, keep it.", in_reply_to_id: (g.review[0] as { id: number }).id, created_at: "t9" });
-    const settled = scriptedModel([{ verdicts: [{ kind: "keep", id: "GOV-SVM-001" }], ownership: [], questions: [] }]);
-    const third = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, settled));
-    expect(third.verdict, third.findings.join("\n")).to.equal("pass");
-    expect(settled.calls).to.equal(1);
-    expect(w.commits).to.have.length(1);
-    expect(w.branchFiles["policies/VERSION"], "a keep is prose only → patch").to.equal("1.0.1\n");
+    const text = r.findings.join("\n");
+    expect(text).to.contain("no snapshot of 1.0.0").and.contain("no model is asked").and.contain("#9");
+    expect(JSON.stringify(files), "the head is untouched").to.equal(snapshotless);
+    expect(readOnly(w.calls)).to.equal(true);
   });
 
-  it("GOV-FRM-468 a fork cannot be pushed to → fails with run it locally, no model", async () => {
+  it("GOV-FRM-468 the entry written before the pull request opened, number missing → fails: run propose again (it finds #9)", async () => {
+    const files = baseFiles({ [DOC]: NEW });
+    const model = scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]);
+    await rulesPropose({ git: fakeGit(baseFiles()), head: memTree(files), channel: answers([]), model: () => model },
+      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice" });
+    const w = prWorld(files);
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
+    expect(r.verdict).to.equal("miss");
+    expect(r.findings.join("\n")).to.contain("does not name this pull request (#9)").and.contain("no model is asked");
+    expect(readOnly(w.calls)).to.equal(true);
+  });
+
+  it("GOV-FRM-468 the author's commit carries everything → pass, nothing written — the gate (GOV-FRM-467) passes on it", async () => {
+    const files = baseFiles({ [DOC]: NEW });
+    const model = scriptedModel([{ verdicts: [ADD("Everyone uses only approved technologies.")], ownership: [], questions: [] }]);
+    const r0 = await rulesPropose({ git: fakeGit(baseFiles()), head: memTree(files), channel: answers([]), model: () => model },
+      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice", pr: 9 });
+    expect(r0.code, r0.lines.join("\n")).to.equal(0);
+    const w = prWorld(files);
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
+    expect(r, r.findings.join("\n")).to.deep.equal({ verdict: "pass", findings: [] });
+    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 9, today: "2026-10-07" }).findings).to.deep.equal([]);
+    expect(readOnly(w.calls)).to.equal(true);
+  });
+
+  it("GOV-FRM-468 a fork is judged the same way — read only", async () => {
     const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
-    const model = scriptedModel([]);
     const fork = { pull_request: { ...EVENT.pull_request, head: { ...EVENT.pull_request.head, repo: { full_name: "mallory/gov" } } } };
-    const r = await proposeOnPullRequest(TAG, "pull_request", fork, ciDeps(w, fakeGh().gh, ALLOWED, model));
+    const r = await proposeOnPullRequest(TAG, "pull_request", fork, w.deps);
     expect(r.verdict).to.equal("miss");
-    expect(r.findings.join("\n")).to.contain("fork").and.contain("locally");
-    expect(model.calls).to.equal(0);
+    expect(r.findings.join("\n")).to.contain("run `gov rules propose` on this branch");
+    expect(readOnly(w.calls)).to.equal(true);
   });
 
   it("GOV-FRM-468 a bot's review never counts as an approval", () => {
@@ -460,19 +470,19 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
     expect(runBuiltin({ ...base, propose: { verdict: "miss", findings: ["x"] } })).to.deep.equal({ verdict: "miss", findings: ["x"] });
   });
 
-  it("GOV-FRM-468 `gov check run` runs the proposer first when the rule in force binds it, and judges by its outcome", async () => {
-    const store = `- id: GOV-FRM-468\n  source: { doc: framework/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov proposes."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
+  it("GOV-FRM-468 `gov check run` runs the proposer's check first when the rule in force binds it, and judges by its outcome", async () => {
+    const store = `- id: GOV-FRM-468\n  source: { doc: framework/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov checks."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
     const catalog = "resources:\n  - id: vcs.gov-repo\n    renderer: github-actions\n    events:\n      - { name: pull_request, mode: gate }\ntools:\n  - id: gov-builtin\nactions:\n  - id: gov-builtin/rules-propose\n    tool: gov-builtin\n    params: { type: object, additionalProperties: false, properties: {} }\n";
     const git = treeAsGit(memTree({ "org-config.yaml": "org_slug: \"SVM\"\n", "framework/rules/rules.yaml": store, "framework/rules/checks-catalog.yaml": catalog }));
     const seen: string[] = [];
     const r = await checkCommandAsync(["run", "GOV-FRM-468"], { resource: "vcs.gov-repo", event: "pull_request" }, {
       git, gh: () => "[]", env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: "/e.json" },
       readFile: (f) => (f === "/e.json" ? JSON.stringify(EVENT) : null), writeFile: () => {},
-      proposeOnPr: async (tag, eventName) => { seen.push(`${tag} ${eventName}`); return { verdict: "miss", findings: [`${tag}: 1 question(s) are open`] }; },
+      proposeOnPr: async (tag, eventName) => { seen.push(`${tag} ${eventName}`); return { verdict: "miss", findings: [`${tag}: run \`gov rules propose\` on this branch`] }; },
     }, { home: "/gov", defaultBranch: "main", defaultCodeBranch: "dev", githubOrg: "acme", workspaceRepo: "gov", posture: "soft" });
     expect(seen).to.deep.equal(["GOV-FRM-468 [gov-builtin/rules-propose] pull_request"]);
     expect(r.code).to.equal(1);
-    expect(r.lines.join("\n")).to.contain("question(s) are open");
+    expect(r.lines.join("\n")).to.contain("run `gov rules propose` on this branch");
   });
 });
 
@@ -530,69 +540,38 @@ describe("a runner without a tool gov needs FAILS the check, whatever the postur
 });
 
 // ── the gate starts from the prose (Policy Owner, 2026-10-07): PR #5 in the sandbox ──────────────────────────
-describe("GOV-FRM-468 a changed section with no rules is stale too — CI runs the model on it, and the changelog says so", () => {
-  // §4 changes; §4 has no rule rows. Before: the gate saw no `sha` finding, CI went to finishOnly, and the model
-  // never read the new sentence.
+describe("GOV-FRM-468 a changed section with no rules is stale too — the check names it, and local propose writes its line", () => {
+  // §4 changes; §4 has no rule rows. The gate starts from the prose: someone (propose and its model) must read it.
   const S4 = POLICY("Use approved tools.").replace("Keep data safe.", "Keep data safe and encrypted at rest.");
   const sha4 = sectionShas(S4).get("4")!;
   const NO_RULE = { verdicts: [], ownership: [], questions: [] };
 
-  it("gate `unreviewed` → CI calls the (fake) model → `no rule` written to the entry → the gate passes on the next run, with no second model call", async () => {
+  it("gate `unreviewed` → the check fails naming the section and the local fix (the model's run), and writes nothing", async () => {
     const w = prWorld(baseFiles({ [DOC]: S4 }));
     const before = judgePolicyPr({ base: memTree(baseFiles()), head: memTree(baseFiles({ [DOC]: S4 })), pr: 9, today: "2026-10-07" });
     expect(before.findings.map((f) => f.check)).to.include("unreviewed").and.not.include("sha");
-
-    const model = scriptedModel([NO_RULE]);
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, ALLOWED, model));
-    expect(r.verdict, r.findings.join("\n")).to.equal("pass");
-    expect(model.calls, "the model read the changed section").to.equal(1);
-    expect(w.commits).to.have.length(1);
-    expect(w.branchFiles["policies/CHANGELOG.md"]).to.contain("**Sections reviewed**").and.contain(`- ${DOC} §4 (${sha4}) → no rule`);
-    expect(w.branchFiles["policies/VERSION"], "prose only → patch").to.equal("1.0.1\n");
-    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(w.branchFiles), pr: 9, today: "2026-10-07" }).findings).to.deep.equal([]);
-
-    const next = prWorld(w.branchFiles);
-    const again = scriptedModel([]);
-    const r2 = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(next, fakeGh().gh, ALLOWED, again));
-    expect(r2.verdict).to.equal("pass");
-    expect(again.calls + next.commits.length).to.equal(0);
-  });
-
-  it("unreviewed with ci_allowed false → a miss naming the section and the local fix; finishOnly never papers over it", async () => {
-    const w = prWorld(baseFiles({ [DOC]: S4 }));
-    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, { ...ALLOWED, ciAllowed: false }, scriptedModel([])));
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps);
     expect(r.verdict).to.equal("miss");
-    expect(r.findings.join("\n")).to.contain(`${DOC} §4`).and.contain("run gov rules propose locally");
-    expect(w.commits).to.deep.equal([]);
+    expect(r.findings.join("\n")).to.contain(`${DOC} §4`).and.contain("organization's model");
+    expect(readOnly(w.calls)).to.equal(true);
   });
 
-  it("a question on an unreviewed section → recorded once; the same sections and answers never run the model twice", async () => {
-    const w = prWorld(baseFiles({ [DOC]: S4 }));
-    const g = fakeGh();
-    const model = scriptedModel([{ verdicts: [], ownership: [], questions: [{ id: "q1", kind: "uncheckable", text: "Can encryption at rest be checked?" }] }]);
-    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model))).verdict).to.equal("miss");
-    const again = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
-    expect(again.findings.join("\n")).to.contain("waiting for answers");
-    expect(model.calls).to.equal(1);
-    // The section changes again → a new key → the model reads the new text.
-    const w2 = prWorld(baseFiles({ [DOC]: S4.replace("at rest", "at rest and in transit") }));
-    const m2 = scriptedModel([NO_RULE]);
-    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w2, g.gh, ALLOWED, m2))).verdict).to.equal("pass");
-    expect(m2.calls).to.equal(1);
-  });
-
-  it("local `gov rules propose` writes the same line, so a PR prepared locally passes the gate without CI's model", async () => {
+  it("local `gov rules propose` before the pull request opens writes the `no rule` line; the number follows; then the check and the gate pass", async () => {
     const files = baseFiles({ [DOC]: S4 });
     const head = memTree(files);
     const model = scriptedModel([NO_RULE]);
     const r = await rulesPropose({ git: fakeGit(baseFiles()), head, channel: answers([]), model: () => model },
-      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice", pr: 9 });
+      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice" });
     expect(r.code, r.lines.join("\n")).to.equal(0);
-    expect(files["policies/CHANGELOG.md"]).to.contain(`- ${DOC} §4 (${sha4}) → no rule`);
+    expect(files["policies/CHANGELOG.md"]).to.contain(`- ${DOC} §4 (${sha4}) → no rule`).and.contain("| _not yet open_ |");
+    expect(files["policies/VERSION"], "prose only → patch").to.equal("1.0.1\n");
+    // gov close opens #9 and names it — no model, the no-rule line kept.
+    expect(numberPolicyPr(fakeGit(baseFiles()), head, { home: "/gov", defaultBranch: "main", pr: 9, today: "2026-10-07", author: "alice" })).to.deep.equal({ wrote: ["policies/CHANGELOG.md"] });
+    expect(files["policies/CHANGELOG.md"]).to.contain(`- ${DOC} §4 (${sha4}) → no rule`).and.contain("| #9 | @alice |");
+    expect(model.calls).to.equal(1);
     expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 9, today: "2026-10-07" }).findings).to.deep.equal([]);
     const w = prWorld(files);
-    const ci = scriptedModel([]);
-    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, ALLOWED, ci))).verdict).to.equal("pass");
-    expect(ci.calls + w.commits.length).to.equal(0);
+    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, w.deps)).verdict).to.equal("pass");
+    expect(readOnly(w.calls)).to.equal(true);
   });
 });

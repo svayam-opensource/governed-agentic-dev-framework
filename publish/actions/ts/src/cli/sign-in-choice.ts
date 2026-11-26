@@ -12,9 +12,16 @@
  * one route the question and the other an escape hatch. A person on a machine with no browser
  * had to infer that Enter was for them. `gh` does not make anybody infer.
  *
- * NUMBERED, NOT ARROW-DRIVEN. Arrows need raw mode and a redraw loop; every other choice in
- * gov — the role question, the agent menu, the project picker — is numbered, and one screen
- * that behaves differently from the rest is worse than one that is less pretty.
+ * ONE PICKER FOR EVERY CHOICE (PRJ-121 F158, Policy Owner ruling Q12 A, 2026-11-25). This used to
+ * say "numbered, not arrow-driven", and the reason was consistency: one screen behaving differently
+ * from the rest is worse than one that is less pretty. The reason stands; the rule it produced has
+ * changed. Every choice gov offers goes through the shared picker in `picker.ts` — arrow keys,
+ * Space and Enter in a real terminal, and the same numbered prompt as before wherever arrows
+ * cannot run (piped stdin, CI, TERM=dumb, no raw mode, GOV_PLAIN_PROMPTS=1). The adoption
+ * interview's agent question (Q12) is the first screen moved. This one is not moved yet: it is
+ * asked on the menu path, whose readline stays open across the whole loop (#213), and the picker
+ * must never read the terminal while another reader holds it — so it moves when that path asks
+ * one question per interface.
  *
  * The METHODS are derived, never assumed: an agent is offered a browser only if it has a way
  * to open one, and a key only if gov knows which variable holds it. That is the whole of

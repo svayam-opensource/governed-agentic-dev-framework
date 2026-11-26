@@ -9,7 +9,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  parseRoleList, resolveRoles, roleHandles, ROLE_LIST_PATH,
+  parseHandleList, parseRoleList, resolveRoles, roleAlternates, roleHandles, ROLE_LIST_PATH,
 } from "../../src/config/role-list.js";
 import { substituteTokens, setupTokenValues } from "../../src/setup/create.js";
 
@@ -41,9 +41,9 @@ describe("the org's role list — parseRoleList", () => {
     if (!r.found) return;
     expect(r.problems).to.deep.equal([]);
     expect(r.roles).to.deep.equal([
-      { role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"] },
-      { role: "Legal Owner", holder: "@lex", owns: ["knowledge/legal/", "knowledge/contracts/"] },
-      { role: "Security Lead", holder: "@sec", owns: [] },
+      { role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"], alternates: [] },
+      { role: "Legal Owner", holder: "@lex", owns: ["knowledge/legal/", "knowledge/contracts/"], alternates: [] },
+      { role: "Security Lead", holder: "@sec", owns: [], alternates: [] },
     ]);
   });
 
@@ -109,8 +109,10 @@ describe("the org's role list — resolveRoles (no fallback since the org-config
     expect(roleHandles({ policyOwner: "@polly", checkOwner: "chuck" }, r.roles)).to.deep.equal({
       "Policy Owner": "@polly", "Check Owner": "chuck", "Data Owner": "@dana", "Legal Owner": "",
     });
-    expect(roleHandles({ policyOwner: "@polly" }, [])["Check Owner"], "vacant Check Owner → the Policy Owner").to.equal("@polly");
-    expect(roleHandles({}, []), "no Policy Owner → no framework roles at all").to.deep.equal({});
+    // Q46 A: a vacant framework role is present and empty, like an org role — the check routes it (alternate, else
+    // the Policy Owner), so it must be able to tell vacancy from holding.
+    expect(roleHandles({ policyOwner: "@polly" }, [])["Check Owner"], "vacant Check Owner → empty").to.equal("");
+    expect(roleHandles({}, []), "no holders → both framework roles, vacant").to.deep.equal({ "Policy Owner": "", "Check Owner": "" });
   });
 });
 
@@ -134,5 +136,66 @@ describe("the seeded role list", () => {
     expect(r.found && Object.fromEntries(r.roles.map((x) => [x.role, x.holder]))).to.deep.equal({
       "Legal Owner": "@polly", "Infrastructure Owner": "@polly", "System Architecture Owner": "@polly", "Data Architecture Owner": "@polly",
     });
+  });
+});
+
+// POLICY OWNER RULING F143 A (PRJ-121, 2026-11-23): the role table's optional Alternate column.
+describe("the org's role list — the Alternate column (F143 A)", () => {
+  const withAlt = (...rows: string[]) => ["| Role | GitHub handle | Owns | Alternate |", "|---|---|---|---|", ...rows, ""].join("\n");
+
+  it("reads each role's alternate, found by its header; an empty cell is no alternate", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | `knowledge/data/` | @dev |", "| Legal Owner | lex | — | |", "| Infra | vacant | — | `ivy` |"));
+    expect(r.found && r.roles.map((x) => [x.role, x.holder, x.alternates])).to.deep.equal([
+      ["Data Owner", "@dana", ["@dev"]], ["Legal Owner", "@lex", []], ["Infra", null, ["@ivy"]],
+    ]);
+    expect(r.found && r.problems).to.deep.equal([]);
+  });
+
+  it("an old table with no Alternate column parses as before, with no alternates", () => {
+    const r = parseRoleList("| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n");
+    expect(r.found && r.roles).to.deep.equal([{ role: "Data Owner", holder: "@dana", owns: ["knowledge/data/"], alternates: [] }]);
+  });
+
+  it("an alternate gov cannot use is a problem, and the cell is read as none — prose never appoints anybody", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | — | ask the legal team! |", "| Legal | @lex | — | @lee, <ALT_GITHUB> |"));
+    expect(r.found && r.roles.map((x) => x.alternates)).to.deep.equal([[], []]);
+    expect(r.found && r.problems[0]).to.contain("Data Owner: the alternate").and.contain('"team!" is not a GitHub handle').and.contain("read as none");
+    expect(r.found && r.problems[1]).to.contain("Legal: the alternate").and.contain("unresolved token <ALT_GITHUB>");
+  });
+
+  // POLICY OWNER RULING F163 B (2026-11-25): a role's list is its holder plus any number of alternates.
+  it("F163 B: the Alternate cell names one or more, separated by commas or spaces, each normalised, once each", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | — | @dev, `ann` @Bo |", "| Legal | @lex | — | lee,lee , LEE |", "| Infra | vacant | — | vacant |"));
+    expect(r.found && r.roles.map((x) => [x.role, x.alternates])).to.deep.equal([
+      ["Data Owner", ["@dev", "@ann", "@Bo"]], ["Legal", ["@lee"]], ["Infra", []],
+    ]);
+    expect(r.found && r.problems).to.deep.equal([]);
+  });
+
+  it("F163 B: parseHandleList reads a string, a comma list and a YAML list alike", () => {
+    expect(parseHandleList("princy1511").handles).to.deep.equal(["@princy1511"]);
+    expect(parseHandleList("@a, b").handles).to.deep.equal(["@a", "@b"]);
+    expect(parseHandleList(["a", "@b", "a"]).handles).to.deep.equal(["@a", "@b"]);
+    expect(parseHandleList(["a", 7, null]).handles).to.deep.equal(["@a", "@7"]);
+    expect(parseHandleList("").handles).to.deep.equal([]);
+    expect(parseHandleList(null).handles).to.deep.equal([]);
+    expect(parseHandleList("a, b c!")).to.deep.equal({ handles: [], errors: ['"c!" is not a GitHub handle'] });
+  });
+
+  it("roleAlternates: the two framework roles from governance.yaml, every org role from the column", () => {
+    const r = parseRoleList(withAlt("| Data Owner | @dana | — | @dev |", "| Legal | @lex | — | |"));
+    const roles = r.found ? r.roles : [];
+    expect(roleAlternates({ policyOwnerAlternates: ["@pat"], checkOwnerAlternates: [] }, roles)).to.deep.equal({ "Policy Owner": ["@pat"], "Data Owner": ["@dev"] });
+    expect(roleAlternates({ policyOwnerAlternates: ["@pat", "@sam"], checkOwnerAlternates: ["@cy"] }, [])).to.deep.equal({ "Policy Owner": ["@pat", "@sam"], "Check Owner": ["@cy"] });
+    expect(roleAlternates({}, [])).to.deep.equal({});
+  });
+
+  it("the seeded role list has the Alternate column, empty in every row", () => {
+    const seeded = fs.readFileSync(path.join(CONTENT, ROLE_LIST_PATH), "utf8");
+    const r = parseRoleList(seeded);
+    expect(r.found).to.equal(true);
+    expect(r.found && r.roles.length).to.be.greaterThan(0);
+    expect(r.found && r.roles.every((x) => x.alternates.length === 0)).to.equal(true);
+    expect(seeded).to.match(/\| Role \| GitHub handle \| Owns \| Alternate \|/);
   });
 });

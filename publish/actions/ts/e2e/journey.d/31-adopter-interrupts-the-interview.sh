@@ -14,21 +14,12 @@ export GH_STUB_LOGIN="acme"
 export GH_STUB_GOVERNED=""
 
 # Each step: the prompt to wait for, and the answer an adopter gives when NOT interrupting there.
-# `-` means press Enter (accept the default). The last is Q12's read-back — the last answer before
-# anything irreversible happens. (The "Create it?" that follows the creation is the starter-project
-# offer, asked about a repository that by then exists; it is not part of the interview.)
+# `-` means press Enter (accept the default). The last is Q3's read-back — the last answer before
+# anything irreversible happens. (The practice project that follows the creation is made without a
+# question since F136; it is not part of the interview.)
 STEPS=(
-  "Q1 - What is full legal name|Acme Incorporated"
-  "Q2 - What is short name|-"
-  "Q3 - What is the Github Organization ID|acme"
-  "Q4 - What would you like the name of your new governance repo|acme-gov"
-  "Q5 - What would you like the identifier|ACME"
-  "Q6 - Default branch to be used for production|-"
-  "Q7 - Default branch to be used for development|-"
-  "Q8 - Who is the Policy Owner|adopter"
-  "Q9 - Who is the Check Owner|adopter"
-  "Q10 - What contact email|adopter@acme.test"
-  "Q11 - What governance posture|-"
+  "Q1 - What is the GitHub organization|acme"
+  "Q2 - What would you like the identifier|ACME"
   "default for your organization|8"
   "add any other AI agent|-"
   "happy with your AI agent selection|y"
@@ -37,7 +28,7 @@ STEPS=(
 for ((stop = 0; stop < ${#STEPS[@]}; stop++)); do
   at="${STEPS[$stop]%%|*}"
   : > "$GH_STUB_LOG"
-  rm -rf "${GIT_STUB_REMOTES:?}/acme-gov" "$HOME/.gov/acme"
+  rm -rf "${GIT_STUB_REMOTES:?}/gov_repo" "$HOME/.gov/acme"
   c="$WORLD/conv.ctrlc.$stop"
   { printf '> Select \\(A/B/C\\)\n< A\n~ 240\n'
     for ((i = 0; i < stop; i++)); do
@@ -54,13 +45,13 @@ for ((stop = 0; stop < ${#STEPS[@]}; stop++)); do
   ! grep -q "did not exit" "$WORLD/drive.err" && pass "$label — gov stopped on the interrupt" \
     || { fail "$label — gov kept running after the interrupt"; cat "$WORLD/drive.err"; }
   gh_never "$label — GitHub was never asked to create a repository" "repo create"
-  [ ! -e "$GIT_STUB_REMOTES/acme-gov" ] && pass "$label — no repository exists" \
+  [ ! -e "$GIT_STUB_REMOTES/gov_repo" ] && pass "$label — no repository exists" \
     || fail "$label — a repository exists after the interrupt"
   [ ! -e "$HOME/.gov/acme/gov_repo" ] && pass "$label — no workspace landed on the machine" \
     || fail "$label — a workspace landed on the machine after the interrupt"
 done
 
-# #210 ON THE FOUNDING PATH. Q1 now comes before the organization is known (#215: names first), so there is
+# #210 ON THE FOUNDING PATH. Q1 asks for the organization, and with none known (the stub lists none) there is
 # no default to offer — and Enter there is the documented way out, not an answer to refuse. The defect was
 # a first question that invited Enter and then said "cannot be empty".
 info "#210 — Enter at the first question is a clean stop, never a refusal"
@@ -69,7 +60,7 @@ drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
 ~ 240
-> Q1 - What is full legal name
+> Q1 - What is the GitHub organization
 <
 C
 )" gov

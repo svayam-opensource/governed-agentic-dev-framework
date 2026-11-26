@@ -5,15 +5,16 @@
  * testable), derives the full config, writes org-config.yaml, and points origin
  * at the org repo. The pure render/derive live in setup.ts.
  */
-import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
+import { askPosture, hasSecondPerson, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig, renderSetupGovernance, setupNeedsUpgrade, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents, type ApprovedAgent } from "../config/approved-agents.js";
-import { askAgentSelection, namesSentence } from "../cli/agent-selection.js";
+import { askAgentSelection, namesSentence, DEFAULT_AGENT_QUESTION } from "../cli/agent-selection.js";
+import type { PickerTerminal } from "../cli/picker.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
-import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
+import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, secondPerson, parseSecondPerson, SECOND_PERSON_QUESTION, secondPersonDefault, type Validator } from "./answers.js";
 
 export interface SetupIo {
   readonly fs: Fs;
@@ -35,6 +36,8 @@ export interface SetupIo {
   /** Ask a question with a default; return the answer (default if blank). Injected. */
   readonly prompt: (question: string, def: string) => Promise<string>;
   readonly print: (line: string) => void;
+  /** The terminal the agents question's picker may take for arrow keys (F158). Absent = numbered prompts. */
+  readonly terminal?: PickerTerminal | null;
   /**
    * Bring the workspace to the current layout — `gov upgrade --apply` on `cwd` — and return its exit code. Run BEFORE
    * the first question when the repo is on a layout setup cannot write (adoption walk #4 + #14; `setupNeedsUpgrade`).
@@ -94,7 +97,7 @@ function existingAgents(governanceText: string | null, orgConfigText: string | n
 /**
  * THE AGENTS QUESTION, IN PLACE TOO (F18, svm-geneva re-walk 2026-10-07). Configure-in-place skipped it, and doctor
  * then said "agents: not chosen yet" about a setup that had just finished. An org that already chose is shown its
- * choice and keeps it on Enter; one that has not is asked the same selection the adopter interview asks (Q12).
+ * choice and keeps it on Enter; one that has not is asked the same selection the adopter interview asks (Q3).
  * Returns the answer, which is the org's decision — written even where it replaces the old list, because the person
  * at the keyboard just made it.
  */
@@ -106,10 +109,14 @@ async function askAgentsInPlace(io: SetupIo, before: readonly ApprovedAgent[] | 
     if (!/^n(o)?$/i.test(keep)) return before;
   } else {
     io.print("  Your organization has not chosen its AI agents yet — `gov doctor` reports it until it does.");
-    io.print("  Which AI agents may be used in this organization?");
   }
+  io.print(`  ${DEFAULT_AGENT_QUESTION}`);
   // The selection builds its own `Choose […] : ` label; the setup prompt adds its own colon, so the label's is dropped.
-  const picked = await askAgentSelection({ prompt: (q, def) => io.prompt(q.replace(/\s*:\s*$/, ""), def), print: io.print });
+  const picked = await askAgentSelection({
+    prompt: (q, def) => io.prompt(q.replace(/\s*:\s*$/, ""), def),
+    print: io.print,
+    ...(io.terminal ? { terminal: io.terminal } : {}),
+  });
   if (picked === null) throw new AnswerRefused("Which AI agents may be used: no usable selection.");
   return picked;
 }
@@ -244,9 +251,9 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
       deriveOrgConfig(answers, ctx).policyOwnerGithub, githubHandle);
     // The Policy Owner is offered because a one-person org is the common first case — and doctor says so when it is
     // accepted.
-    answers.checkOwnerGithub = known("checkOwnerGithub") ?? await askValid(io,
-      "Check Owner GitHub handle (reviews the code of your check actions in policies/actions/)",
-      deriveOrgConfig(answers, ctx).checkOwnerGithub, githubHandle);
+    // Q44 A: the second person, optional — `none` keeps the Policy Owner as Check Owner.
+    answers.checkOwnerGithub = known("checkOwnerGithub") ?? (parseSecondPerson(await askValid(io, SECOND_PERSON_QUESTION,
+      secondPersonDefault(deriveOrgConfig(answers, ctx)), secondPerson(answers.policyOwnerGithub ?? ""))) ?? answers.policyOwnerGithub);
     // OPTIONAL: a contact the policies show, not the role. `none` leaves it empty. An interviewed answer may be
     // empty on purpose, so it is taken as given rather than through `known` (which reads empty as "not answered").
     answers.policyOwnerEmail = interviewed && io.existing?.policyOwnerEmail !== undefined
@@ -254,9 +261,10 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
       : parseOptionalEmail(await askValid(io, "Policy Owner contact email for your policies (optional — `none` for no email)",
           deriveOrgConfig(answers, ctx).policyOwnerEmail, optionalEmail));
     // W2-Q6: soft unless hard is chosen past the confirmation.
-    answers.governancePosture = known("governancePosture") ?? await confirmPosture(
-      parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
-    // F18: in place, the agents are asked here; the interviewed path asked them at Q12 and records them itself.
+    // Q44 A: hard without a second person is not applied — soft is recorded, and the reason said.
+    answers.governancePosture = known("governancePosture") ?? await askPosture(await askValid(io, POSTURE_QUESTION, "1", postureRule),
+      hasSecondPerson(answers.policyOwnerGithub ?? "", answers.checkOwnerGithub), io.prompt, io.print);
+    // F18: in place, the agents are asked here; the interviewed path asked them at Q3 and records them itself.
     if (!interviewed) {
       chosenAgents = await askAgentsInPlace(io, existingAgents(
         io.fs.readFile(path.join(io.cwd, GOVERNANCE_PATH)), io.fs.readFile(path.join(io.cwd, "org-config.yaml"))));
@@ -301,7 +309,7 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
   io.fs.writeFile(configPath, renderOrgConfig(v));
   io.print(`Wrote ${configPath}`);
   // THE GOVERNANCE CHOICES, beside the policy they configure (org-config split, 2026-10-06). The agents are added
-  // afterwards by whoever asked for them (the adopter path records Q12's answer just before the commit).
+  // afterwards by whoever asked for them (the adopter path records Q3's answer just before the commit).
   //
   // GOV-FRM-445: an existing governance.yaml is the ORG'S. It is never re-rendered — that dropped the org's models
   // block and every key gov does not read (adopter-e2e live tier, 2026-10-07). Setup edits only its own keys where its

@@ -75,8 +75,9 @@ The 2026-10-07 sandbox run, scripted. Two ephemeral private repos `rmj-<run>-gov
 `rmj-<run>-app`; every workflow installs the **packed tarball** under test. Asserts:
 (a) a workflows-only PR passes GOV-FRM-455/467/468 · (b) a direct push opens a
 GOV-FRM-040 `gov-violation` issue for the Policy Owner · (c) a policy prose PR is
-`unreviewed` in GOV-FRM-467 and GOV-FRM-468 proposes · (d) the bot's follow-up run
-is approved through the API and GOV-FRM-467 passes · (e) a soft merge with a red
+`unreviewed` in GOV-FRM-467, and GOV-FRM-468 fails naming the local fix while pushing
+nothing (F154 A) · (d) the author runs `gov rules propose` locally, commits and pushes;
+no run waits for approval and GOV-FRM-467 and 468 pass on the author's commit · (e) a soft merge with a red
 check opens a violation record · (f) the code repo reads the gov repo's rules
 through the sandbox App. Propose uses a **stub `command` model** (fixed reply, no
 key); the real model runs only on `workflow_dispatch` with `real_model: true`.
@@ -140,3 +141,30 @@ Details and what it needs: `docs/testing-the-adopter-path.md`, "The bridge tier"
 ```bash
 bash e2e/bridge-journey.sh --dry-run   # hermetic: prints every gh/git/gov/gov-cicd call, makes none
 ```
+
+## Tier 5 — fresh adoption, timed (`fresh-adoption-journey.sh`)
+
+The home page's promise — gov stops your first change until someone else approves it, in under 10 minutes —
+measured on real GitHub (rulings Q62 A, Q64 A). `gov` on a machine that has never run it answers the first-run
+interview in a pty (`fresh-adoption.conv`), setup makes the practice project, the practice task is scripted as the
+agent would do it, and the job waits for `approver-check` to fail on the pull request `gov close` opens. Phases and
+total go to the log and the run summary; over `E2E_BUDGET_SECS` (600) fails.
+
+It runs in its **own org**, kept unadopted: variable `FRESH_ADOPT_ORG` (`svayam-e2e-3`). The journey refuses to start
+if any repository there has `org-config.yaml` at HEAD, or any project is open, and names them; its teardown deletes
+the repository and every project made since it began. One run at a time across all branches.
+
+One-time setup (the framework repo's settings):
+
+1. Variable **`FRESH_ADOPT_ORG`** = `svayam-e2e-3`.
+2. Secret **`FRESH_ADOPT_PAT`** — a classic token of an **owner** of that org: `repo`, `workflow`, `project`,
+   `read:org`, `delete_repo`. `admin:org` is not needed (soft posture protects nothing).
+3. A self-hosted runner on the org carrying the label `svayam-e2e-3` (variable `FRESH_ADOPT_RUNS_ON` overrides
+   `[self-hosted, svayam-e2e-3]`), with `git` and `gh` (plus the base system's `bash awk sed tr grep sort`, and `node`/`npm` for gov-checks) on its
+   service's PATH — the tools the approval check and gov-checks call; no `jq` since F153 A. A missing one fails the stop with exit 127; the journey names it
+   from the check's log.
+4. Once the first run is green: variable **`FRESH_ADOPT_REQUIRED`** = `true`. Until then a missing secret makes the
+   job `incomplete` (a warning, never green evidence) rather than failing PRs; from then on it fails a strict run.
+
+Details: `docs/testing-the-adopter-path.md`, "The fresh-adoption tier". The guard and the timing are tested in
+`test/e2e/fresh-adopt-gate.test.ts`; the conversation hermetically in `journey.d/34-fresh-adoption-conversation.sh`.

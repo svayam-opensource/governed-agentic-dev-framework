@@ -75,6 +75,10 @@ new_world() {
   # asserted in the OS tier, in a container with no DISPLAY, where the answer cannot drift.
   export DISPLAY=":0"
   unset SSH_CONNECTION SSH_TTY WAYLAND_DISPLAY
+  # THE NUMBERED FORM OF EVERY CHOICE, PINNED (F158, ruling Q12 A). In a real terminal gov's picker takes arrow keys;
+  # `CI` already turns that off, and a laptop does not set `CI` — so without this the same conversation would type
+  # numbers into an arrow menu on one machine and a prompt on the other. Scenario 33 unsets it and drives the arrows.
+  export GOV_PLAIN_PROMPTS=1
   : > "$GH_STUB_LOG"; : > "$AGENT_DOUBLE_LOG"
   mkdir -p "$WORLD/bin"
   cp "$HERE/stub/gh" "$WORLD/bin/gh"

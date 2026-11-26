@@ -5,7 +5,7 @@
  * is absent, and fill a value that is empty; nothing else.
  *
  * The defect these hold (adopter-e2e live tier, run 37550667671, 2026-10-07): `gov setup --non-interactive` re-rendered
- * the whole file from its answers, so an org's `models:` block — the approved model, `ci_allowed: true` — and every key
+ * the whole file from its answers, so an org's `models:` block — the approved model, `ci_allowed: true` (retired since Q68 A, but still the org's line) — and every key
  * gov does not know were dropped. The org's file goes through setup, `gov upgrade --apply` and `gov app setup`, and comes
  * out byte for byte as it went in, except a key setup owns whose answer differs.
  */
@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runSetup } from "../../src/setup/setup-run.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig } from "../../src/setup/setup.js";
-import { EMPTY_GOVERNANCE_VALUES, GOVERNANCE_PATH, parseGovernance, renderGovernance } from "../../src/config/governance.js";
+import { CI_ALLOWED_RETIRED_NOTE, EMPTY_GOVERNANCE_VALUES, GOVERNANCE_PATH, parseGovernance, renderGovernance } from "../../src/config/governance.js";
 import { doctor } from "../../src/maintain/doctor.js";
 import { splitOrgConfig } from "../../src/maintain/org-config-split.js";
 import { runUpgradeSync } from "../../src/maintain/upgrade-run.js";
@@ -86,7 +86,8 @@ describe("GOV-FRM-445 — the org's governance.yaml survives setup, upgrade and 
     const { code, files } = await setupOver(ORG_GOV);
     expect(code).to.equal(0);
     expect(files["/repo/policies/governance.yaml"]).to.equal(ORG_GOV);
-    expect(parseGovernance(files["/repo/policies/governance.yaml"]!).models.ciAllowed).to.equal(true);
+    // Q68 A: models.ci_allowed is retired — kept as the org wrote it (never stripped), and gov says it can go.
+    expect(parseGovernance(files["/repo/policies/governance.yaml"]!).notes).to.include(CI_ALLOWED_RETIRED_NOTE);
   });
 
   it("GOV-FRM-445 a setup answer that differs changes ONLY that key's line — by targeted edit, never a re-render", async () => {

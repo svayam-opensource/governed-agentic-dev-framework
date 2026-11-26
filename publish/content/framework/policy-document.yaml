@@ -1,0 +1,103 @@
+# THE FRAMEWORK'S PART OF THE POLICY DOCUMENT — its chapter titles, introductions and glossary.
+#
+# Written only by `gov upgrade`: replaced on every upgrade, never edited by an organization. The organization's own
+# title page, chapter introductions and glossary are in policies/policy-document.yaml, which gov never rewrites.
+#
+# The eight chapters are the seeded ones (F127 I3). `id` is the chapter number as text; a rule row's `chapter` (1 to 8)
+# places its clause in one.
+# Introductions and definitions are written for a non-technical reader: plain English, no file paths or commands.
+chapters:
+  - id: "1"
+    title: "Purpose, scope and authority"
+    intro: >-
+      This policy sets out how the organization builds, changes and runs its software with the help of AI agents
+      and people working together. It applies to every project, every person and every agent. Its rules come from
+      two places: the framework, whose rules every organization using it follows and cannot relax, and the
+      organization itself, which may add stricter rules of its own. Each rule has a level that says how strictly it
+      binds: Mandatory, Required or Recommended.
+  - id: "2"
+    title: "Roles and responsibilities"
+    intro: >-
+      Every rule has an owner, and every change to policy is approved by someone with the authority to approve it.
+      The Policy Owner is accountable for the policy as a whole; the Check Owner reviews the automated checks that
+      test whether the rules are followed. Where an area has no other named owner, the Policy Owner holds it.
+  - id: "3"
+    title: "Development"
+    intro: >-
+      These rules govern day-to-day work on a project: how agents start a session, where work is kept, how
+      changes are proposed and approved, and how knowledge is recorded so that it can be found and trusted.
+  - id: "4"
+    title: "Deployment and release"
+    intro: >-
+      These rules govern how new versions of the framework reach the organization, and how the instructions that
+      agents follow are built only from approved policy.
+  - id: "5"
+    title: "Operations and maintenance"
+    intro: >-
+      These rules govern how gov, the tool that applies this policy, sets itself up, keeps its records and reports
+      problems, including when the organization chooses to work without AI agents.
+  - id: "6"
+    title: "Security and access"
+    intro: >-
+      These rules govern who and what may act on the organization's work: which agents may run, who may change a
+      project, how the governance repository is protected, and how personal files and credentials are kept apart.
+  - id: "7"
+    title: "Evidence and audit"
+    intro: >-
+      These rules make sure that every change to policy leaves a complete record — what changed, who approved it,
+      and which version was in force before — so that the organization can show how it was governed at any time.
+  - id: "8"
+    title: "Exceptions and waivers"
+    intro: >-
+      A Required rule may be set aside only by a written exception, approved by the authorized representative for
+      its area before the work begins, and only until it expires. A Mandatory rule, and any framework rule, can
+      never be set aside. A Recommended rule may be departed from, provided the reason is recorded.
+
+# Terms the framework's clauses use, each with a definition a non-technical reader can follow.
+glossary:
+  - term: "Agent"
+    definition: "An AI assistant that does work on a project, such as writing code or documentation, under these rules and under a person's direction."
+  - term: "Approver check"
+    definition: "An automated check that confirms a change was approved by someone with the authority to approve it."
+  - term: "Authorized representative"
+    definition: "The person the organization names to approve exceptions and changes for one area of its policy."
+  - term: "Branch"
+    definition: "A separate line of work in a repository, where changes are prepared before they are approved and combined."
+  - term: "Change log"
+    definition: "The running record of every change to the organization's policy: its version, what changed, and who approved it."
+  - term: "Check Owner"
+    definition: "The person who reviews the automated checks that test whether the rules are followed. Where the role is not filled, the Policy Owner holds it."
+  - term: "Exception"
+    definition: "A written, approved and time-limited permission to depart from a Required (C02) rule for a stated scope and reason."
+  - term: "Framework"
+    definition: "The shared set of rules and tools this policy is built on. Its rules apply to every organization that uses it and cannot be relaxed."
+  - term: "gov"
+    definition: "The tool that applies this policy: it sets up the organization, runs agents, checks the rules and keeps the records."
+  - term: "Governance repository"
+    definition: "The organization's controlled store for its policy, rules and shared knowledge. Changes to it need approval."
+  - term: "Hard governance"
+    definition: "A setting in which a change that breaks a rule is stopped before it can take effect."
+  - term: "Knowledge"
+    definition: "The organization's and each project's written record of decisions, practices and facts, which agents and people read before they work."
+  - term: "Mandatory (C01)"
+    definition: "The strictest level: the rule must always be followed, and no one can grant an exception to it."
+  - term: "Policy Owner"
+    definition: "The person accountable for this policy as a whole. They approve changes to it, and hold any role that no one else holds."
+  - term: "Policy version"
+    definition: "The number that identifies one edition of the organization's policy. It rises with every approved change."
+  - term: "Preferences"
+    definition: "A person's own settings for how an agent works with them, such as style. They can never override policy."
+  - term: "Project"
+    definition: "A defined piece of work with its own board, branches and knowledge. All changes are made as part of one."
+  - term: "Project board"
+    definition: "The shared list of a project's tasks and their progress. It is the only record of whether work is open or done."
+  - term: "Pull request"
+    definition: "A proposed change, set out for review, that takes effect only once someone with the authority to approve it accepts it."
+  - term: "Recommended (C03)"
+    definition: "The advisory level: the rule should be followed, and anyone who departs from it must record why."
+  - term: "Repository"
+    definition: "A controlled store of files, such as code or policy, that keeps the full history of every change."
+  - term: "Required (C02)"
+    definition: "The rule must be followed unless an approved exception allows otherwise."
+  - term: "Soft governance"
+    definition: "A setting in which a change that breaks a rule is recorded for the Policy Owner to review, rather than stopped. The default."

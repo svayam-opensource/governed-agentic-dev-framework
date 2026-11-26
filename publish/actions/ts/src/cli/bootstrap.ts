@@ -37,9 +37,10 @@ import * as path from "node:path";
 import { paint } from "./format.js";
 import { phase } from "../log.js";
 import { approvalSummary } from "./approve-agents-step.js";
-import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
+import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, InterviewStopped, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
+import type { PickerTerminal } from "./picker.js";
 import { olderFrameworkLines, type FrameworkCurrency, type PolicyOwnerFacts } from "../maintain/framework-currency.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -360,7 +361,7 @@ export interface FirstRunIo {
    */
   deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
   /**
-   * Can this environment record an approved-agent list? Gates whether Q12 is asked at all.
+   * Can this environment record an approved-agent list? Gates whether Q3 (the agents) is asked at all.
    *
    * IT WAS A WRITER, AND THE WRITE WAS ALREADY DONE. This used to be
    * `approveAgents(agents) => boolean`, called after `createWorkspace` returned, and a walk on
@@ -373,8 +374,17 @@ export interface FirstRunIo {
    * broken. There is only ever one writer now, and it is the one that can also commit.
    */
   recordsApprovals?: boolean;
-  /** Build the starter review project; returns the lines to print (#186). */
-  createStarterProject?: () => readonly string[];
+  /** The terminal the interview's picker may take for arrow keys (F158). Absent = numbered prompts. */
+  terminal?: PickerTerminal | null;
+  /** The organization's display name on GitHub, for the names the interview no longer asks (F158). */
+  orgDisplayName?: (org: string) => string | null;
+  /** May `gov_repo` be created in this organization? Null = yes; otherwise the refusal's lines (F158). */
+  checkRepoName?: (org: string, repo: string) => readonly string[] | null;
+  /**
+   * Build the practice project — "Make the policy ours" — and return the lines to print (F136; #186 before it).
+   * ADOPTER PATH ONLY, and asked nothing: a joiner's first project is one they are assigned to.
+   */
+  createStarterProject?: () => readonly string[] | Promise<readonly string[]>;
   /**
    * The whole checklist, ticked, at the true end of the run (#186).
    *
@@ -416,6 +426,13 @@ export interface FirstRunIo {
   policyOwner?: (home: string) => PolicyOwnerFacts;
   /** Open the upgrade pull request for the repository at `home` — `gov upgrade --pr` there. Offered to its Policy Owner only. */
   openUpgradePr?: (home: string) => Promise<number> | number;
+  /**
+   * THE GOVERNANCE REPOSITORY IS IN PLACE (#391): created on adopt, cloned and registered on join. The caller brings
+   * the set-up breadcrumb up to date here — finishing the workspace folders and, with every required step done,
+   * sending gov web's one-time set-up code — BEFORE the closing offer, which may hand the terminal to an agent for
+   * as long as a session lasts. Never fails the run: whatever it has to say, it says itself.
+   */
+  setupMilestone?: () => Promise<void>;
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -499,6 +516,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
       myOrgs: io.listMyOrgs?.bind(io),
       selectAgents: io.recordsApprovals === true,
+      ...(io.terminal ? { terminal: io.terminal } : {}),
+      ...(io.orgDisplayName ? { orgDisplayName: io.orgDisplayName.bind(io) } : {}),
+      ...(io.checkRepoName ? { checkRepoName: io.checkRepoName.bind(io) } : {}),
       ...(io.color === undefined ? {} : { color: io.color }),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
@@ -516,7 +536,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
     if (e instanceof InterviewRefused) {
       io.print("");
       io.print(`gov: ${e.message}`);
-      io.print("Nothing was created. Re-run `gov` when you can answer interactively.");
+      io.print(e instanceof InterviewStopped ? "Nothing was created." : "Nothing was created. Re-run `gov` when you can answer interactively.");
       return 1;
     }
     throw e;
@@ -538,7 +558,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target, { ...result.answers, ...(result.agents ? { agents: result.agents } : {}) });
   if (code !== 0) return code;
 
-  // WRITE DOWN WHAT Q12 DECIDED (#196).
+  // WRITE DOWN WHAT Q3 DECIDED (#196).
   //
   // The QUESTION moved into the interview, where every other answer is collected; only the
   // recording is left here, because the file it writes to did not exist until the clone above.
@@ -547,7 +567,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   //
   // The fallback that #196 removed stays removed: an approved list is produced during adoption,
   // so "nobody has decided" still never persists past setup.
-  // READ BACK WHAT Q12 DECIDED. The recording happened inside `createWorkspace`, which is the
+  // READ BACK WHAT Q3 DECIDED. The recording happened inside `createWorkspace`, which is the
   // only place that is both after the content seed and before the commit — so if it had failed,
   // it would already have said so loudly on stderr, naming the file and the recovery command.
   // This is the summary, not a second attempt at the write.
@@ -559,19 +579,14 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
     for (const line of approvalSummary(result.agents)) io.print(line);
   }
 
-  // THE FIRST GOVERNED THING, MADE FOR THEM (#186).
-  //
-  // The asking happens INSIDE createStarterProject, not here. `createWorkspace`
-  // hands the terminal to `gov setup`, which opens and closes its own readline —
-  // so a prompt from this function afterwards died with ERR_USE_AFTER_CLOSE, on
-  // the last question of an otherwise complete adoption. Whoever holds the
-  // terminal at the moment does the asking; by now, that is no longer this
-  // function.
-  for (const line of io.createStarterProject?.() ?? []) io.print(line);
+  // THE FIRST GOVERNED THING, MADE FOR THEM (#186) — and since F136 (Q27 B) made without asking: the practice
+  // project "Make the policy ours", with its anchor, task issue and project branch. Nothing here reads the terminal.
+  for (const line of (await io.createStarterProject?.()) ?? []) io.print(line);
 
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
+  await io.setupMilestone?.();
   // "…with gov and your agent" is a promise, and for an org that chose `none` it is a promise gov
   // cannot keep. The answer is known right here, so it travels rather than being re-derived.
   return await offerTheReview(io, "adopter", undefined, result.agents?.length === 0);
@@ -613,7 +628,7 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string
   if (yes.startsWith("n")) {
     io.print("");
     io.print(role === "adopter"
-      ? "  Nothing else to do here. When you are ready:  gov   → 1. Work → the review project."
+      ? "  Nothing else to do here. When you are ready:  gov   → 1. Work → the practice project."
       : "  Nothing else to do here. When you are ready:  gov   → 1. Work → your project.");
     return 0;
   }
@@ -784,6 +799,7 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     const r = io.register(identity.org, home);
     if (!r.ok) { io.print(r.message ?? `could not register ${identity.org}.`); return 1; }
     io.print(`Registered ${identity.org} → ${home}`);
+    await io.setupMilestone?.();
     // A joiner needs the opposite of an adopter's instructions: not "settle this",
     // but "this is already settled, and here is where to read it". Which of the two
     // gets printed follows what actually happened above, not what was answered at

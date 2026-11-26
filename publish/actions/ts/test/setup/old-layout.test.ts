@@ -41,7 +41,7 @@ function oldLayoutRepo(): { ws: string; home: string } {
 /** The walk's answers, by question. Anything not named takes its default. */
 const ANSWERS: Array<[RegExp, string]> = [
   [/Policy Owner GitHub handle/, "@alice"],
-  [/Check Owner GitHub handle/, "@bob"],
+  [/approve your own changes/, "@bob"],          // Q44 A: the second person, named Check Owner
   [/contact email/i, "alice@geneva.test"],
   [/still want the governance posture/, "y"],          // the hard-posture confirmation — before the posture question
   [/governance posture/, "2"],
