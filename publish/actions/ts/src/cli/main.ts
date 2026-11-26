@@ -132,6 +132,7 @@ import { bashStdin, fetchVerifyRun, httpsFetch, scriptStepLine } from "./vendor-
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
 import { firstPush, REMOTE_MOVED_HINT } from "../setup/first-push.js";
+import { cloneGovRepo, cloneFailedLines } from "../setup/clone-gov-repo.js";
 import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext, type CommandResult } from "./dispatch.js";
@@ -837,11 +838,15 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     }
     fsSync.mkdirSync(path.dirname(govRepo), { recursive: true });
     process.stdout.write(`  cloning to ${govRepo}…\n`);
-    if (tryRun("gh", ["repo", "clone", full, govRepo]) === undefined) {
-      // The repo EXISTS now and cannot be deleted back. Say so plainly and name the resume path, rather
-      // than leaving the adopter to work out that re-running is safe.
-      process.stderr.write(`gov setup: ${full} was created but could not be cloned.\n`);
-      process.stderr.write(`  it still exists — re-run 'gov setup ${full}' to resume, or clone it yourself.\n`);
+    // F160: gh's reason is shown and the clone is tried once more — a dropped connection was the cause the
+    // adopter could not see. The repo EXISTS now and cannot be deleted back, so the resume path is named too.
+    const cloned = cloneGovRepo({
+      runClone: (repo, dest) => runResult("gh", ["repo", "clone", repo, dest], { pgm: "gov-work:cli:main", fn: "setupClone", meta: { repo } }),
+      rmDir: (dir) => fsSync.rmSync(dir, { recursive: true, force: true }),
+      note: (line) => process.stdout.write(`${line}\n`),
+    }, full, govRepo);
+    if (cloned.kind === "failed") {
+      for (const line of cloneFailedLines(full, cloned.reason)) process.stderr.write(`${line}\n`);
       return 1;
     }
     return { home: govRepo, slug };
